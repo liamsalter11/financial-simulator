@@ -1,3 +1,4 @@
+function _extends() { return _extends = Object.assign ? Object.assign.bind() : function (n) { for (var e = 1; e < arguments.length; e++) { var t = arguments[e]; for (var r in t) ({}).hasOwnProperty.call(t, r) && (n[r] = t[r]); } return n; }, _extends.apply(null, arguments); }
 const {
   useState,
   useEffect,
@@ -1636,7 +1637,7 @@ const EndDate = ({
   value: value || "",
   onChange: e => onChange(e.target.value),
   "aria-label": "Ends (optional)",
-  title: "Optional — leave blank to run forever"
+  title: "Optional \u2014 leave blank to run forever"
 }), value ? React.createElement("button", {
   className: "icon-btn",
   onClick: () => onChange(""),
@@ -2454,7 +2455,7 @@ function FinancialSimulator() {
     className: "wrap"
   }, React.createElement("div", {
     className: "eyebrow"
-  }, "loading…"))));
+  }, "loading\u2026"))));
   const TABS = [{
     id: "overview",
     label: "Overview",
@@ -2498,7 +2499,7 @@ function FinancialSimulator() {
   };
   const ZHINT = React.createElement("div", {
     className: "zhint"
-  }, "scroll or pinch to zoom · drag to pan");
+  }, "scroll or pinch to zoom \xB7 drag to pan");
   const axisProps = sc => ({
     dataKey: "w",
     type: "number",
@@ -2540,7 +2541,7 @@ function FinancialSimulator() {
     }
   }, fmtMoney(D.netWorth)), React.createElement("div", {
     className: "nwsub"
-  }, "assets ", React.createElement("b", null, fmtBig(D.totalAssets)), " · debts ", React.createElement("b", null, fmtBig(D.totalDebt)), " · surplus ", React.createElement("b", null, fmtMoney(D.surplus)), "/mo")), React.createElement("div", {
+  }, "assets ", React.createElement("b", null, fmtBig(D.totalAssets)), " \xB7 debts ", React.createElement("b", null, fmtBig(D.totalDebt)), " \xB7 surplus ", React.createElement("b", null, fmtMoney(D.surplus)), "/mo")), React.createElement("div", {
     className: "toolbar"
   }, React.createElement("button", {
     className: "tbtn" + (showHelp ? " on" : ""),
@@ -2594,7 +2595,7 @@ function FinancialSimulator() {
         verticalAlign: -2,
         marginRight: 6
       }
-    }), "How to use · ", h.title), React.createElement("button", {
+    }), "How to use \xB7 ", h.title), React.createElement("button", {
       className: "icon-btn",
       onClick: () => setShowHelp(false),
       "aria-label": "Close help"
@@ -2615,10 +2616,10 @@ function FinancialSimulator() {
   }, React.createElement(Zap, {
     size: 14,
     color: "var(--amber)"
-  }), "Everything is an editable example — replace with your real numbers. It all saves automatically.", React.createElement("button", {
+  }), "Everything is an editable example \u2014 replace with your real numbers. It all saves automatically.", React.createElement("button", {
     onClick: dismissNote,
     "aria-label": "Dismiss"
-  }, "×")), toast && React.createElement("div", {
+  }, "\xD7")), toast && React.createElement("div", {
     className: "toast" + (toast.isErr ? " err" : "")
   }, toast.isErr ? React.createElement(AlertTriangle, {
     size: 14,
@@ -2631,7 +2632,7 @@ function FinancialSimulator() {
     onClose: () => setModal(null)
   }, React.createElement("div", {
     className: "mnote"
-  }, "Your work saves automatically between sessions. This gives you a portable file you own — a backup, or to move to another device, then load with Import."), React.createElement("textarea", {
+  }, "Your work saves automatically between sessions. This gives you a portable file you own \u2014 a backup, or to move to another device, then load with Import."), React.createElement("textarea", {
     className: "jsonbox",
     readOnly: true,
     value: importText,
@@ -2665,7 +2666,7 @@ function FinancialSimulator() {
     style: {
       marginTop: 12
     }
-  }, "…or paste the JSON here:"), React.createElement("textarea", {
+  }, "\u2026or paste the JSON here:"), React.createElement("textarea", {
     className: "jsonbox",
     value: importText,
     onChange: e => setImportText(e.target.value),
@@ -2698,7 +2699,7 @@ function FinancialSimulator() {
     v: D.totalDebt > 0 ? D.sim.debtFree != null ? fmtDate(w2date(D.sim.debtFree)) : "40y+" : "Clear",
     accent: "amber"
   }), React.createElement(Stat, {
-    k: "Financial indep.<br/>(25× expenses)",
+    k: "Financial indep.<br/>(25\xD7 expenses)",
     v: D.sim.fire != null ? fmtDate(w2date(D.sim.fire)) : "40y+",
     accent: "green"
   })), D.surplus < 0 && React.createElement("div", {
@@ -2733,11 +2734,10 @@ function FinancialSimulator() {
     className: "phead"
   }, React.createElement("div", {
     className: "ptitle"
-  }, "Net worth projection"), ranges(scNW, maxW)), React.createElement("div", {
+  }, "Net worth projection"), ranges(scNW, maxW)), React.createElement("div", _extends({
     className: "scope-wrap",
-    ref: scNW.ref,
-    ...scNW.handlers
-  }, React.createElement(ResponsiveContainer, {
+    ref: scNW.ref
+  }, scNW.handlers), React.createElement(ResponsiveContainer, {
     width: "100%",
     height: 286
   }, React.createElement(ComposedChart, {
@@ -2771,8 +2771,7 @@ function FinancialSimulator() {
     stroke: "var(--line)",
     strokeDasharray: "2 4"
   }), React.createElement(XAxis, axisProps(scNW)), React.createElement(YAxis, yProps), React.createElement(Tooltip, {
-    content: p => React.createElement(Tip, {
-      ...p,
+    content: p => React.createElement(Tip, _extends({}, p, {
       start: start,
       rows: [{
         key: "nw",
@@ -2787,7 +2786,7 @@ function FinancialSimulator() {
         name: "Debt",
         color: "var(--red)"
       }]
-    }),
+    })),
     cursor: {
       stroke: "var(--line2)"
     }
@@ -2843,17 +2842,16 @@ function FinancialSimulator() {
     isAnimationActive: false
   })))), ZHINT, React.createElement("div", {
     className: "assume"
-  }, "Today's dollars · returns and rates held constant · a projection, not a guarantee or financial advice.")), React.createElement("div", {
+  }, "Today's dollars \xB7 returns and rates held constant \xB7 a projection, not a guarantee or financial advice.")), React.createElement("div", {
     className: "panel rise"
   }, React.createElement("div", {
     className: "phead"
   }, React.createElement("div", {
     className: "ptitle"
-  }, "Every account & debt over time"), ranges(scBal, maxW)), React.createElement("div", {
+  }, "Every account & debt over time"), ranges(scBal, maxW)), React.createElement("div", _extends({
     className: "scope-wrap",
-    ref: scBal.ref,
-    ...scBal.handlers
-  }, React.createElement(ResponsiveContainer, {
+    ref: scBal.ref
+  }, scBal.handlers), React.createElement(ResponsiveContainer, {
     width: "100%",
     height: 300
   }, React.createElement(ComposedChart, {
@@ -2873,11 +2871,10 @@ function FinancialSimulator() {
     stroke: "var(--line)",
     strokeDasharray: "2 4"
   }), React.createElement(XAxis, axisProps(scBal)), React.createElement(YAxis, yProps), React.createElement(Tooltip, {
-    content: p => React.createElement(MultiTip, {
-      ...p,
+    content: p => React.createElement(MultiTip, _extends({}, p, {
       start: start,
       names: D.names
-    }),
+    })),
     cursor: {
       stroke: "var(--line2)"
     }
@@ -3036,7 +3033,7 @@ function FinancialSimulator() {
       "aria-label": "Sweep destination"
     }, React.createElement("option", {
       value: ""
-    }, "— nowhere (just piles up) —"), D.loans.length > 0 && React.createElement("optgroup", {
+    }, "\u2014 nowhere (just piles up) \u2014"), D.loans.length > 0 && React.createElement("optgroup", {
       label: "Loans"
     }, D.loans.map(l => React.createElement("option", {
       key: l.id,
@@ -3067,7 +3064,7 @@ function FinancialSimulator() {
       className: "caphint"
     }, "Pick a destination or the cap does nothing.") : React.createElement("div", {
       className: "caphint"
-    }, "Leave blank for no cap. Set one to stop cash idling here — the excess gets swept somewhere it earns or saves you more.")));
+    }, "Leave blank for no cap. Set one to stop cash idling here \u2014 the excess gets swept somewhere it earns or saves you more.")));
   }), React.createElement("button", {
     className: "btn btn-add",
     onClick: addAcct
@@ -3075,7 +3072,7 @@ function FinancialSimulator() {
     size: 15
   }), "Add an account"), React.createElement("div", {
     className: "assume"
-  }, "Debts are accounts too — they live in the Debt tab. All money movement between them is set up in Cash flow.", D.capped.length > 0 && D.avgSweep > 0 && React.createElement(React.Fragment, null, " Your caps are moving about ", React.createElement("b", {
+  }, "Debts are accounts too \u2014 they live in the Debt tab. All money movement between them is set up in Cash flow.", D.capped.length > 0 && D.avgSweep > 0 && React.createElement(React.Fragment, null, " Your caps are moving about ", React.createElement("b", {
     style: {
       color: "var(--amber)"
     }
@@ -3138,11 +3135,10 @@ function FinancialSimulator() {
       className: "phead"
     }, React.createElement("div", {
       className: "ptitle"
-    }, "Cash flow, week by week"), ranges(scCF, Math.min(maxW, 312))), React.createElement("div", {
+    }, "Cash flow, week by week"), ranges(scCF, Math.min(maxW, 312))), React.createElement("div", _extends({
       className: "scope-wrap",
-      ref: scCF.ref,
-      ...scCF.handlers
-    }, React.createElement(ResponsiveContainer, {
+      ref: scCF.ref
+    }, scCF.handlers), React.createElement(ResponsiveContainer, {
       width: "100%",
       height: 272
     }, React.createElement(ComposedChart, {
@@ -3157,8 +3153,7 @@ function FinancialSimulator() {
       stroke: "var(--line)",
       strokeDasharray: "2 4"
     }), React.createElement(XAxis, axisProps(scCF)), React.createElement(YAxis, yProps), React.createElement(Tooltip, {
-      content: p => React.createElement(Tip, {
-        ...p,
+      content: p => React.createElement(Tip, _extends({}, p, {
         start: start,
         rows: [{
           key: "income",
@@ -3177,7 +3172,7 @@ function FinancialSimulator() {
           name: "Monthly avg",
           color: "var(--amber)"
         }]
-      }),
+      })),
       cursor: {
         fill: "rgba(126,148,171,0.06)"
       }
@@ -3248,7 +3243,7 @@ function FinancialSimulator() {
       }
     }), "Monthly average")), React.createElement("div", {
       className: "assume"
-    }, "The amber line smooths the weekly spikes into a rolling monthly average — the trend underneath the paycheck-and-rent sawtooth.")), React.createElement("div", {
+    }, "The amber line smooths the weekly spikes into a rolling monthly average \u2014 the trend underneath the paycheck-and-rent sawtooth.")), React.createElement("div", {
       className: "panel rise"
     }, React.createElement("div", {
       className: "phead"
@@ -3281,7 +3276,7 @@ function FinancialSimulator() {
       style: {
         color: "var(--red)"
       }
-    }, "Debt payments + investing exceed your surplus by ", fmtMoney(-D.leftover), "/mo — cash will draw down over time.")), React.createElement("div", {
+    }, "Debt payments + investing exceed your surplus by ", fmtMoney(-D.leftover), "/mo \u2014 cash will draw down over time.")), React.createElement("div", {
       className: "panel rise"
     }, React.createElement("div", {
       className: "phead"
@@ -3318,7 +3313,7 @@ function FinancialSimulator() {
       className: "ptitle"
     }, "Income"), React.createElement("div", {
       className: "psub"
-    }, "dated · split across accounts")), income.map(inc => {
+    }, "dated \xB7 split across accounts")), income.map(inc => {
       const amt = n0(inc.amount);
       const dist = inc.dist || [];
       let used = 0;
@@ -3508,7 +3503,7 @@ function FinancialSimulator() {
             marginTop: -2,
             marginBottom: 8
           }
-        }, fmtMoney(pay.gross * perYear), "/yr gross = ", fmtMoney(pay.gross), " per paycheck across ", Math.round(perYear), " paychecks · take-home ", fmtMoney(n0(inc.amount) * perYear), "/yr", withheld > 0 ? ` · implies ${fmtMoney(withheld)}/paycheck withheld for tax and benefits (${effRate.toFixed(0)}%)` : "", withheld < 0 ? " · take-home plus deductions exceeds gross — one of these numbers is off" : ""), pay.rows.map(pt => React.createElement("div", {
+        }, fmtMoney(pay.gross * perYear), "/yr gross = ", fmtMoney(pay.gross), " per paycheck across ", Math.round(perYear), " paychecks \xB7 take-home ", fmtMoney(n0(inc.amount) * perYear), "/yr", withheld > 0 ? ` · implies ${fmtMoney(withheld)}/paycheck withheld for tax and benefits (${effRate.toFixed(0)}%)` : "", withheld < 0 ? " · take-home plus deductions exceeds gross — one of these numbers is off" : ""), pay.rows.map(pt => React.createElement("div", {
           className: "dist-row",
           key: pt.id
         }, React.createElement("input", {
@@ -3715,7 +3710,7 @@ function FinancialSimulator() {
             }
           }, fmtMoney(b.net)), " lands in your account"), React.createElement("div", {
             className: "caphint"
-          }, "Grows with your raise, since it's a share of salary. Bonuses are usually withheld at a flat supplemental rate plus payroll tax rather than your normal rate — check a past stub and adjust. It arrives through the same account split as your paycheck, so a cap on that account will sweep the excess onward."));
+          }, "Grows with your raise, since it's a share of salary. Bonuses are usually withheld at a flat supplemental rate plus payroll tax rather than your normal rate \u2014 check a past stub and adjust. It arrives through the same account split as your paycheck, so a cap on that account will sweep the excess onward."));
         })(), React.createElement("div", {
           className: "dist-lbl",
           style: {
@@ -3806,7 +3801,7 @@ function FinancialSimulator() {
             "aria-label": "New take-home"
           }))), annual > 0 && React.createElement("div", {
             className: "caphint" + (odd ? " warn-txt" : "")
-          }, fmtMoney(annual), "/yr gross → ", fmtMoney(gpc), "/check · take-home ", fmtMoney(n0(ch.amount)), "/check (", fmtMoney(takeHome), "/yr) · implies ", rate.toFixed(1), "% withheld", odd ? ` — your current rate is ${curRate.toFixed(1)}%, so double-check the take-home figure.` : ` vs ${curRate.toFixed(1)}% today, which tracks.`));
+          }, fmtMoney(annual), "/yr gross \u2192 ", fmtMoney(gpc), "/check \xB7 take-home ", fmtMoney(n0(ch.amount)), "/check (", fmtMoney(takeHome), "/yr) \xB7 implies ", rate.toFixed(1), "% withheld", odd ? ` — your current rate is ${curRate.toFixed(1)}%, so double-check the take-home figure.` : ` vs ${curRate.toFixed(1)}% today, which tracks.`));
         }), React.createElement("button", {
           className: "dist-add",
           onClick: () => addChange(inc.id)
@@ -3821,7 +3816,7 @@ function FinancialSimulator() {
       size: 15
     }), "Add income source"), React.createElement("div", {
       className: "assume"
-    }, "The top account is the remainder — it receives whatever the others don't take.")), React.createElement("div", {
+    }, "The top account is the remainder \u2014 it receives whatever the others don't take.")), React.createElement("div", {
       className: "panel rise"
     }, React.createElement("div", {
       className: "phead"
@@ -3829,7 +3824,7 @@ function FinancialSimulator() {
       className: "ptitle"
     }, "Expenses"), React.createElement("div", {
       className: "psub"
-    }, "dated · drawn from an account")), expenses.map(ex => React.createElement("div", {
+    }, "dated \xB7 drawn from an account")), expenses.map(ex => React.createElement("div", {
       className: "card",
       key: ex.id
     }, React.createElement("div", {
@@ -3943,11 +3938,11 @@ function FinancialSimulator() {
       }, React.createElement("span", null, fmtMoney(monthlyCharges), "/mo charged to it"), np ? React.createElement("span", null, "next payment ", np.date.toLocaleDateString("en-US", {
         month: "short",
         day: "numeric"
-      }), " · ", React.createElement("b", null, fmtMoney(np.amount)), np.full ? " (in full)" : "") : React.createElement("span", {
+      }), " \xB7 ", React.createElement("b", null, fmtMoney(np.amount)), np.full ? " (in full)" : "") : React.createElement("span", {
         style: {
           color: "var(--red)"
         }
-      }, "no payment set — this balance will just grow")));
+      }, "no payment set \u2014 this balance will just grow")));
     }), React.createElement("button", {
       className: "btn btn-add",
       onClick: addCardWithPayment
@@ -3955,7 +3950,7 @@ function FinancialSimulator() {
       size: 15
     }), "Add a credit card"), React.createElement("div", {
       className: "assume"
-    }, "Interest only applies to a balance you carry past a payment — pay in full and the card costs nothing. Charges show up in \"Spending by category\" above, so itemising a card gets your whole picture in one place.")), React.createElement("div", {
+    }, "Interest only applies to a balance you carry past a payment \u2014 pay in full and the card costs nothing. Charges show up in \"Spending by category\" above, so itemising a card gets your whole picture in one place.")), React.createElement("div", {
       className: "panel rise"
     }, React.createElement("div", {
       className: "phead"
@@ -4202,7 +4197,7 @@ function FinancialSimulator() {
         color: "var(--green)",
         fontSize: 14
       }
-    }, "No active debt — nicely done.", React.createElement("br", null), "Add a loan below to model one.")), !covers && !noDebt && React.createElement("div", {
+    }, "No active debt \u2014 nicely done.", React.createElement("br", null), "Add a loan below to model one.")), !covers && !noDebt && React.createElement("div", {
       className: "warn rise"
     }, React.createElement(AlertTriangle, {
       size: 18,
@@ -4221,11 +4216,10 @@ function FinancialSimulator() {
       className: "phead"
     }, React.createElement("div", {
       className: "ptitle"
-    }, "Balance decay"), ranges(scDebt, maxW)), React.createElement("div", {
+    }, "Balance decay"), ranges(scDebt, maxW)), React.createElement("div", _extends({
       className: "scope-wrap",
-      ref: scDebt.ref,
-      ...scDebt.handlers
-    }, React.createElement(ResponsiveContainer, {
+      ref: scDebt.ref
+    }, scDebt.handlers), React.createElement(ResponsiveContainer, {
       width: "100%",
       height: 278
     }, React.createElement(ComposedChart, {
@@ -4254,8 +4248,7 @@ function FinancialSimulator() {
       stroke: "var(--line)",
       strokeDasharray: "2 4"
     }), React.createElement(XAxis, axisProps(scDebt)), React.createElement(YAxis, yProps), React.createElement(Tooltip, {
-      content: p => React.createElement(Tip, {
-        ...p,
+      content: p => React.createElement(Tip, _extends({}, p, {
         start: start,
         rows: [{
           key: "plan",
@@ -4266,7 +4259,7 @@ function FinancialSimulator() {
           name: "Minimums only",
           color: "var(--cyan)"
         }]
-      }),
+      })),
       cursor: {
         stroke: "var(--line2)"
       }
@@ -4325,13 +4318,13 @@ function FinancialSimulator() {
       }
     }), "Minimums only")), React.createElement("div", {
       className: "assume"
-    }, "The amber line is driven by the payments you've set in Cash flow, extrapolated forward — ", fmtMoney(D.mDp), "/mo across ", debtPayments.length, " payment", debtPayments.length === 1 ? "" : "s", ". Change them there and this moves.")), React.createElement("div", {
+    }, "The amber line is driven by the payments you've set in Cash flow, extrapolated forward \u2014 ", fmtMoney(D.mDp), "/mo across ", debtPayments.length, " payment", debtPayments.length === 1 ? "" : "s", ". Change them there and this moves.")), React.createElement("div", {
       className: "panel rise"
     }, React.createElement("div", {
       className: "phead"
     }, React.createElement("div", {
       className: "ptitle"
-    }, "Loans · payoff order"), React.createElement("div", {
+    }, "Loans \xB7 payoff order"), React.createElement("div", {
       className: "psub"
     }, "highest rate first")), D.loans.map(l => React.createElement(LoanCard, {
       key: l.id,
@@ -4350,7 +4343,7 @@ function FinancialSimulator() {
       size: 15
     }), "Add a loan"), React.createElement("div", {
       className: "assume"
-    }, "Minimum payment here is only used to draw the \"minimums only\" comparison line. What you actually pay is set in Cash flow.", D.cards.length > 0 ? " Credit cards are managed in Cash flow — they still count against your net worth." : "", " For a loan in deferment, set \"interest starts\" to when it kicks in — subsidised loans don't accrue while you're enrolled, unsubsidised ones do, so leave those blank.")), !noDebt && React.createElement("div", {
+    }, "Minimum payment here is only used to draw the \"minimums only\" comparison line. What you actually pay is set in Cash flow.", D.cards.length > 0 ? " Credit cards are managed in Cash flow — they still count against your net worth." : "", " For a loan in deferment, set \"interest starts\" to when it kicks in \u2014 subsidised loans don't accrue while you're enrolled, unsubsidised ones do, so leave those blank.")), !noDebt && React.createElement("div", {
       className: "panel rise"
     }, React.createElement("div", {
       className: "phead"
@@ -4497,11 +4490,10 @@ function FinancialSimulator() {
       className: "phead"
     }, React.createElement("div", {
       className: "ptitle"
-    }, "Portfolio growth"), ranges(scInv, maxW)), React.createElement("div", {
+    }, "Portfolio growth"), ranges(scInv, maxW)), React.createElement("div", _extends({
       className: "scope-wrap",
-      ref: scInv.ref,
-      ...scInv.handlers
-    }, React.createElement(ResponsiveContainer, {
+      ref: scInv.ref
+    }, scInv.handlers), React.createElement(ResponsiveContainer, {
       width: "100%",
       height: 286
     }, React.createElement(ComposedChart, {
@@ -4534,8 +4526,7 @@ function FinancialSimulator() {
       stroke: "var(--line)",
       strokeDasharray: "2 4"
     }), React.createElement(XAxis, axisProps(scInv)), React.createElement(YAxis, yProps), React.createElement(Tooltip, {
-      content: p => React.createElement(Tip, {
-        ...p,
+      content: p => React.createElement(Tip, _extends({}, p, {
         start: start,
         rows: [{
           key: "value",
@@ -4546,7 +4537,7 @@ function FinancialSimulator() {
           name: "You put in",
           color: "var(--cyan)"
         }]
-      }),
+      })),
       cursor: {
         stroke: "var(--line2)"
       }
@@ -4584,7 +4575,7 @@ function FinancialSimulator() {
       isAnimationActive: false
     })))), ZHINT, React.createElement("div", {
       className: "assume"
-    }, "The green line is driven by the transfers and income splits you've set in Cash flow — ", fmtMoney(D.mTr), "/mo of transfers plus any share of your paycheck routed straight into an investment account. The gap above the dashed line is compound growth.")), React.createElement("div", {
+    }, "The green line is driven by the transfers and income splits you've set in Cash flow \u2014 ", fmtMoney(D.mTr), "/mo of transfers plus any share of your paycheck routed straight into an investment account. The gap above the dashed line is compound growth.")), React.createElement("div", {
       className: "panel rise"
     }, React.createElement("div", {
       className: "phead"
@@ -4607,7 +4598,7 @@ function FinancialSimulator() {
       readOnly: true
     })), React.createElement("div", {
       className: "assume"
-    }, "Based on ", fmtMoney(D.sim.annualExp / 12), "/mo of long-run living expenses — ", fmtBig(D.sim.annualExp), " a year. Only expenses count here, not transfers or debt payments.", D.sim.endingSoon.length > 0 && React.createElement(React.Fragment, null, " Excluded because they end before then: ", D.sim.endingSoon.map(e => e.category).join(", "), " — worth ", fmtBig((D.sim.annualExpNow - D.sim.annualExp) * (100 / (n0(settings.withdrawalRate) || 4))), " off the target.")), React.createElement("label", {
+    }, "Based on ", fmtMoney(D.sim.annualExp / 12), "/mo of long-run living expenses \u2014 ", fmtBig(D.sim.annualExp), " a year. Only expenses count here, not transfers or debt payments.", D.sim.endingSoon.length > 0 && React.createElement(React.Fragment, null, " Excluded because they end before then: ", D.sim.endingSoon.map(e => e.category).join(", "), " \u2014 worth ", fmtBig((D.sim.annualExpNow - D.sim.annualExp) * (100 / (n0(settings.withdrawalRate) || 4))), " off the target.")), React.createElement("label", {
       className: "switch"
     }, React.createElement("input", {
       type: "checkbox",
@@ -4641,19 +4632,19 @@ function FinancialSimulator() {
       value: a.id
     }, a.name)))), React.createElement("div", {
       className: "caphint"
-    }, "This catches both: freed-up loan payments after payoff, and anything a capped account sweeps once its target loan is gone. Until then a sweep aimed at a loan pays that loan, then rolls to your highest-rate remaining loan — only after every loan is clear does it land here."))), React.createElement("div", {
+    }, "This catches both: freed-up loan payments after payoff, and anything a capped account sweeps once its target loan is gone. Until then a sweep aimed at a loan pays that loan, then rolls to your highest-rate remaining loan \u2014 only after every loan is clear does it land here."))), React.createElement("div", {
       className: "panel rise"
     }, React.createElement("div", {
       className: "phead"
     }, React.createElement("div", {
       className: "ptitle"
-    }, "Illiquid equity — options, RSUs, private stock")), React.createElement("div", {
+    }, "Illiquid equity \u2014 options, RSUs, private stock")), React.createElement("div", {
       className: "assume",
       style: {
         fontSize: 11.5,
         marginTop: 0
       }
-    }, "There's deliberately no field for this, because any number you'd enter would be wrong in a way that flatters the projection. Private-company options aren't an asset that compounds at 7% — they're a claim that pays either nothing or a lot, on a date nobody controls, and this tool has no way to express that.", React.createElement("br", null), React.createElement("br", null), "What is real and worth modelling: the ", React.createElement("b", null, "cash you spend exercising"), ". That's a dated outflow from a real account — put it in Cash flow as a one-time expense on the date you plan to exercise, and the tax bill the following April as another. Both hit your runway whether or not the equity is ever worth anything.", React.createElement("br", null), React.createElement("br", null), "If you want the shares on the balance sheet anyway, add an account of type \"Other asset\" at ", React.createElement("b", null, "0% return"), ", holding only what you actually paid in strike price. That's the one defensible number — it's cost, not a valuation. Leaving it out entirely is the more conservative read, and keeps your FI date honest: reaching independence on salary alone, with the equity as pure upside rather than load-bearing.")));
+    }, "There's deliberately no field for this, because any number you'd enter would be wrong in a way that flatters the projection. Private-company options aren't an asset that compounds at 7% \u2014 they're a claim that pays either nothing or a lot, on a date nobody controls, and this tool has no way to express that.", React.createElement("br", null), React.createElement("br", null), "What is real and worth modelling: the ", React.createElement("b", null, "cash you spend exercising"), ". That's a dated outflow from a real account \u2014 put it in Cash flow as a one-time expense on the date you plan to exercise, and the tax bill the following April as another. Both hit your runway whether or not the equity is ever worth anything.", React.createElement("br", null), React.createElement("br", null), "If you want the shares on the balance sheet anyway, add an account of type \"Other asset\" at ", React.createElement("b", null, "0% return"), ", holding only what you actually paid in strike price. That's the one defensible number \u2014 it's cost, not a valuation. Leaving it out entirely is the more conservative read, and keeps your FI date honest: reaching independence on salary alone, with the equity as pure upside rather than load-bearing.")));
   })())));
 }
 const rootEl = document.getElementById("root");

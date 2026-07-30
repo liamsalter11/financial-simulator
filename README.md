@@ -15,26 +15,24 @@ financial-independence date.
 | `app.jsx` | **The source you edit.** React components and the simulation engine. |
 | `app.js` | Compiled output of `app.jsx`. This is what the browser runs — do not edit by hand. |
 | `vendor/` | Pinned copies of React, ReactDOM, PropTypes and Recharts. |
+| `tests/` | Sync, engine, and end-to-end tests — see [Tests](#tests) below. |
+| `package.json`, `build.mjs` | Dev tooling only (rebuilding `app.js`, running tests). Not shipped to the browser. |
 
 ## Editing
 
-`app.jsx` is the source of truth. After changing it, recompile to `app.js`:
+`app.jsx` is the source of truth. After changing it, install the dev
+dependencies once and recompile to `app.js`:
 
 ```bash
-npx --yes -p @babel/core@7 -p @babel/preset-react@7 node -e "
-const babel = require('@babel/core'), fs = require('fs');
-const out = babel.transformSync(fs.readFileSync('app.jsx','utf8'), {
-  presets: [['@babel/preset-react', { runtime: 'classic' }]],
-  filename: 'app.jsx', comments: false,
-});
-fs.writeFileSync('app.js', out.code);
-"
+npm install
+npm run build
 ```
 
 The `classic` runtime matters: it compiles JSX to `React.createElement` calls,
 which the global `React` from `vendor/` provides. The default `automatic`
 runtime emits `import` statements instead, which won't run from a plain
-`<script>` tag.
+`<script>` tag. `npm test` (see below) fails if `app.js` is ever out of sync
+with `app.jsx`, so a forgotten rebuild gets caught before it ships.
 
 To preview locally, serve the repository root and open
 `http://127.0.0.1:8000/financial-simulator/`:
@@ -45,6 +43,33 @@ python3 -m http.server 8000
 
 Opening `index.html` directly via `file://` will not work — the browser blocks
 the script loads.
+
+## Tests
+
+```bash
+npm install
+npm test              # sync + engine tests — fast, no browser
+npx playwright install --with-deps chromium   # once, before the first e2e run
+npm run test:e2e       # browser tests (loads the real page in Chromium)
+npm run test:all       # everything
+```
+
+- **`tests/sync.test.mjs`** — recompiles `app.jsx` and asserts the result is
+  byte-identical to the committed `app.js`, plus a `node --check` syntax
+  check. Catches "edited `app.jsx`, forgot to rebuild."
+- **`tests/engine.test.mjs`** — unit tests for the simulation engine
+  (`simulateWeekly`, `payrollOf`, `bonusOf`) against small, deterministic
+  scenarios, loaded directly out of `app.js` without a browser. Covers the
+  employer-match formula, bonus withholding, card-interest-only-on-a-carried-
+  balance, the highest-APR-first debt rollover, and a regression test for the
+  account-cap sweep respecting the "redirect into investing" setting.
+- **`tests/e2e.test.mjs`** — Playwright tests against the actual served page:
+  the front-page link, the help panel (closed by default, follows the active
+  tab), `localStorage` persistence across a reload, the one-time warning toast
+  when storage writes fail, and the redirect toggle.
+
+CI (`.github/workflows/financial-simulator-ci.yml`) runs all of this on every
+push or pull request that touches `financial-simulator/`.
 
 ## Design notes
 
