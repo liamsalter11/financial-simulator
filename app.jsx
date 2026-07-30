@@ -45,6 +45,8 @@ const Upload = (p) => (<IconBase {...p}><path d="M12 3v12" /><path d="m17 8-5-5-
 const Download = (p) => (<IconBase {...p}><path d="M12 15V3" /><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><path d="m7 10 5 5 5-5" /></IconBase>);
 const X = (p) => (<IconBase {...p}><path d="M18 6 6 18" /><path d="m6 6 12 12" /></IconBase>);
 const ArrowRight = (p) => (<IconBase {...p}><path d="M5 12h14" /><path d="m12 5 7 7-7 7" /></IconBase>);
+const HelpCircle = (p) => (<IconBase {...p}>
+  <circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><path d="M12 17h.01" /></IconBase>);
 
 /* ================================================================== */
 /*  Helpers                                                            */
@@ -738,6 +740,17 @@ const CSS = `
 .fin .warn{display:flex;gap:12px;align-items:flex-start;background:rgba(232,105,91,.08);border:1px solid rgba(232,105,91,.3);border-radius:12px;padding:14px 16px;margin-bottom:16px;}
 .fin .warn .wt{font-size:13px;font-weight:600;color:var(--red);margin-bottom:3px;}
 .fin .warn .wb{font-size:12.5px;color:var(--muted);line-height:1.5;}
+.fin .tbtn.on{color:var(--amber);border-color:rgba(245,166,35,.45);background:var(--amber-soft);}
+.fin .panel.help{border-color:rgba(245,166,35,.28);}
+.fin .help .phead{margin-bottom:10px;}
+.fin .help .ptitle{color:var(--amber);text-transform:none;letter-spacing:.02em;font-size:13px;}
+.fin .help-intro{font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:14px;}
+.fin .help-list{margin:0;display:grid;grid-template-columns:1fr;gap:11px;}
+@media(min-width:780px){.fin .help-list{grid-template-columns:1fr 1fr;gap:11px 18px;}}
+.fin .help-item{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:11px 13px;}
+.fin .help-item dt{font-size:12.5px;font-weight:600;color:var(--text);margin-bottom:4px;}
+.fin .help-item dd{margin:0;font-size:12.5px;color:var(--muted);line-height:1.6;}
+.fin .help-foot{font-family:var(--mono);font-size:10.5px;color:var(--faint);margin-top:12px;}
 .fin .notice{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:11.5px;color:var(--faint);margin-bottom:14px;background:var(--amber-soft);border:1px solid rgba(245,166,35,.22);border-radius:10px;padding:9px 12px;}
 .fin .notice button{margin-left:auto;background:none;border:none;color:var(--faint);cursor:pointer;font-size:15px;line-height:1;padding:2px 6px;}
 .fin .notice button:hover{color:var(--text);}
@@ -885,6 +898,69 @@ const MultiTip = ({ active, payload, label, start, names }) => {
 const WEEKS = 2080;
 
 /* ================================================================== */
+/*  Per-tab help                                                       */
+/* ================================================================== */
+const HELP = {
+  overview: {
+    title: "Overview",
+    intro: "A read-only summary. Nothing here is editable — every number is driven by what you enter on the other tabs.",
+    points: [
+      ["The four stat cards", "Net worth is assets minus debts today. Monthly surplus is income minus living costs, before debt payments and investing. The debt-free and independence dates come from the projection below."],
+      ["Net worth projection", "Simulates your accounts, debts, income and spending forward week by week for up to 40 years. Amber is net worth, green is investments, red is total debt."],
+      ["Reading the chart", "Scroll or pinch to zoom, drag to pan, or use the 1Y / 5Y / Max buttons. Hover any point for exact figures on that date."],
+      ["Every account & debt over time", "The same simulation, but with one line per account and a dashed line per debt, so you can see which account is doing the work — or running dry."],
+      ["Warnings", "A red banner appears if you're spending more than you earn, or if any single account goes negative at some point in the projection."],
+    ],
+  },
+  accounts: {
+    title: "Accounts",
+    intro: "Your balance sheet — everything you own. This is where you set starting balances and expected returns.",
+    points: [
+      ["Add your accounts", "Give each one a name, a type, today's balance, and an expected annual return. Picking a type fills in a sensible default rate, which you can then override."],
+      ["Types matter", "Brokerage and Retirement count as 'invested' for the asset mix and the independence target. Savings, Checking, Cash and Other asset don't."],
+      ["Returns are nominal and constant", "The projection applies the rate you set every week, forever. It does not model volatility, crashes, inflation or tax on gains."],
+      ["Caps and sweeping (optional)", "Set a cap to stop cash idling in an account. Anything above the cap is swept to the destination you pick — another account, or a debt to pay down."],
+      ["Watch the cap warning", "The hint under each cap tells you what that account's heaviest month costs. A cap below that number will overdraw the account, and it turns red to say so."],
+    ],
+  },
+  cashflow: {
+    title: "Cash flow",
+    intro: "Everything that moves money, with dates. This tab drives almost the entire projection, so it's worth getting right.",
+    points: [
+      ["Income", "Enter take-home pay per paycheck and how often it arrives. Enter gross separately — as an annual salary or per paycheck — since percentage-based deductions are calculated off gross."],
+      ["Pre-tax deductions and match", "401k contributions never reach take-home, so they're added on top and sent straight to the account you choose. An employer match of '100% up to 3%' means every dollar matched, capped at the first 3% of gross."],
+      ["Raises, promotions and bonuses", "A raise compounds annually. A promotion is a step change to a new salary on a date. A bonus lands once a year on its own date and can be a flat amount or a percentage of salary."],
+      ["Splitting a paycheck", "Route a percentage or fixed amount to other accounts. The first row in the list receives whatever is left over."],
+      ["Expenses", "Set an amount, how often, and which account or credit card it comes from. Add an end date for anything temporary — tuition, a lease — so it doesn't inflate your long-run independence target."],
+      ["Payments and transfers", "Payments reduce debt; transfers move money between your own accounts. A card payment can be set to 'pay in full' so it clears whatever was charged that month."],
+    ],
+  },
+  debt: {
+    title: "Debt",
+    intro: "Loans and cards, and how fast your plan clears them. Balances are edited here; the payments that clear them live on the Cash flow tab.",
+    points: [
+      ["Balance decay", "Amber is your actual plan. Cyan is what would happen paying only the minimums. The gap between them is what your extra payments are buying you."],
+      ["Interest saved and time saved", "Both stat cards compare your plan against that minimums-only path."],
+      ["Payoff order", "Loans are ranked highest rate first. When a payment more than clears its target, the surplus rolls to your highest-rate remaining loan automatically."],
+      ["Interest start date", "Interest accrues from this date. Push it into the future for a subsidised loan sitting in deferment, and it won't accrue until then."],
+      ["Credit cards behave differently", "A card only charges interest on a balance you carry. Pay it in full each month and it costs nothing — so cards are excluded from the debt-free date calculation."],
+      ["Changing the plan", "To pay debt down faster, edit or add a payment on the Cash flow tab. This tab shows the result."],
+    ],
+  },
+  invest: {
+    title: "Invest",
+    intro: "Long-run growth and what it would take to stop needing a salary.",
+    points: [
+      ["Portfolio growth", "Splits your projected investment balance into money you contributed versus returns earned on top of it."],
+      ["Independence target", "Your annual recurring spending divided by your withdrawal rate. At the default 4%, that's 25× your yearly costs."],
+      ["Expenses that end don't count", "Anything with an end date inside the next ten years is treated as temporary and left out of the target, since it isn't a forever cost."],
+      ["Adjust the withdrawal rate", "Lower it for a more conservative target that needs a bigger portfolio; raise it for the opposite."],
+      ["A projection, not advice", "Constant returns, today's dollars, no inflation, tax, volatility or sequence-of-returns risk. Treat the dates as a direction of travel, not a promise."],
+    ],
+  },
+};
+
+/* ================================================================== */
 /*  Main                                                               */
 /* ================================================================== */
 function FinancialSimulator() {
@@ -899,6 +975,7 @@ function FinancialSimulator() {
   const [tab, setTab] = useState("overview");
   const [ready, setReady] = useState(false);
   const [seedNote, setSeedNote] = useState(false);
+  const [showHelp, setShowHelp] = useState(false); /* closed by default */
   const [modal, setModal] = useState(null);
   const [importText, setImportText] = useState("");
   const [toast, setToast] = useState(null);
@@ -1216,6 +1293,8 @@ function FinancialSimulator() {
               <div className="nwsub">assets <b>{fmtBig(D.totalAssets)}</b> · debts <b>{fmtBig(D.totalDebt)}</b> · surplus <b>{fmtMoney(D.surplus)}</b>/mo</div>
             </div>
             <div className="toolbar">
+              <button className={"tbtn" + (showHelp ? " on" : "")} onClick={() => setShowHelp((v) => !v)}
+                aria-expanded={showHelp} aria-controls="help-panel"><HelpCircle size={13} />Help</button>
               <button className="tbtn" onClick={() => { setImportText(""); setModal("import"); }}><Upload size={13} />Import</button>
               <button className="tbtn" onClick={openExport}><Download size={13} />Export</button>
               <button className="tbtn" onClick={resetAll}><RotateCcw size={13} />Reset</button>
@@ -1227,6 +1306,25 @@ function FinancialSimulator() {
               <button key={id} className={"tabbtn" + (tab === id ? " active" : "")} onClick={() => setTab(id)}><Icon size={15} />{label}</button>
             ))}
           </div>
+
+          {showHelp && (() => {
+            const h = HELP[tab] || HELP.overview;
+            return (
+              <div className="panel help rise" id="help-panel">
+                <div className="phead">
+                  <div className="ptitle"><HelpCircle size={13} style={{ verticalAlign: -2, marginRight: 6 }} />How to use · {h.title}</div>
+                  <button className="icon-btn" onClick={() => setShowHelp(false)} aria-label="Close help"><X size={16} /></button>
+                </div>
+                <div className="help-intro">{h.intro}</div>
+                <dl className="help-list">
+                  {h.points.map(([term, body], i) => (
+                    <div className="help-item" key={i}><dt>{term}</dt><dd>{body}</dd></div>
+                  ))}
+                </dl>
+                <div className="help-foot">Switch tabs with the help open and these notes follow along.</div>
+              </div>
+            );
+          })()}
 
           {seedNote && (
             <div className="notice rise"><Zap size={14} color="var(--amber)" />
