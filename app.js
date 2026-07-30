@@ -814,7 +814,7 @@ function simulateWeekly(cfg) {
           outflow += applied;
           swept += applied;
         }
-        if (rem > 0.005 && overflowAcct && overflowAcct !== a) {
+        if (rem > 0.005 && settings.redirect && overflowAcct && overflowAcct !== a) {
           a.bal -= rem;
           overflowAcct.bal += rem;
           if (isInvest(overflowAcct.type)) basis += rem;
@@ -1089,7 +1089,10 @@ const store = {
   async set(k, v) {
     try {
       localStorage.setItem(k, v);
-    } catch {}
+      return true;
+    } catch {
+      return false;
+    }
   }
 };
 function useScope(maxW, defSpan) {
@@ -1744,17 +1747,25 @@ function FinancialSimulator() {
   const [importText, setImportText] = useState("");
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
-  const showToast = (msg, isErr) => {
+  const showToast = (msg, isErr, ms) => {
     setToast({
       msg,
       isErr: !!isErr
     });
     if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(null), 2600);
+    toastTimer.current = setTimeout(() => setToast(null), ms || 2600);
   };
   useEffect(() => () => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
   }, []);
+  const storageWarnedRef = useRef(false);
+  const persist = (key, value) => {
+    store.set(key, value).then(ok => {
+      if (ok || storageWarnedRef.current) return;
+      storageWarnedRef.current = true;
+      showToast("Your browser is blocking saved data — changes here won't be kept once you leave this page", true, 6000);
+    });
+  };
   const [logLoan, setLogLoan] = useState("");
   const [logAmt, setLogAmt] = useState("");
   const [logDate, setLogDate] = useState(todayISO());
@@ -1807,28 +1818,28 @@ function FinancialSimulator() {
     })();
   }, []);
   useEffect(() => {
-    if (ready && accounts) store.set("fin3:accounts", JSON.stringify(accounts));
+    if (ready && accounts) persist("fin3:accounts", JSON.stringify(accounts));
   }, [accounts, ready]);
   useEffect(() => {
-    if (ready) store.set("fin3:debts", JSON.stringify(debts));
+    if (ready) persist("fin3:debts", JSON.stringify(debts));
   }, [debts, ready]);
   useEffect(() => {
-    if (ready) store.set("fin3:income", JSON.stringify(income));
+    if (ready) persist("fin3:income", JSON.stringify(income));
   }, [income, ready]);
   useEffect(() => {
-    if (ready) store.set("fin3:expenses", JSON.stringify(expenses));
+    if (ready) persist("fin3:expenses", JSON.stringify(expenses));
   }, [expenses, ready]);
   useEffect(() => {
-    if (ready) store.set("fin3:transfers", JSON.stringify(transfers));
+    if (ready) persist("fin3:transfers", JSON.stringify(transfers));
   }, [transfers, ready]);
   useEffect(() => {
-    if (ready) store.set("fin3:debtPayments", JSON.stringify(debtPayments));
+    if (ready) persist("fin3:debtPayments", JSON.stringify(debtPayments));
   }, [debtPayments, ready]);
   useEffect(() => {
-    if (ready) store.set("fin3:payments", JSON.stringify(payments));
+    if (ready) persist("fin3:payments", JSON.stringify(payments));
   }, [payments, ready]);
   useEffect(() => {
-    if (ready) store.set("fin3:settings", JSON.stringify(settings));
+    if (ready) persist("fin3:settings", JSON.stringify(settings));
   }, [settings, ready]);
   const setS = (k, v) => setSettings(p => ({
     ...p,
@@ -2254,7 +2265,6 @@ function FinancialSimulator() {
     const totalAssets = accounts.reduce((s, a) => s + n0(a.balance), 0);
     const totalDebt = debts.reduce((s, l) => s + n0(l.balance), 0);
     const totalLoans = loans.reduce((s, l) => s + n0(l.balance), 0);
-    const totalCards = cards.reduce((s, l) => s + n0(l.balance), 0);
     const netWorth = totalAssets - totalDebt;
     const mExp = per(expenses),
       mTr = per(transfers);
@@ -2266,14 +2276,8 @@ function FinancialSimulator() {
       const b = bonusOf(i, 1);
       return s + (b ? (b.deferral + b.match) / 12 : 0);
     }, 0);
-    const mBonusGross = income.reduce((s, i) => {
-      const b = bonusOf(i, 1);
-      return s + (b ? b.gross / 12 : 0);
-    }, 0);
     const mPreTax = income.reduce((s, i) => s + payrollOf(i).total * OPY[i.recur] / 12, 0) + mBonusPre;
     const mInc = per(income) + mBonusNet;
-    const mMatch = income.reduce((s, i) => s + payrollOf(i).match * OPY[i.recur] / 12, 0);
-    const mGross = income.reduce((s, i) => s + grossPerCheck(i) * OPY[i.recur] / 12, 0);
     const cardIds = new Set(cards.map(c => c.id));
     const chargedTo = cid => expenses.filter(e => e.fromAcct === cid).reduce((s, e) => s + n0(e.amount) * OPY[e.recur] / 12, 0);
     const mDp = debtPayments.reduce((s, p) => s + (p.payFull && cardIds.has(p.toDebt) ? chargedTo(p.toDebt) : n0(p.amount) * OPY[p.recur] / 12), 0);
@@ -2315,7 +2319,6 @@ function FinancialSimulator() {
         }
       }
     }
-    const cardsNoPayment = cards.filter(c => !debtPayments.some(p => p.toDebt === c.id));
     const loansNoPayment = loans.filter(l => n0(l.balance) > 0 && !debtPayments.some(p => p.toDebt === l.id));
     const worstMonthOut = aid => {
       const items = [...expenses.filter(e => e.fromAcct === aid), ...debtPayments.filter(p => p.fromAcct === aid), ...transfers.filter(t => t.fromAcct === aid)];
@@ -2404,7 +2407,6 @@ function FinancialSimulator() {
       totalAssets,
       totalDebt,
       totalLoans,
-      totalCards,
       netWorth,
       loans,
       cards,
@@ -2413,10 +2415,7 @@ function FinancialSimulator() {
       mTr,
       mDp,
       mPreTax,
-      mMatch,
-      mGross,
       mBonusNet,
-      mBonusGross,
       surplus,
       savingsRate,
       leftover,
@@ -2436,7 +2435,6 @@ function FinancialSimulator() {
       bInv,
       negAcct,
       nextCardPay,
-      cardsNoPayment,
       loansNoPayment,
       chargedTo,
       worstMonthOut,

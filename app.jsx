@@ -435,8 +435,9 @@ function simulateWeekly(cfg) {
         }
         const applied = over - rem;
         if (applied > 0) { a.bal -= applied; outflow += applied; swept += applied; }
-        /* nothing left to pay down — park the rest where you've said overflow should go */
-        if (rem > 0.005 && overflowAcct && overflowAcct !== a) { a.bal -= rem; overflowAcct.bal += rem; if (isInvest(overflowAcct.type)) basis += rem; swept += rem; }
+        /* nothing left to pay down — park the rest where you've said overflow should go,
+           same "once debt is clear" gate the debt-payment overflow above respects */
+        if (rem > 0.005 && settings.redirect && overflowAcct && overflowAcct !== a) { a.bal -= rem; overflowAcct.bal += rem; if (isInvest(overflowAcct.type)) basis += rem; swept += rem; }
       } else if (tAcct && tAcct !== a) {
         a.bal -= over; tAcct.bal += over; if (isInvest(tAcct.type)) basis += over; swept += over;
       }
@@ -529,7 +530,7 @@ const seedSettings = () => ({ withdrawalRate: 4, redirect: true });
 
 const store = {
   async get(k) { try { return localStorage.getItem(k); } catch { return null; } },
-  async set(k, v) { try { localStorage.setItem(k, v); } catch { } },
+  async set(k, v) { try { localStorage.setItem(k, v); return true; } catch { return false; } },
 };
 
 /* ================================================================== */
@@ -980,12 +981,21 @@ function FinancialSimulator() {
   const [importText, setImportText] = useState("");
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
-  const showToast = (msg, isErr) => {
+  const showToast = (msg, isErr, ms) => {
     setToast({ msg, isErr: !!isErr });
     if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(null), 2600);
+    toastTimer.current = setTimeout(() => setToast(null), ms || 2600);
   };
   useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
+  /* localStorage can silently fail (private browsing, full quota) — warn once, not on every keystroke */
+  const storageWarnedRef = useRef(false);
+  const persist = (key, value) => {
+    store.set(key, value).then((ok) => {
+      if (ok || storageWarnedRef.current) return;
+      storageWarnedRef.current = true;
+      showToast("Your browser is blocking saved data — changes here won't be kept once you leave this page", true, 6000);
+    });
+  };
   const [logLoan, setLogLoan] = useState(""); const [logAmt, setLogAmt] = useState(""); const [logDate, setLogDate] = useState(todayISO());
 
   const start = useMemo(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }, []);
@@ -1018,14 +1028,14 @@ function FinancialSimulator() {
       setReady(true);
     })();
   }, []);
-  useEffect(() => { if (ready && accounts) store.set("fin3:accounts", JSON.stringify(accounts)); }, [accounts, ready]);
-  useEffect(() => { if (ready) store.set("fin3:debts", JSON.stringify(debts)); }, [debts, ready]);
-  useEffect(() => { if (ready) store.set("fin3:income", JSON.stringify(income)); }, [income, ready]);
-  useEffect(() => { if (ready) store.set("fin3:expenses", JSON.stringify(expenses)); }, [expenses, ready]);
-  useEffect(() => { if (ready) store.set("fin3:transfers", JSON.stringify(transfers)); }, [transfers, ready]);
-  useEffect(() => { if (ready) store.set("fin3:debtPayments", JSON.stringify(debtPayments)); }, [debtPayments, ready]);
-  useEffect(() => { if (ready) store.set("fin3:payments", JSON.stringify(payments)); }, [payments, ready]);
-  useEffect(() => { if (ready) store.set("fin3:settings", JSON.stringify(settings)); }, [settings, ready]);
+  useEffect(() => { if (ready && accounts) persist("fin3:accounts", JSON.stringify(accounts)); }, [accounts, ready]);
+  useEffect(() => { if (ready) persist("fin3:debts", JSON.stringify(debts)); }, [debts, ready]);
+  useEffect(() => { if (ready) persist("fin3:income", JSON.stringify(income)); }, [income, ready]);
+  useEffect(() => { if (ready) persist("fin3:expenses", JSON.stringify(expenses)); }, [expenses, ready]);
+  useEffect(() => { if (ready) persist("fin3:transfers", JSON.stringify(transfers)); }, [transfers, ready]);
+  useEffect(() => { if (ready) persist("fin3:debtPayments", JSON.stringify(debtPayments)); }, [debtPayments, ready]);
+  useEffect(() => { if (ready) persist("fin3:payments", JSON.stringify(payments)); }, [payments, ready]);
+  useEffect(() => { if (ready) persist("fin3:settings", JSON.stringify(settings)); }, [settings, ready]);
 
   /* setters */
   const setS = (k, v) => setSettings((p) => ({ ...p, [k]: v }));
@@ -1152,16 +1162,12 @@ function FinancialSimulator() {
     const totalAssets = accounts.reduce((s, a) => s + n0(a.balance), 0);
     const totalDebt = debts.reduce((s, l) => s + n0(l.balance), 0);
     const totalLoans = loans.reduce((s, l) => s + n0(l.balance), 0);
-    const totalCards = cards.reduce((s, l) => s + n0(l.balance), 0);
     const netWorth = totalAssets - totalDebt;
     const mExp = per(expenses), mTr = per(transfers);
     const mBonusNet = income.reduce((s, i) => { const b = bonusOf(i, 1); return s + (b ? b.net / 12 : 0); }, 0);
     const mBonusPre = income.reduce((s, i) => { const b = bonusOf(i, 1); return s + (b ? (b.deferral + b.match) / 12 : 0); }, 0);
-    const mBonusGross = income.reduce((s, i) => { const b = bonusOf(i, 1); return s + (b ? b.gross / 12 : 0); }, 0);
     const mPreTax = income.reduce((s, i) => s + payrollOf(i).total * OPY[i.recur] / 12, 0) + mBonusPre;
     const mInc = per(income) + mBonusNet;
-    const mMatch = income.reduce((s, i) => s + payrollOf(i).match * OPY[i.recur] / 12, 0);
-    const mGross = income.reduce((s, i) => s + grossPerCheck(i) * OPY[i.recur] / 12, 0);
     /* a "pay in full" card payment has no fixed amount — use what actually gets charged to that card */
     const cardIds = new Set(cards.map((c) => c.id));
     const chargedTo = (cid) => expenses.filter((e) => e.fromAcct === cid).reduce((s, e) => s + n0(e.amount) * OPY[e.recur] / 12, 0);
@@ -1189,7 +1195,6 @@ function FinancialSimulator() {
         if (hit) { nextCardPay[c.id] = { week: w, date: ws, amount: hit.payFull ? (sim.series[w].dbt[c.id] || 0) : n0(hit.amount), full: !!hit.payFull }; break; }
       }
     }
-    const cardsNoPayment = cards.filter((c) => !debtPayments.some((p) => p.toDebt === c.id));
     const loansNoPayment = loans.filter((l) => n0(l.balance) > 0 && !debtPayments.some((p) => p.toDebt === l.id));
 
     /* worst realistic month of outflow from an account — the floor any cap has to clear.
@@ -1240,7 +1245,7 @@ function FinancialSimulator() {
     let negAcct = null;
     for (let w = 0; w < Math.min(sim.series.length, 312) && !negAcct; w++) { const m = sim.series[w].acct; for (const a of accounts) if (m[a.id] < -1) { negAcct = a.name; break; } }
 
-    return { totalAssets, totalDebt, totalLoans, totalCards, netWorth, loans, cards, mInc, mExp, mTr, mDp, mPreTax, mMatch, mGross, mBonusNet, mBonusGross, surplus, savingsRate, leftover, monthlyInterest, sim, minW, maxW, interestSaved, wksSaved, acctColors, debtColors, names, cf, debtCurve, alloc, spend, bInv, negAcct, nextCardPay, cardsNoPayment, loansNoPayment, chargedTo, worstMonthOut, avgSweep, capped };
+    return { totalAssets, totalDebt, totalLoans, netWorth, loans, cards, mInc, mExp, mTr, mDp, mPreTax, mBonusNet, surplus, savingsRate, leftover, monthlyInterest, sim, minW, maxW, interestSaved, wksSaved, acctColors, debtColors, names, cf, debtCurve, alloc, spend, bInv, negAcct, nextCardPay, loansNoPayment, chargedTo, worstMonthOut, avgSweep, capped };
   }, [accounts, debts, income, expenses, transfers, debtPayments, settings, start]);
 
   const maxW = D ? D.maxW : 520;
