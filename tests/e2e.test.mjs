@@ -165,3 +165,62 @@ test("the account-cap redirect toggle can be changed and persists across a reloa
   assert.deepEqual(consoleErrors, []);
   await page.close();
 });
+
+test("the Monte Carlo panel renders, its volatility input works, persists, and its chart tooltip is error-free", async () => {
+  const { page, consoleErrors } = await newPage();
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+  await page.locator(".tabbtn", { hasText: "Invest" }).click();
+  await page.waitForTimeout(300);
+
+  assert.match(await page.locator(".ptitle", { hasText: "Monte Carlo" }).textContent(), /Monte Carlo/);
+  const chanceStat = page.locator(".stat", { hasText: "hit your FI number" }).locator(".v");
+  assert.match(await chanceStat.textContent(), /^\d+%$/, "the success-probability stat should render as a percentage");
+
+  const volInput = page.locator(".panel", { hasText: "Monte Carlo" }).locator("input[type=number]").first();
+  assert.equal(await volInput.inputValue(), "15", "volatility defaults to 15%");
+  await volInput.fill("25");
+  await page.waitForTimeout(200);
+
+  await page.reload({ waitUntil: "networkidle" });
+  await page.locator(".tabbtn", { hasText: "Invest" }).click();
+  await page.waitForTimeout(300);
+  const volAfterReload = page.locator(".panel", { hasText: "Monte Carlo" }).locator("input[type=number]").first();
+  assert.equal(await volAfterReload.inputValue(), "25", "volatility should persist across a reload");
+
+  // hover the fan chart to trigger its custom tooltip — the exact path a past
+  // module-split regression only broke once a chart Tooltip actually rendered
+  const mcChart = page.locator(".panel", { hasText: "Monte Carlo" }).locator(".recharts-wrapper");
+  await mcChart.scrollIntoViewIfNeeded();
+  const box = await mcChart.boundingBox();
+  await page.mouse.move(box.x + box.width * 0.6, box.y + box.height / 2);
+  await page.mouse.move(box.x + box.width * 0.6 + 5, box.y + box.height / 2 + 3);
+  await page.waitForTimeout(200);
+  assert.equal(await page.locator(".tt").isVisible(), true, "the Monte Carlo chart tooltip should render on hover");
+  assert.match(await page.locator(".tt").textContent(), /Median/);
+
+  assert.deepEqual(consoleErrors, []);
+  await page.close();
+});
+
+test("the Monte Carlo panel handles zero invested accounts without erroring", async () => {
+  const { page, consoleErrors } = await newPage();
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+
+  await page.locator(".tabbtn", { hasText: "Accounts" }).click();
+  await page.waitForTimeout(300);
+  let count = await page.locator(".row.acct").count();
+  while (count > 1) {
+    await page.locator(".row.acct").last().locator(".icon-btn").click();
+    await page.waitForTimeout(80);
+    count = await page.locator(".row.acct").count();
+  }
+  await page.locator(".row.acct select").first().selectOption("checking");
+  await page.waitForTimeout(200);
+
+  await page.locator(".tabbtn", { hasText: "Invest" }).click();
+  await page.waitForTimeout(300);
+  assert.equal(await page.locator(".stat", { hasText: "hit your FI number" }).locator(".v").textContent(), "0%");
+
+  assert.deepEqual(consoleErrors, []);
+  await page.close();
+});

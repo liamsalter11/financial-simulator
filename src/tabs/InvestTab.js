@@ -11,12 +11,53 @@ const {
   ReferenceLine
 } = Recharts;
 import { Stat, NumField, Tip } from "../components.js";
-import { fmtMoney, fmtBig, fmtDate, n0 } from "../format.js";
+import { fmtMoney, fmtBig, fmtDate, n0, addDays } from "../format.js";
 import { sampleRange } from "../useScope.js";
+const McTip = ({
+  active,
+  payload,
+  label,
+  start
+}) => {
+  if (!active || !payload || !payload.length) return null;
+  const row = payload[0].payload;
+  const d = addDays(start, label * 7);
+  return React.createElement("div", {
+    className: "tt"
+  }, React.createElement("div", {
+    className: "tt-m"
+  }, d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  })), React.createElement("div", {
+    className: "tt-row"
+  }, React.createElement("span", {
+    className: "dot",
+    style: {
+      background: "var(--green)"
+    }
+  }), "Median", React.createElement("b", null, fmtMoney(row.p50))), React.createElement("div", {
+    className: "tt-row"
+  }, React.createElement("span", {
+    className: "dot",
+    style: {
+      background: "var(--muted)"
+    }
+  }), "Middle 50%", React.createElement("b", null, fmtMoney(row.p25), " \u2013 ", fmtMoney(row.p75))), React.createElement("div", {
+    className: "tt-row"
+  }, React.createElement("span", {
+    className: "dot",
+    style: {
+      background: "var(--faint)"
+    }
+  }), "Middle 80%", React.createElement("b", null, fmtMoney(row.p10), " \u2013 ", fmtMoney(row.p90))));
+};
 export function InvestTab({
   D,
   chart,
   scInv,
+  scMC,
   fireN,
   settings,
   setS,
@@ -32,6 +73,18 @@ export function InvestTab({
     start,
     maxW
   } = chart;
+  const mcData = D.mc.bands.map(b => ({
+    w: b.w,
+    p10: b.p10,
+    p25: b.p25,
+    p50: b.p50,
+    p75: b.p75,
+    p90: b.p90,
+    p10to25: Math.max(0, b.p25 - b.p10),
+    p25to75: Math.max(0, b.p75 - b.p25),
+    p75to90: Math.max(0, b.p90 - b.p75)
+  }));
+  const mcEnd = D.mc.bands[D.mc.bands.length - 1];
   const last = D.sim.series[Math.min(maxW, D.sim.series.length - 1)];
   const endVal = last.invest,
     endBasis = last.basis,
@@ -149,6 +202,127 @@ export function InvestTab({
   })))), ZHINT, React.createElement("div", {
     className: "assume"
   }, "The green line is driven by the transfers and income splits you've set in Cash flow \u2014 ", fmtMoney(D.mTr), "/mo of transfers plus any share of your paycheck routed straight into an investment account. The gap above the dashed line is compound growth.")), React.createElement("div", {
+    className: "panel rise"
+  }, React.createElement("div", {
+    className: "phead"
+  }, React.createElement("div", {
+    className: "ptitle"
+  }, "Monte Carlo: range of outcomes"), ranges(scMC, maxW)), React.createElement("div", {
+    className: "sgrid",
+    style: {
+      marginBottom: 14
+    }
+  }, React.createElement(Stat, {
+    k: "Chance investments alone<br/>hit your FI number",
+    v: Math.round(D.mc.successProb * 100) + "%",
+    accent: D.mc.successProb >= 0.5 ? "green" : "red"
+  }), React.createElement(Stat, {
+    k: "Median value by<br/>" + fmtDate(w2date(maxW)),
+    v: fmtBig(mcEnd.p50),
+    accent: "cyan"
+  })), React.createElement("div", {
+    className: "fields3",
+    style: {
+      gridTemplateColumns: "1fr 1fr"
+    }
+  }, React.createElement(NumField, {
+    label: "Return volatility (annual)",
+    suffix: "%",
+    value: settings.mcVolatility,
+    onChange: v => setS("mcVolatility", n0(v))
+  })), React.createElement("div", _extends({
+    className: "scope-wrap",
+    ref: scMC.ref
+  }, scMC.handlers, {
+    style: {
+      marginTop: 12
+    }
+  }), React.createElement(ResponsiveContainer, {
+    width: "100%",
+    height: 286
+  }, React.createElement(ComposedChart, {
+    data: mcData,
+    margin: {
+      top: 16,
+      right: 12,
+      bottom: 0,
+      left: 6
+    }
+  }, React.createElement(CartesianGrid, {
+    stroke: "var(--line)",
+    strokeDasharray: "2 4"
+  }), React.createElement(XAxis, axisProps(scMC)), React.createElement(YAxis, yProps), React.createElement(Tooltip, {
+    content: p => React.createElement(McTip, _extends({}, p, {
+      start: start
+    })),
+    cursor: {
+      stroke: "var(--line2)"
+    }
+  }), fireN > 0 && React.createElement(ReferenceLine, {
+    y: fireN,
+    stroke: "var(--amber)",
+    strokeDasharray: "3 3",
+    label: {
+      value: "FI " + fmtBig(fireN),
+      position: "insideTopRight",
+      fill: "var(--amber)",
+      fontSize: 9.5,
+      fontFamily: "var(--mono)"
+    }
+  }), React.createElement(Area, {
+    dataKey: "p10",
+    stackId: "mc",
+    stroke: "none",
+    fill: "transparent",
+    isAnimationActive: false
+  }), React.createElement(Area, {
+    dataKey: "p10to25",
+    stackId: "mc",
+    stroke: "none",
+    fill: "rgba(92,203,139,0.10)",
+    isAnimationActive: false
+  }), React.createElement(Area, {
+    dataKey: "p25to75",
+    stackId: "mc",
+    stroke: "none",
+    fill: "rgba(92,203,139,0.22)",
+    isAnimationActive: false
+  }), React.createElement(Area, {
+    dataKey: "p75to90",
+    stackId: "mc",
+    stroke: "none",
+    fill: "rgba(92,203,139,0.10)",
+    isAnimationActive: false
+  }), React.createElement(Line, {
+    type: "monotone",
+    dataKey: "p50",
+    stroke: "var(--green)",
+    strokeWidth: 2.2,
+    dot: false,
+    isAnimationActive: false
+  })))), ZHINT, React.createElement("div", {
+    className: "legend",
+    style: {
+      marginTop: 8
+    }
+  }, React.createElement("span", {
+    className: "lg"
+  }, React.createElement("span", {
+    className: "swatch",
+    style: {
+      borderTopColor: "var(--green)",
+      borderTopWidth: 3
+    }
+  }), "Median"), React.createElement("span", {
+    className: "lg"
+  }, React.createElement("span", {
+    className: "dot",
+    style: {
+      background: "rgba(92,203,139,0.5)"
+    }
+  }), "Middle 50% / 80% of outcomes")), React.createElement("div", {
+    className: "assume"
+  }, "Same contributions as the chart above \u2014 only the returns are randomized, ", D.mc.trials, " times, as one blended portfolio at your accounts' balance-weighted expected return. Higher volatility widens the shaded range without changing the median much; it's a measure of how much a real market could disagree with the average, not a prediction of which path you'll get.", React.createElement("br", null), React.createElement("br", null), "The percentage checks your invested portfolio's own value against the FI number, same as this chart's line \u2014 a narrower question than the \"Financial independence\" date above, which also counts cash, savings, and paid-down debt. A lower number here doesn't contradict a nearer date up there; it means the rest of your net worth is doing some of that work too.")), React.createElement("div", {
     className: "panel rise"
   }, React.createElement("div", {
     className: "phead"

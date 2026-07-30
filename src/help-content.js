@@ -54,7 +54,9 @@ export const HELP = {
       ["Independence target", "Your annual recurring spending divided by your withdrawal rate. At the default 4%, that's 25× your yearly costs."],
       ["Expenses that end don't count", "Anything with an end date inside the next ten years is treated as temporary and left out of the target, since it isn't a forever cost."],
       ["Adjust the withdrawal rate", "Lower it for a more conservative target that needs a bigger portfolio; raise it for the opposite."],
-      ["A projection, not advice", "Constant returns, today's dollars, no inflation, tax, volatility or sequence-of-returns risk. Treat the dates as a direction of travel, not a promise."],
+      ["Monte Carlo: range of outcomes", "Runs the same contribution schedule hundreds of times with randomized annual returns, instead of one constant rate — the shaded band shows where returns could land instead of just where they're expected to land on average."],
+      ["Volatility, not a market forecast", "Higher volatility widens the band without moving the median much. It's a measure of how much a real market could disagree with the average return, not a prediction of which path you'll actually get."],
+      ["A projection, not advice", "The chart above this one holds returns constant — today's dollars, no inflation, tax, or volatility. The Monte Carlo chart relaxes the volatility assumption only, as one blended portfolio; neither models sequence-of-returns risk in retirement or fees. Treat the dates as a direction of travel, not a promise."],
     ],
   },
 };

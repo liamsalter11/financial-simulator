@@ -10,6 +10,7 @@ import { n0, num, uid, todayISO, nextFirstISO, firstOfYear, isoDate, addMonths, 
 import { firesInWeek } from "./recurrence.js";
 import { payrollOf, bonusOf } from "./payroll.js";
 import { simulateWeekly, projectMinWeekly, WEEKS } from "./engine.js";
+import { runMonteCarlo } from "./montecarlo.js";
 import { SEED_ACCOUNTS, SEED_DEBTS, normDebts, normIncome, isCard, pickIds, seedIncome, seedExpenses, seedTransfers, seedDebtPays, seedSettings } from "./seeds.js";
 import { store } from "./store.js";
 import { useScope } from "./useScope.js";
@@ -90,7 +91,10 @@ export function FinancialSimulator() {
         setDebtPayments(base);
       }
       setPayments(p3 ? parse(p3, []) : p2 ? parse(p2, []) : []);
-      setSettings(s3 ? parse(s3, seedSettings()) : {
+      setSettings(s3 ? {
+        ...seedSettings(),
+        ...parse(s3, {})
+      } : {
         ...seedSettings(),
         ...(oldS.withdrawalRate != null ? {
           withdrawalRate: Number(oldS.withdrawalRate)
@@ -590,6 +594,16 @@ export function FinancialSimulator() {
     const maxW = Math.min(WEEKS, Math.max(sim.fire || 520, (sim.debtFree || 260) + 130, 260) + 60);
     const interestSaved = Math.max(0, minW.interest - sim.interest);
     const wksSaved = Math.max(0, (minW.clearedWeek == null ? WEEKS : minW.clearedWeek) - (sim.debtFree == null ? WEEKS : sim.debtFree));
+    const investAccts = accounts.filter(a => isInvest(a.type));
+    const investBalTotal = investAccts.reduce((s, a) => s + n0(a.balance), 0);
+    const mcReturn = investBalTotal > 0 ? investAccts.reduce((s, a) => s + n0(a.rate) * n0(a.balance), 0) / investBalTotal / 100 : 0.07;
+    const mc = runMonteCarlo({
+      series: sim.series,
+      weeks: maxW,
+      annualReturn: mcReturn,
+      annualVolatility: n0(settings.mcVolatility) / 100,
+      fireNumber: sim.fireNumber
+    });
     const nextCardPay = {};
     for (const c of cards) {
       const pays = debtPayments.filter(p => p.toDebt === c.id);
@@ -713,6 +727,8 @@ export function FinancialSimulator() {
       sim,
       minW,
       maxW,
+      mc,
+      mcReturn,
       interestSaved,
       wksSaved,
       acctColors,
@@ -738,6 +754,7 @@ export function FinancialSimulator() {
   const scCF = useScope(Math.min(maxW, 312), 52);
   const scDebt = useScope(maxW, 260);
   const scInv = useScope(maxW, 260);
+  const scMC = useScope(maxW, 260);
   if (!accounts || !D) return React.createElement(React.Fragment, null, React.createElement("style", null, CSS), React.createElement("div", {
     className: "fin"
   }, React.createElement("div", {
@@ -1060,6 +1077,7 @@ export function FinancialSimulator() {
     D: D,
     chart: chartProps,
     scInv: scInv,
+    scMC: scMC,
     fireN: fireN,
     settings: settings,
     setS: setS,
