@@ -116,6 +116,35 @@ test("a failed localStorage save warns once and does not repeat on further edits
   await page.close();
 });
 
+test("editing income and expanding its payroll/bonus sections doesn't error (chart tooltip regression)", async () => {
+  // Regression test: a module-split refactor once shipped components.jsx (Tip/MultiTip)
+  // without importing addDays, which only threw once a chart's Tooltip actually rendered —
+  // triggered here by an unrelated income edit recomputing the simulation. Static rendering
+  // alone did not catch this; exercising an edit plus every tab's chart tooltip does.
+  const { page, consoleErrors } = await newPage();
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+  await page.locator(".tabbtn", { hasText: "Cash flow" }).click();
+
+  await page.locator(".panel", { hasText: "Income" }).locator(".card").first().locator("input[type=number]").first().fill("3200");
+  await page.locator(".panel", { hasText: "Income" }).locator("label.chk", { hasText: "offered" }).locator("input").check();
+  await page.locator(".panel", { hasText: "Income" }).locator("label.chk", { hasText: "paid" }).locator("input").check();
+  await page.waitForTimeout(200);
+
+  for (const tab of ["Overview", "Cash flow", "Debt", "Invest"]) {
+    await page.locator(".tabbtn", { hasText: tab }).click();
+    await page.waitForTimeout(300);
+    const chart = page.locator(".recharts-wrapper").first();
+    const box = await chart.boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.move(box.x + box.width / 2 + 10, box.y + box.height / 2 + 5);
+    await page.waitForTimeout(150);
+    assert.equal(await page.locator(".tt").isVisible(), true, `${tab} chart tooltip should render on hover`);
+  }
+
+  assert.deepEqual(consoleErrors, []);
+  await page.close();
+});
+
 test("the account-cap redirect toggle can be changed and persists across a reload", async () => {
   const { page, consoleErrors } = await newPage();
   await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });

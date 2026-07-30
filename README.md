@@ -9,30 +9,53 @@ financial-independence date.
 
 ## Files
 
+The app is split into small ES modules under `src/`, loaded natively by the
+browser (`index.html` loads `src/main.js` as `<script type="module">`) — no
+bundler. Every `.jsx` file has a compiled `.js` sibling of the same name that
+the browser actually loads; `.js` files with no JSX (pure logic — no React
+needed to read them) are both the source and the shipped file.
+
 | Path | What it is |
 | --- | --- |
-| `index.html` | The page. Loads the vendored libraries, then `app.js`. |
-| `app.jsx` | **The source you edit.** React components and the simulation engine. |
-| `app.js` | Compiled output of `app.jsx`. This is what the browser runs — do not edit by hand. |
+| `index.html` | The page. Loads the vendored libraries, then `src/main.js`. |
+| `src/main.js` | Entry point: mounts `FinancialSimulator` into `#root`. |
+| `src/FinancialSimulator.jsx` | The main component — all state and handlers live here; renders whichever tab is active. |
+| `src/tabs/*.jsx` | One file per tab (`OverviewTab`, `AccountsTab`, `CashFlowTab`, `DebtTab`, `InvestTab`), each just the rendering for that tab. |
+| `src/engine.js` | The simulation engine (`simulateWeekly`, `projectMinWeekly`) — pure logic, no React. |
+| `src/payroll.js` | Per-paycheck salary/401k-match/bonus math. |
+| `src/recurrence.js` | Expands a recurring event into concrete dates and counts firings per week. |
+| `src/format.js` | Money/date formatting, recurrence labels, shared constants. |
+| `src/seeds.js` | Example data shown on first load, and normalization for older saved/imported data. |
+| `src/store.js` | `localStorage` wrapper. |
+| `src/useScope.js` | The pinch-zoom/pan chart-windowing hook, plus the series downsampler. |
+| `src/icons.jsx`, `src/components.jsx` | Inline icon set, and small shared UI pieces (`Stat`, `NumField`, `Modal`, `Donut`, `LoanCard`, ...). |
+| `src/help-content.js` | The per-tab Help panel copy. |
+| `src/styles.js` | The app's CSS, as a template string injected via a `<style>` tag. |
 | `vendor/` | Pinned copies of React, ReactDOM, PropTypes and Recharts. |
 | `tests/` | Sync, engine, and end-to-end tests — see [Tests](#tests) below. |
-| `package.json`, `build.mjs` | Dev tooling only (rebuilding `app.js`, running tests). Not shipped to the browser. |
+| `package.json`, `build.mjs` | Dev tooling only (rebuilding `.js` from `.jsx`, running tests). Not shipped to the browser. |
 
 ## Editing
 
-`app.jsx` is the source of truth. After changing it, install the dev
-dependencies once and recompile to `app.js`:
+Each `.jsx` file is the source of truth for its compiled `.js` sibling. After
+changing any of them, install the dev dependencies once and recompile:
 
 ```bash
 npm install
 npm run build
 ```
 
-The `classic` runtime matters: it compiles JSX to `React.createElement` calls,
-which the global `React` from `vendor/` provides. The default `automatic`
-runtime emits `import` statements instead, which won't run from a plain
-`<script>` tag. `npm test` (see below) fails if `app.js` is ever out of sync
-with `app.jsx`, so a forgotten rebuild gets caught before it ships.
+`build.mjs` walks `src/` and recompiles every `.jsx` file to its sibling
+`.js`. The `classic` JSX runtime matters: it compiles JSX to
+`React.createElement` calls, which the global `React` from `vendor/`
+provides. The default `automatic` runtime emits `import` statements from
+`react/jsx-runtime` instead, which isn't one of the vendored globals and
+won't resolve in a plain `<script type="module">`. `npm test` (see below)
+fails if any compiled `.js` is ever out of sync with its `.jsx` source, so a
+forgotten rebuild gets caught before it ships.
+
+Plain `.js` files under `src/` (no matching `.jsx`) have no JSX and need no
+build step — edit and reload.
 
 To preview locally, serve the repository root and open
 `http://127.0.0.1:8000/financial-simulator/`:
@@ -54,19 +77,25 @@ npm run test:e2e       # browser tests (loads the real page in Chromium)
 npm run test:all       # everything
 ```
 
-- **`tests/sync.test.mjs`** — recompiles `app.jsx` and asserts the result is
-  byte-identical to the committed `app.js`, plus a `node --check` syntax
-  check. Catches "edited `app.jsx`, forgot to rebuild."
+- **`tests/sync.test.mjs`** — recompiles every `src/**/*.jsx` file and asserts
+  each result is byte-identical to its committed `.js` sibling, plus a
+  `node --check` syntax check on each. Catches "edited a `.jsx` file, forgot
+  to rebuild."
 - **`tests/engine.test.mjs`** — unit tests for the simulation engine
-  (`simulateWeekly`, `payrollOf`, `bonusOf`) against small, deterministic
-  scenarios, loaded directly out of `app.js` without a browser. Covers the
-  employer-match formula, bonus withholding, card-interest-only-on-a-carried-
-  balance, the highest-APR-first debt rollover, and a regression test for the
-  account-cap sweep respecting the "redirect into investing" setting.
+  (`simulateWeekly` from `src/engine.js`, `payrollOf`/`bonusOf` from
+  `src/payroll.js`) against small, deterministic scenarios. These are plain
+  ES modules with no React dependency, so the tests `import` them directly —
+  no browser, no stubbing. Covers the employer-match formula, bonus
+  withholding, card-interest-only-on-a-carried-balance, the highest-APR-first
+  debt rollover, and a regression test for the account-cap sweep respecting
+  the "redirect into investing" setting.
 - **`tests/e2e.test.mjs`** — Playwright tests against the actual served page:
   the front-page link, the help panel (closed by default, follows the active
   tab), `localStorage` persistence across a reload, the one-time warning toast
-  when storage writes fail, and the redirect toggle.
+  when storage writes fail, the redirect toggle, and a regression test that
+  edits income and triggers every tab's chart tooltip (a past module-split
+  bug — a missing import in a shared component — only surfaced once a
+  Tooltip actually rendered, which static page-load checks don't trigger).
 
 CI (`.github/workflows/financial-simulator-ci.yml`) runs all of this on every
 push or pull request that touches `financial-simulator/`.
@@ -79,8 +108,8 @@ tags. The JSX is precompiled, so no in-browser transpiler is shipped. The page
 works offline and won't break if a CDN changes or disappears.
 
 **Icons are inline.** The original component imported `lucide-react`. Those
-icons are now small local SVG components at the top of `app.jsx`, which removes
-a dependency without changing how they look.
+icons are now small local SVG components in `src/icons.jsx`, which removes a
+dependency without changing how they look.
 
 **Storage is `localStorage`.** The original component called `window.storage`,
 a host-provided API that doesn't exist in a normal browser. It's replaced with

@@ -1,11 +1,12 @@
-// Unit tests for the pure simulation-engine functions in app.js, run without a browser.
-// These construct small, deterministic scenarios rather than reusing the app's seed data,
-// which is intentionally relative to today's date and would make assertions drift.
+// Unit tests for the pure simulation-engine functions in src/engine.js and
+// src/payroll.js, run without a browser — these are plain ES modules with no React
+// dependency, so they're imported directly. These tests construct small, deterministic
+// scenarios rather than reusing the app's seed data, which is intentionally relative
+// to today's date and would make assertions drift.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { loadEngine } from "./helpers/loadEngine.mjs";
-
-const { simulateWeekly, payrollOf, bonusOf } = loadEngine();
+import { simulateWeekly } from "../src/engine.js";
+import { payrollOf, bonusOf } from "../src/payroll.js";
 
 const START = new Date(2026, 0, 1); // a Thursday; dates below are chosen to land on/after it
 

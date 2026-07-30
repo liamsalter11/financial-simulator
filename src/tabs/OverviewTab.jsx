@@ -1,0 +1,82 @@
+// Read-only summary tab: net worth, warnings, and the three headline charts.
+const {
+  ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, ReferenceLine,
+} = Recharts;
+import { AlertTriangle } from "../icons.js";
+import { Stat, Donut, Tip, MultiTip } from "../components.js";
+import { fmtMoney, fmtBig, fmtDate } from "../format.js";
+import { sampleRange } from "../useScope.js";
+
+export function OverviewTab({ D, accounts, debts, chart, scNW, scBal, fireN }) {
+  const { ranges, ZHINT, axisProps, yProps, w2date, start, maxW } = chart;
+  return (
+            <>
+              <div className="sgrid rise" style={{ marginBottom: 16 }}>
+                <Stat k="Net worth<br/>today" v={fmtBig(D.netWorth)} accent={D.netWorth >= 0 ? "green" : "red"} />
+                <Stat k="Monthly<br/>surplus" v={fmtMoney(D.surplus)} accent={D.surplus >= 0 ? "" : "red"} />
+                <Stat k="Debt-free<br/>date" v={D.totalDebt > 0 ? (D.sim.debtFree != null ? fmtDate(w2date(D.sim.debtFree)) : "40y+") : "Clear"} accent="amber" />
+                <Stat k="Financial indep.<br/>(25× expenses)" v={D.sim.fire != null ? fmtDate(w2date(D.sim.fire)) : "40y+"} accent="green" />
+              </div>
+
+              {D.surplus < 0 && (
+                <div className="warn rise"><AlertTriangle size={18} color="var(--red)" style={{ flex: "none", marginTop: 1 }} />
+                  <div><div className="wt">Spending exceeds income</div><div className="wb">You're {fmtMoney(-D.surplus)}/mo in the red before debt or investing. Adjust items in Cash flow.</div></div></div>
+              )}
+              {!(D.surplus < 0) && D.negAcct && (
+                <div className="warn rise"><AlertTriangle size={18} color="var(--red)" style={{ flex: "none", marginTop: 1 }} />
+                  <div><div className="wt">{D.negAcct} runs dry</div><div className="wb">With these dated flows, {D.negAcct} goes negative at some point. Route more income into it, or draw some expenses or payments from another account.</div></div></div>
+              )}
+
+              <div className="panel rise">
+                <div className="phead"><div className="ptitle">Net worth projection</div>{ranges(scNW, maxW)}</div>
+                <div className="scope-wrap" ref={scNW.ref} {...scNW.handlers}>
+                  <ResponsiveContainer width="100%" height={286}>
+                    <ComposedChart data={sampleRange(D.sim.series, scNW.lo, scNW.hi, 320).map((s) => ({ w: s.w, nw: s.nw, debt: s.debt, invest: s.invest }))} margin={{ top: 16, right: 12, bottom: 0, left: 6 }}>
+                      <defs><linearGradient id="nwFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#F5A623" stopOpacity={0.26} /><stop offset="100%" stopColor="#F5A623" stopOpacity={0} /></linearGradient></defs>
+                      <CartesianGrid stroke="var(--line)" strokeDasharray="2 4" />
+                      <XAxis {...axisProps(scNW)} />
+                      <YAxis {...yProps} />
+                      <Tooltip content={(p) => <Tip {...p} start={start} rows={[{ key: "nw", name: "Net worth", color: "var(--amber)" }, { key: "invest", name: "Investments", color: "var(--green)" }, { key: "debt", name: "Debt", color: "var(--red)" }]} />} cursor={{ stroke: "var(--line2)" }} />
+                      {fireN > 0 && D.sim.fire != null && <ReferenceLine y={fireN} stroke="var(--amber)" strokeDasharray="3 3" label={{ value: "FI " + fmtBig(fireN), position: "insideTopRight", fill: "var(--amber)", fontSize: 9.5, fontFamily: "var(--mono)" }} />}
+                      {D.sim.debtFree != null && <ReferenceLine x={D.sim.debtFree} stroke="var(--red)" strokeDasharray="2 3" strokeOpacity={0.6} label={{ value: "DEBT-FREE", position: "top", fill: "var(--red)", fontSize: 9, fontFamily: "var(--mono)" }} />}
+                      <Area type="monotone" dataKey="nw" stroke="var(--amber)" strokeWidth={2.6} fill="url(#nwFill)" dot={false} activeDot={{ r: 4, fill: "var(--amber)", stroke: "none" }} isAnimationActive={false} />
+                      <Line type="monotone" dataKey="invest" stroke="var(--green)" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+                      <Line type="monotone" dataKey="debt" stroke="var(--red)" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+                {ZHINT}
+                <div className="assume">Today's dollars · returns and rates held constant · a projection, not a guarantee or financial advice.</div>
+              </div>
+
+              <div className="panel rise">
+                <div className="phead"><div className="ptitle">Every account & debt over time</div>{ranges(scBal, maxW)}</div>
+                <div className="scope-wrap" ref={scBal.ref} {...scBal.handlers}>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <ComposedChart data={sampleRange(D.sim.series, scBal.lo, scBal.hi, 320).map((s) => ({ w: s.w, nw: s.nw, ...s.acct, ...s.dbt }))} margin={{ top: 14, right: 12, bottom: 0, left: 6 }}>
+                      <CartesianGrid stroke="var(--line)" strokeDasharray="2 4" />
+                      <XAxis {...axisProps(scBal)} />
+                      <YAxis {...yProps} />
+                      <Tooltip content={(p) => <MultiTip {...p} start={start} names={D.names} />} cursor={{ stroke: "var(--line2)" }} />
+                      {accounts.map((a) => <Line key={a.id} type="monotone" dataKey={a.id} stroke={D.acctColors[a.id]} strokeWidth={1.5} dot={false} isAnimationActive={false} />)}
+                      {debts.map((l) => <Line key={l.id} type="monotone" dataKey={l.id} stroke={D.debtColors[l.id]} strokeWidth={1.4} strokeDasharray="4 3" dot={false} isAnimationActive={false} />)}
+                      <Line type="monotone" dataKey="nw" stroke="var(--amber)" strokeWidth={2.6} dot={false} isAnimationActive={false} />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+                {ZHINT}
+                <div className="legend" style={{ marginTop: 10 }}>
+                  <span className="lg"><span className="swatch" style={{ borderTopColor: "var(--amber)", borderTopWidth: 3 }} />Net worth</span>
+                  {accounts.map((a) => <span className="lg" key={a.id}><span className="swatch" style={{ borderTopColor: D.acctColors[a.id] }} />{a.name}</span>)}
+                  {debts.map((l) => <span className="lg" key={l.id}><span className="swatch" style={{ borderTopColor: D.debtColors[l.id], borderTopStyle: "dashed" }} />{l.name}</span>)}
+                </div>
+              </div>
+
+              <div className="panel rise">
+                <div className="phead"><div className="ptitle">Asset mix today</div></div>
+                <Donut data={D.alloc} center={fmtBig(D.totalAssets)} sub="assets" />
+              </div>
+            </>
+  );
+}

@@ -1,18 +1,37 @@
-// Regenerates app.js from app.jsx. Run via `npm run build` after editing app.jsx —
-// see README.md for why the classic JSX runtime matters here.
+// Compiles every .jsx source file under src/ to a sibling .js file (same directory,
+// same basename) — that sibling .js is what index.html actually loads. Run via
+// `npm run build` after editing any .jsx file — see README.md for why the classic
+// JSX runtime matters here. Plain .js files under src/ have no JSX and need no build
+// step; they're loaded directly.
 import babel from "@babel/core";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, readdirSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const source = readFileSync(join(here, "app.jsx"), "utf8");
+const srcDir = join(here, "src");
 
-const { code } = babel.transformSync(source, {
-  presets: [["@babel/preset-react", { runtime: "classic" }]],
-  filename: "app.jsx",
-  comments: false,
-});
+function findJsxFiles(dir) {
+  const out = [];
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) out.push(...findJsxFiles(full));
+    else if (entry.endsWith(".jsx")) out.push(full);
+  }
+  return out;
+}
 
-writeFileSync(join(here, "app.js"), code);
-console.log(`Wrote app.js (${code.length} bytes)`);
+let total = 0;
+for (const jsxPath of findJsxFiles(srcDir)) {
+  const source = readFileSync(jsxPath, "utf8");
+  const { code } = babel.transformSync(source, {
+    presets: [["@babel/preset-react", { runtime: "classic" }]],
+    filename: jsxPath,
+    comments: false,
+  });
+  const jsPath = jsxPath.replace(/\.jsx$/, ".js");
+  writeFileSync(jsPath, code);
+  console.log(`Wrote ${jsPath.slice(here.length + 1)} (${code.length} bytes)`);
+  total++;
+}
+console.log(`Compiled ${total} file(s).`);
