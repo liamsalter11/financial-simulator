@@ -14,6 +14,7 @@ import {
 import { firesInWeek } from "./recurrence.js";
 import { payrollOf, bonusOf } from "./payroll.js";
 import { simulateWeekly, projectMinWeekly, WEEKS } from "./engine.js";
+import { runMonteCarlo } from "./montecarlo.js";
 import {
   SEED_ACCOUNTS, SEED_DEBTS, normDebts, normIncome, isCard, pickIds,
   seedIncome, seedExpenses, seedTransfers, seedDebtPays, seedSettings,
@@ -86,7 +87,8 @@ export function FinancialSimulator() {
         setDebtPayments(base);
       }
       setPayments(p3 ? parse(p3, []) : (p2 ? parse(p2, []) : []));
-      setSettings(s3 ? parse(s3, seedSettings()) : { ...seedSettings(), ...(oldS.withdrawalRate != null ? { withdrawalRate: Number(oldS.withdrawalRate) } : {}), ...(oldS.redirect != null ? { redirect: !!oldS.redirect } : {}) });
+      /* merge onto defaults, not replace — so a setting added after a user's last save (e.g. mcVolatility) gets a sane value instead of undefined */
+      setSettings(s3 ? { ...seedSettings(), ...parse(s3, {}) } : { ...seedSettings(), ...(oldS.withdrawalRate != null ? { withdrawalRate: Number(oldS.withdrawalRate) } : {}), ...(oldS.redirect != null ? { redirect: !!oldS.redirect } : {}) });
       const fresh = !a3 && !a2;
       if (note === "1" || fresh) { setSeedNote(true); if (fresh) store.set("fin3:seedNote", "1"); }
       setReady(true);
@@ -248,6 +250,21 @@ export function FinancialSimulator() {
     const interestSaved = Math.max(0, minW.interest - sim.interest);
     const wksSaved = Math.max(0, (minW.clearedWeek == null ? WEEKS : minW.clearedWeek) - (sim.debtFree == null ? WEEKS : sim.debtFree));
 
+    /* Monte Carlo: reuses the deterministic sim's own contribution schedule (basis
+       growth), randomizing only the returns on top of it — see montecarlo.js. The
+       expected return is a single blended figure across invested accounts, weighted
+       by today's balance, since modeling each account as an independent random walk
+       would overstate diversification that may not really be there. */
+    const investAccts = accounts.filter((a) => isInvest(a.type));
+    const investBalTotal = investAccts.reduce((s, a) => s + n0(a.balance), 0);
+    const mcReturn = investBalTotal > 0
+      ? investAccts.reduce((s, a) => s + n0(a.rate) * n0(a.balance), 0) / investBalTotal / 100
+      : 0.07;
+    const mc = runMonteCarlo({
+      series: sim.series, weeks: maxW, annualReturn: mcReturn,
+      annualVolatility: n0(settings.mcVolatility) / 100, fireNumber: sim.fireNumber,
+    });
+
     /* next projected payment per card: find the next week a payment for it fires */
     const nextCardPay = {};
     for (const c of cards) {
@@ -309,7 +326,7 @@ export function FinancialSimulator() {
     let negAcct = null;
     for (let w = 0; w < Math.min(sim.series.length, 312) && !negAcct; w++) { const m = sim.series[w].acct; for (const a of accounts) if (m[a.id] < -1) { negAcct = a.name; break; } }
 
-    return { totalAssets, totalDebt, totalLoans, netWorth, loans, cards, mInc, mExp, mTr, mDp, mPreTax, mBonusNet, surplus, savingsRate, leftover, monthlyInterest, sim, minW, maxW, interestSaved, wksSaved, acctColors, debtColors, names, cf, debtCurve, alloc, spend, bInv, negAcct, nextCardPay, loansNoPayment, chargedTo, worstMonthOut, avgSweep, capped };
+    return { totalAssets, totalDebt, totalLoans, netWorth, loans, cards, mInc, mExp, mTr, mDp, mPreTax, mBonusNet, surplus, savingsRate, leftover, monthlyInterest, sim, minW, maxW, mc, mcReturn, interestSaved, wksSaved, acctColors, debtColors, names, cf, debtCurve, alloc, spend, bInv, negAcct, nextCardPay, loansNoPayment, chargedTo, worstMonthOut, avgSweep, capped };
   }, [accounts, debts, income, expenses, transfers, debtPayments, settings, start]);
 
   const maxW = D ? D.maxW : 520;
@@ -318,6 +335,7 @@ export function FinancialSimulator() {
   const scCF = useScope(Math.min(maxW, 312), 52);
   const scDebt = useScope(maxW, 260);
   const scInv = useScope(maxW, 260);
+  const scMC = useScope(maxW, 260);
 
   if (!accounts || !D) return (<><style>{CSS}</style><div className="fin"><div className="wrap"><div className="eyebrow">loading…</div></div></div></>);
 
@@ -459,7 +477,7 @@ export function FinancialSimulator() {
 
           {/* ============================ INVEST ============================ */}
           {tab === "invest" && (
-            <InvestTab D={D} chart={chartProps} scInv={scInv} fireN={fireN}
+            <InvestTab D={D} chart={chartProps} scInv={scInv} scMC={scMC} fireN={fireN}
               settings={settings} setS={setS} accounts={accounts} defaultOverflow={defaultOverflow} />
           )}
 

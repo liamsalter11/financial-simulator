@@ -4,9 +4,9 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
-    "test": "node --test tests/sync.test.mjs tests/engine.test.mjs",
+    "test": "node --test tests/sync.test.mjs tests/engine.test.mjs tests/montecarlo.test.mjs",
     "test:e2e": "node --test tests/e2e.test.mjs",
-    "test:all": "node --test tests/sync.test.mjs tests/engine.test.mjs tests/e2e.test.mjs"
+    "test:all": "node --test tests/sync.test.mjs tests/engine.test.mjs tests/montecarlo.test.mjs tests/e2e.test.mjs"
   },
   "devDependencies": {
     "@babel/core": "7.28.5",

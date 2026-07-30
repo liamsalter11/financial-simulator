@@ -22,6 +22,7 @@ needed to read them) are both the source and the shipped file.
 | `src/FinancialSimulator.jsx` | The main component — all state and handlers live here; renders whichever tab is active. |
 | `src/tabs/*.jsx` | One file per tab (`OverviewTab`, `AccountsTab`, `CashFlowTab`, `DebtTab`, `InvestTab`), each just the rendering for that tab. |
 | `src/engine.js` | The simulation engine (`simulateWeekly`, `projectMinWeekly`) — pure logic, no React. |
+| `src/montecarlo.js` | Monte Carlo projection for the invested portfolio (`runMonteCarlo`) — pure logic, no React. |
 | `src/payroll.js` | Per-paycheck salary/401k-match/bonus math. |
 | `src/recurrence.js` | Expands a recurring event into concrete dates and counts firings per week. |
 | `src/format.js` | Money/date formatting, recurrence labels, shared constants. |
@@ -120,9 +121,30 @@ Everything stays on your device — there is no server, no account, and no
 analytics. Use Export to save a portable JSON backup, and Import to restore it
 or move it to another device. Clearing site data will erase your entries.
 
+**Monte Carlo reuses the deterministic contribution schedule.** The Invest
+tab's "range of outcomes" chart takes the same week-by-week contributions the
+deterministic engine already computed (`simulateWeekly`'s `basis` series) and
+randomizes only the *returns* on top of them — a few hundred simulated paths
+using a fixed-seed PRNG (`src/montecarlo.js`), so results are reproducible
+rather than reshuffling on every unrelated edit. Returns are modeled as one
+blended portfolio (your invested accounts' balance-weighted rate), not
+per-account, since treating each account as an independent random walk would
+overstate diversification that may not really be there. It steps monthly, not
+weekly — the standard resolution for this kind of tool, and considerably
+cheaper to recompute on every keystroke.
+
 ## Caveats
 
-The projection holds returns, rates and spending constant, works in today's
-dollars, and models no inflation, tax on gains, volatility or
-sequence-of-returns risk. It's a directional tool for comparing decisions
+The deterministic projection holds returns, rates and spending constant,
+works in today's dollars, and models no inflation, tax on gains, volatility,
+or sequence-of-returns risk. It's a directional tool for comparing decisions
 against each other, not a forecast — and not financial advice.
+
+The Monte Carlo chart relaxes the volatility assumption only, and only for
+the invested portion of your net worth — cash, savings, and debt payoff still
+move deterministically underneath it. It doesn't model sequence-of-returns
+risk during retirement withdrawals, fees, taxes on gains, or inflation, and a
+"chance of reaching your FI number" there is a narrower question than the
+"Financial independence" date shown elsewhere (which counts your whole net
+worth, not just what's invested) — see the in-app Help panel on that tab for
+more.

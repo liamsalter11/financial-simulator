@@ -4,11 +4,27 @@ const {
   ResponsiveContainer, ReferenceLine,
 } = Recharts;
 import { Stat, NumField, Tip } from "../components.js";
-import { fmtMoney, fmtBig, fmtDate, n0 } from "../format.js";
+import { fmtMoney, fmtBig, fmtDate, n0, addDays } from "../format.js";
 import { sampleRange } from "../useScope.js";
 
-export function InvestTab({ D, chart, scInv, fireN, settings, setS, accounts, defaultOverflow }) {
+const McTip = ({ active, payload, label, start }) => {
+  if (!active || !payload || !payload.length) return null;
+  const row = payload[0].payload;
+  const d = addDays(start, label * 7);
+  return (<div className="tt"><div className="tt-m">{d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</div>
+    <div className="tt-row"><span className="dot" style={{ background: "var(--green)" }} />Median<b>{fmtMoney(row.p50)}</b></div>
+    <div className="tt-row"><span className="dot" style={{ background: "var(--muted)" }} />Middle 50%<b>{fmtMoney(row.p25)} – {fmtMoney(row.p75)}</b></div>
+    <div className="tt-row"><span className="dot" style={{ background: "var(--faint)" }} />Middle 80%<b>{fmtMoney(row.p10)} – {fmtMoney(row.p90)}</b></div>
+  </div>);
+};
+
+export function InvestTab({ D, chart, scInv, scMC, fireN, settings, setS, accounts, defaultOverflow }) {
   const { ranges, ZHINT, axisProps, yProps, w2date, start, maxW } = chart;
+  const mcData = D.mc.bands.map((b) => ({
+    w: b.w, p10: b.p10, p25: b.p25, p50: b.p50, p75: b.p75, p90: b.p90,
+    p10to25: Math.max(0, b.p25 - b.p10), p25to75: Math.max(0, b.p75 - b.p25), p75to90: Math.max(0, b.p90 - b.p75),
+  }));
+  const mcEnd = D.mc.bands[D.mc.bands.length - 1];
             const last = D.sim.series[Math.min(maxW, D.sim.series.length - 1)];
             const endVal = last.invest, endBasis = last.basis, growth = Math.max(0, endVal - endBasis);
             return (
@@ -38,6 +54,41 @@ export function InvestTab({ D, chart, scInv, fireN, settings, setS, accounts, de
                   </div>
                   {ZHINT}
                   <div className="assume">The green line is driven by the transfers and income splits you've set in Cash flow — {fmtMoney(D.mTr)}/mo of transfers plus any share of your paycheck routed straight into an investment account. The gap above the dashed line is compound growth.</div>
+                </div>
+
+                <div className="panel rise">
+                  <div className="phead"><div className="ptitle">Monte Carlo: range of outcomes</div>{ranges(scMC, maxW)}</div>
+                  <div className="sgrid" style={{ marginBottom: 14 }}>
+                    <Stat k="Chance investments alone<br/>hit your FI number" v={Math.round(D.mc.successProb * 100) + "%"} accent={D.mc.successProb >= 0.5 ? "green" : "red"} />
+                    <Stat k={"Median value by<br/>" + fmtDate(w2date(maxW))} v={fmtBig(mcEnd.p50)} accent="cyan" />
+                  </div>
+                  <div className="fields3" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                    <NumField label="Return volatility (annual)" suffix="%" value={settings.mcVolatility} onChange={(v) => setS("mcVolatility", n0(v))} />
+                  </div>
+                  <div className="scope-wrap" ref={scMC.ref} {...scMC.handlers} style={{ marginTop: 12 }}>
+                    <ResponsiveContainer width="100%" height={286}>
+                      <ComposedChart data={mcData} margin={{ top: 16, right: 12, bottom: 0, left: 6 }}>
+                        <CartesianGrid stroke="var(--line)" strokeDasharray="2 4" />
+                        <XAxis {...axisProps(scMC)} />
+                        <YAxis {...yProps} />
+                        <Tooltip content={(p) => <McTip {...p} start={start} />} cursor={{ stroke: "var(--line2)" }} />
+                        {fireN > 0 && <ReferenceLine y={fireN} stroke="var(--amber)" strokeDasharray="3 3" label={{ value: "FI " + fmtBig(fireN), position: "insideTopRight", fill: "var(--amber)", fontSize: 9.5, fontFamily: "var(--mono)" }} />}
+                        <Area dataKey="p10" stackId="mc" stroke="none" fill="transparent" isAnimationActive={false} />
+                        <Area dataKey="p10to25" stackId="mc" stroke="none" fill="rgba(92,203,139,0.10)" isAnimationActive={false} />
+                        <Area dataKey="p25to75" stackId="mc" stroke="none" fill="rgba(92,203,139,0.22)" isAnimationActive={false} />
+                        <Area dataKey="p75to90" stackId="mc" stroke="none" fill="rgba(92,203,139,0.10)" isAnimationActive={false} />
+                        <Line type="monotone" dataKey="p50" stroke="var(--green)" strokeWidth={2.2} dot={false} isAnimationActive={false} />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </div>
+                  {ZHINT}
+                  <div className="legend" style={{ marginTop: 8 }}>
+                    <span className="lg"><span className="swatch" style={{ borderTopColor: "var(--green)", borderTopWidth: 3 }} />Median</span>
+                    <span className="lg"><span className="dot" style={{ background: "rgba(92,203,139,0.5)" }} />Middle 50% / 80% of outcomes</span>
+                  </div>
+                  <div className="assume">Same contributions as the chart above — only the returns are randomized, {D.mc.trials} times, as one blended portfolio at your accounts' balance-weighted expected return. Higher volatility widens the shaded range without changing the median much; it's a measure of how much a real market could disagree with the average, not a prediction of which path you'll get.
+                    <br /><br />
+                    The percentage checks your invested portfolio's own value against the FI number, same as this chart's line — a narrower question than the "Financial independence" date above, which also counts cash, savings, and paid-down debt. A lower number here doesn't contradict a nearer date up there; it means the rest of your net worth is doing some of that work too.</div>
                 </div>
 
                 <div className="panel rise">
