@@ -12,15 +12,19 @@ export const perCheck = (gross, mode, recur) => {
 export const grossPerCheck = (inc) => perCheck(inc.gross, inc.grossMode, inc.recur);
 
 /* a promotion is a step change: new salary from a date, with the annual raise
-   compounding from there rather than from the original start date */
+   compounding from there rather than from the original start date. Take-home is derived
+   from the new gross and a tax rate rather than typed by hand — nobody knows their new
+   take-home the moment they're told a new salary. */
 export function salaryAt(inc, at) {
   let amount = n0(inc.amount), gross = grossPerCheck(inc), anchor = parseDate(inc.date), label = null;
   const list = (inc.changes || []).slice().sort((a, b) => parseDate(a.date) - parseDate(b.date));
   for (const ch of list) {
     const d = parseDate(ch.date);
     if (isNaN(d) || d > at) continue;
-    amount = n0(ch.amount);
     gross = perCheck(ch.gross, ch.grossMode || inc.grossMode, inc.recur);
+    const employee = payrollOf(inc, gross).employee;
+    const rate = ch.taxRate != null ? num(ch.taxRate) : effectiveTaxRate(inc);
+    amount = Math.max(0, gross * (1 - rate / 100) - employee);
     anchor = d; label = ch.label || "Promotion";
   }
   return { amount, gross, anchor, label };
@@ -41,6 +45,14 @@ export function payrollOf(inc, grossOverride) {
     match = Math.min(matchable, gross * num(mt.limit) / 100) * n0(mt.rate) / 100;
   }
   return { gross, rows, employee, match, total: employee + match, matchable };
+}
+
+/* the withholding rate implied by today's gross and take-home — used to prefill a new
+   promotion's tax rate, since it's the best guess for what a raise will withhold too */
+export function effectiveTaxRate(inc) {
+  const pay = payrollOf(inc);
+  if (!(pay.gross > 0)) return 0;
+  return ((pay.gross - n0(inc.amount) - pay.employee) / pay.gross) * 100;
 }
 
 /* a bonus quoted as "10% of salary" should track the salary, including its raises.

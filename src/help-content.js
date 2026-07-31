@@ -16,6 +16,7 @@ export const HELP = {
     intro: "Your balance sheet — everything you own. This is where you set starting balances and expected returns.",
     points: [
       ["Add your accounts", "Give each one a name, a type, today's balance, and an expected annual return. Picking a type fills in a sensible default rate, which you can then override."],
+      ["Balance as of (optional)", "Leave blank if the balance is accurate today. Set a future date to freeze the account until then — useful for one you haven't opened yet. Set a past date (a recent statement balance, say) and it's caught up to today using your normal income, expenses and payments in the meantime."],
       ["Types matter", "Brokerage and Retirement count as 'invested' for the asset mix and the independence target. Savings, Checking, Cash and Other asset don't."],
       ["Returns are nominal and constant", "The projection applies the rate you set every week, forever. It does not model volatility, crashes, inflation or tax on gains."],
       ["Caps and sweeping (optional)", "Set a cap to stop cash idling in an account. Anything above the cap is swept to the destination you pick — another account, or a debt to pay down."],
@@ -28,7 +29,7 @@ export const HELP = {
     points: [
       ["Income", "Enter take-home pay per paycheck and how often it arrives. Enter gross separately — as an annual salary or per paycheck — since percentage-based deductions are calculated off gross."],
       ["Pre-tax deductions and match", "401k contributions never reach take-home, so they're added on top and sent straight to the account you choose. An employer match of '100% up to 3%' means every dollar matched, capped at the first 3% of gross."],
-      ["Raises, promotions and bonuses", "A raise compounds annually. A promotion is a step change to a new salary on a date. A bonus lands once a year on its own date and can be a flat amount or a percentage of salary."],
+      ["Raises, promotions and bonuses", "A raise compounds annually. A promotion is a step change to a new salary on a date — enter the new gross and a tax rate (prefilled from today's rate) and take-home is worked out for you. A bonus lands once a year on its own date and can be a flat amount or a percentage of salary."],
       ["Splitting a paycheck", "Route a percentage or fixed amount to other accounts. The first row in the list receives whatever is left over."],
       ["Expenses", "Set an amount, how often, and which account or credit card it comes from. Add an end date for anything temporary — tuition, a lease — so it doesn't inflate your long-run independence target."],
       ["Payments and transfers", "Payments reduce debt; transfers move money between your own accounts. A card payment can be set to 'pay in full' so it clears whatever was charged that month."],
