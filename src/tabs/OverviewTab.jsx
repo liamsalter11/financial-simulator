@@ -5,11 +5,27 @@ const {
 } = Recharts;
 import { AlertTriangle } from "../icons.js";
 import { Stat, Donut, Tip, MultiTip } from "../components.js";
-import { fmtMoney, fmtBig, fmtDate } from "../format.js";
+import { fmtMoney, fmtBig, fmtDate, fmtDur } from "../format.js";
 import { sampleRange } from "../useScope.js";
 
-export function OverviewTab({ D, accounts, debts, chart, scNW, scBal, fireN }) {
+/* "3y 2mo sooner" / "5mo later" for a milestone that moves between the two scenarios.
+   Either side can be null, meaning the milestone never arrives inside the 40-year run. */
+function milestoneShift(label, weekWith, weekWithout) {
+  if (weekWith == null && weekWithout == null) return null;
+  if (weekWith != null && weekWithout == null) return `brings ${label} inside 40 years`;
+  if (weekWith == null && weekWithout != null) return `pushes ${label} beyond 40 years`;
+  const wks = weekWithout - weekWith;
+  if (Math.abs(wks) < 1) return null;
+  return `${label} ${fmtDur(Math.max(1, Math.round(Math.abs(wks) * 12 / 52.1775)))} ${wks > 0 ? "sooner" : "later"}`;
+}
+
+export function OverviewTab({ D, accounts, debts, chart, scNW, scBal, fireN, settings, setS }) {
   const { ranges, ZHINT, axisProps, yProps, w2date, start, maxW } = chart;
+  const gap = D.hasHypo ? D.nwGapAt(scNW.hi) : 0;
+  const shifts = D.hasHypo ? [
+    milestoneShift("financial independence", D.simWith.fire, D.simWithout.fire),
+    milestoneShift("debt-free", D.simWith.debtFree, D.simWithout.debtFree),
+  ].filter(Boolean) : [];
   return (
             <>
               <div className="sgrid rise" style={{ marginBottom: 16 }}>
@@ -47,6 +63,28 @@ export function OverviewTab({ D, accounts, debts, chart, scNW, scBal, fireN }) {
                   </ResponsiveContainer>
                 </div>
                 {ZHINT}
+                <div className="hypo">
+                  <label className="switch">
+                    <input type="checkbox" checked={settings.hypotheticals !== false} onChange={(e) => setS("hypotheticals", e.target.checked)} />
+                    <span className="swtrack"><span className="swknob" /></span>
+                    <span className="sw-label">Include future promotions</span>
+                  </label>
+                  {D.hasHypo ? (
+                    <div className="caphint" style={{ marginTop: 8 }}>
+                      {gap >= 0 ? "Your planned promotions add " : "Your planned salary changes cost "}
+                      <b style={{ color: gap >= 0 ? "var(--green)" : "var(--red)" }}>{fmtMoney(Math.abs(gap))}</b> of net worth by {fmtDate(w2date(scNW.hi))}
+                      {shifts.length > 0 ? ` · ${shifts.join(" · ")}` : ""}.
+                      {" "}{settings.hypotheticals !== false
+                        ? "Switch them off to see the same plan on today's salary."
+                        : "Currently projecting on today's salary, with them excluded."}
+                      {" "}Every chart and date on every tab follows this toggle.
+                    </div>
+                  ) : (
+                    <div className="caphint" style={{ marginTop: 8 }}>
+                      No promotions planned yet. Add one under Cash flow → Income → “Promotions &amp; salary changes”, and this will show what it's worth.
+                    </div>
+                  )}
+                </div>
                 <div className="assume">Today's dollars · returns and rates held constant · a projection, not a guarantee or financial advice.</div>
               </div>
 

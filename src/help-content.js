@@ -7,6 +7,7 @@ export const HELP = {
       ["The four stat cards", "Net worth is assets minus debts today. Monthly surplus is income minus living costs, before debt payments and investing. The debt-free and independence dates come from the projection below."],
       ["Net worth projection", "Simulates your accounts, debts, income and spending forward week by week for up to 40 years. Amber is net worth, green is investments, red is total debt."],
       ["Reading the chart", "Scroll or pinch to zoom, drag to pan, or use the 1Y / 5Y / Max buttons. Hover any point for exact figures on that date."],
+      ["Include future promotions", "A toggle under the net worth chart. Switch it off to re-run the whole projection on today's salary, with every planned promotion ignored — the fastest way to see what you're counting on them for. The note beside it reports the net worth gap at the chart's current zoom, plus how much sooner they get you to debt-free and financial independence. The toggle applies everywhere, not just this chart."],
       ["Every account & debt over time", "The same simulation, but with one line per account and a dashed line per debt, so you can see which account is doing the work — or running dry."],
       ["Warnings", "A red banner appears if you're spending more than you earn, or if any single account goes negative at some point in the projection."],
     ],

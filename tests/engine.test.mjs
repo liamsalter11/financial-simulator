@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { simulateWeekly } from "../src/engine.js";
-import { payrollOf, bonusOf, salaryAt } from "../src/payroll.js";
+import { payrollOf, bonusOf, salaryAt, hasPromotions, withoutPromotions } from "../src/payroll.js";
 import { normIncome } from "../src/seeds.js";
 
 const START = new Date(2026, 0, 1); // a Thursday; dates below are chosen to land on/after it
@@ -196,4 +196,61 @@ test("a blank account as-of date behaves identically to an account with no as-of
   const withoutField = simulateWeekly({ ...base(), accounts: [{ id: "chk", type: "checking", balance: 2000, rate: 3 }] });
   const withBlank = simulateWeekly({ ...base(), accounts: [{ id: "chk", type: "checking", balance: 2000, rate: 3, asOf: "" }] });
   assert.deepEqual(withBlank.series, withoutField.series, "a blank as-of string should simulate identically to an account with no as-of field");
+});
+
+test("withoutPromotions strips only the promotions, leaving every other income field intact", () => {
+  const income = [
+    {
+      id: "a", name: "pay", amount: 1000, gross: 4000, grossMode: "paycheck", recur: "weekly", raise: 3,
+      dist: [{ acctId: "chk" }], preTax: [{ mode: "pct", value: 6, toAcct: "ret", counts: true }],
+      match: { rate: 100, limit: 3, toAcct: "ret" }, bonus: { mode: "pct", value: 10, withhold: 30 },
+      changes: [{ id: "c1", date: "2027-01-01", gross: 6000, grossMode: "paycheck", taxRate: 25 }],
+    },
+    { id: "b", name: "side gig", amount: 200, gross: 200, grossMode: "paycheck", recur: "monthly", raise: 0 },
+  ];
+  assert.equal(hasPromotions(income), true, "an income carrying a change should report as having promotions");
+
+  const stripped = withoutPromotions(income);
+  assert.deepEqual(stripped[0].changes, [], "the promotion list should be emptied");
+  assert.equal(hasPromotions(stripped), false, "the stripped list should report no promotions");
+  assert.equal(stripped[0].raise, 3, "the annual raise should survive — only promotions are hypothetical here");
+  assert.deepEqual(stripped[0].bonus, income[0].bonus, "the bonus should survive untouched");
+  assert.deepEqual(stripped[0].match, income[0].match, "the employer match should survive untouched");
+  assert.deepEqual(stripped[0].preTax, income[0].preTax, "pre-tax deductions should survive untouched");
+  assert.equal(stripped[0].amount, 1000, "today's take-home should be unchanged");
+  assert.deepEqual(stripped[1], income[1], "an income with no promotions should pass through by reference-equal value");
+  assert.deepEqual(income[0].changes.length, 1, "the original income list must not be mutated");
+});
+
+test("switching promotions off projects a strictly lower net worth, and the gap is the promotion's worth", () => {
+  const accounts = [{ id: "chk", type: "checking", balance: 0, rate: 0 }];
+  const income = [{
+    id: "inc", name: "pay", amount: 1000, gross: 1000, grossMode: "paycheck",
+    date: "2026-01-01", recur: "weekly", raise: 0, weekdayAdj: false, dist: [{ acctId: "chk" }],
+    changes: [{ id: "c1", date: "2026-01-15", label: "Promotion", gross: 2000, grossMode: "paycheck", taxRate: 0 }],
+  }];
+  const settings = { withdrawalRate: 4, redirect: true };
+  const cfg = { accounts, debts: [], expenses: [], transfers: [], debtPayments: [], settings, start: START, weeks: 10 };
+
+  const withHypo = simulateWeekly({ ...cfg, income });
+  const noHypo = simulateWeekly({ ...cfg, income: withoutPromotions(income) });
+
+  // The promotion doubles the weekly paycheck from 2026-01-15, which is week 2.
+  assert.equal(noHypo.series[10].acct.chk, 10 * 1000, "without the promotion, pay stays flat at the original salary");
+  assert.equal(withHypo.series[10].acct.chk, 2 * 1000 + 8 * 2000, "with the promotion, every paycheck from its date onward is at the new salary");
+  assert.equal(withHypo.series[10].nw - noHypo.series[10].nw, 8000, "the net worth gap is exactly what the promotion is worth over the run");
+});
+
+test("with no promotions configured, both scenarios are identical", () => {
+  const accounts = [{ id: "chk", type: "checking", balance: 500, rate: 2 }];
+  const income = [{ id: "inc", name: "pay", amount: 900, gross: 900, grossMode: "paycheck", date: "2026-01-01", recur: "weekly", raise: 2, weekdayAdj: false, dist: [{ acctId: "chk" }] }];
+  const settings = { withdrawalRate: 4, redirect: true };
+  const cfg = { accounts, debts: [], income, expenses: [], transfers: [], debtPayments: [], settings, start: START, weeks: 30 };
+
+  assert.equal(hasPromotions(income), false, "this fixture has no promotions");
+  assert.deepEqual(
+    simulateWeekly({ ...cfg, income: withoutPromotions(income) }).series,
+    simulateWeekly(cfg).series,
+    "with nothing to strip, the toggle can't change the projection",
+  );
 });

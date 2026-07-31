@@ -182,6 +182,8 @@ export const CSS = `
 .fin .switch input:checked+.swtrack .swknob{transform:translateX(18px);background:var(--amber);}
 .fin .sw-label{font-size:13px;color:var(--muted);}
 .fin .assume{font-family:var(--mono);font-size:10.5px;color:var(--faint);line-height:1.6;margin-top:8px;}
+.fin .hypo{margin-top:12px;padding-top:12px;border-top:1px solid var(--line);}
+.fin .hypo .switch{margin-top:0;}
 .fin .endwrap{display:inline-flex;align-items:center;gap:6px;}
 .fin .endwrap .cap{white-space:nowrap;}
 .fin .endwrap input[type=date]{font-size:11.5px;padding:6px 8px;}

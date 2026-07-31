@@ -90,4 +90,4 @@ export const seedDebtPays = (id, dbts) => {
   if (id.hiDebt) list.push({ id: uid(), name: "Extra toward payoff", amount: 400, date: nextFirstISO(), recur: "monthly", fromAcct: id.chk, toDebt: id.hiDebt });
   return list;
 };
-export const seedSettings = () => ({ withdrawalRate: 4, redirect: true, mcVolatility: 15 });
+export const seedSettings = () => ({ withdrawalRate: 4, redirect: true, mcVolatility: 15, hypotheticals: true });

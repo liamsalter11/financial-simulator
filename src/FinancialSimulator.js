@@ -8,7 +8,7 @@ import { HelpCircle, Upload, Download, RotateCcw, Zap, AlertTriangle, Check, X, 
 import { Modal } from "./components.js";
 import { n0, num, uid, todayISO, nextFirstISO, firstOfYear, isoDate, addMonths, parseDate, addDays, fmtMoney, fmtBig, fmtC, weekTick, r2, parse, OPY, ACCT_TYPES, isInvest, isSav, isCash, BUCKET_COLOR, PAL, acctColor, debtColor } from "./format.js";
 import { firesInWeek } from "./recurrence.js";
-import { payrollOf, bonusOf, effectiveTaxRate } from "./payroll.js";
+import { payrollOf, bonusOf, effectiveTaxRate, hasPromotions, withoutPromotions } from "./payroll.js";
 import { simulateWeekly, projectMinWeekly, WEEKS } from "./engine.js";
 import { runMonteCarlo } from "./montecarlo.js";
 import { SEED_ACCOUNTS, SEED_DEBTS, normDebts, normIncome, isCard, pickIds, seedIncome, seedExpenses, seedTransfers, seedDebtPays, seedSettings } from "./seeds.js";
@@ -579,17 +579,31 @@ export function FinancialSimulator() {
     const savingsRate = mInc + mPreTax > 0 ? (surplus + mPreTax) / (mInc + mPreTax) * 100 : 0;
     const leftover = surplus - mTr - mDp;
     const monthlyInterest = loans.reduce((s, l) => s + n0(l.balance) * n0(l.apr) / 1200, 0);
-    const sim = simulateWeekly({
+    const simCfg = {
       accounts,
       debts,
-      income,
       expenses,
       transfers,
       debtPayments,
       settings,
       start,
       weeks: WEEKS
+    };
+    const hasHypo = hasPromotions(income);
+    const simWith = simulateWeekly({
+      ...simCfg,
+      income
     });
+    const simWithout = hasHypo ? simulateWeekly({
+      ...simCfg,
+      income: withoutPromotions(income)
+    }) : simWith;
+    const hypoOn = settings.hypotheticals !== false;
+    const sim = hypoOn ? simWith : simWithout;
+    const nwGapAt = w => {
+      const i = Math.max(0, Math.min(Math.round(w), simWith.series.length - 1, simWithout.series.length - 1));
+      return simWith.series[i].nw - simWithout.series[i].nw;
+    };
     const minW = projectMinWeekly(debts, start, WEEKS);
     const maxW = Math.min(WEEKS, Math.max(sim.fire || 520, (sim.debtFree || 260) + 130, 260) + 60);
     const interestSaved = Math.max(0, minW.interest - sim.interest);
@@ -725,6 +739,11 @@ export function FinancialSimulator() {
       leftover,
       monthlyInterest,
       sim,
+      simWith,
+      simWithout,
+      hasHypo,
+      hypoOn,
+      nwGapAt,
       minW,
       maxW,
       mc,
@@ -1003,7 +1022,9 @@ export function FinancialSimulator() {
     chart: chartProps,
     scNW: scNW,
     scBal: scBal,
-    fireN: fireN
+    fireN: fireN,
+    settings: settings,
+    setS: setS
   }), tab === "accounts" && React.createElement(AccountsTab, {
     D: D,
     accounts: accounts,
