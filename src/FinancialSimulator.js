@@ -8,7 +8,7 @@ import { HelpCircle, Upload, Download, RotateCcw, Zap, AlertTriangle, Check, X, 
 import { Modal } from "./components.js";
 import { n0, num, uid, todayISO, nextFirstISO, firstOfYear, isoDate, addMonths, parseDate, addDays, fmtMoney, fmtBig, fmtC, weekTick, r2, parse, OPY, ACCT_TYPES, isInvest, isSav, isCash, BUCKET_COLOR, PAL, acctColor, debtColor } from "./format.js";
 import { firesInWeek } from "./recurrence.js";
-import { payrollOf, bonusOf } from "./payroll.js";
+import { payrollOf, bonusOf, effectiveTaxRate } from "./payroll.js";
 import { simulateWeekly, projectMinWeekly, WEEKS } from "./engine.js";
 import { runMonteCarlo } from "./montecarlo.js";
 import { SEED_ACCOUNTS, SEED_DEBTS, normDebts, normIncome, isCard, pickIds, seedIncome, seedExpenses, seedTransfers, seedDebtPays, seedSettings } from "./seeds.js";
@@ -333,9 +333,9 @@ export function FinancialSimulator() {
         id: uid(),
         date: isoDate(addMonths(new Date(), 12)),
         label: "Promotion",
-        amount: last ? last.amount : x.amount,
         gross: last ? last.gross : x.gross,
-        grossMode: x.grossMode || "year"
+        grossMode: x.grossMode || "year",
+        taxRate: last ? last.taxRate : effectiveTaxRate(x)
       }]
     };
   }));
@@ -431,7 +431,7 @@ export function FinancialSimulator() {
   };
   const buildDump = () => JSON.stringify({
     app: "fin-sim",
-    version: 5,
+    version: 6,
     exportedAt: new Date().toISOString(),
     accounts,
     debts,

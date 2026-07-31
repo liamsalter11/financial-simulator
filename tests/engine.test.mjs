@@ -6,7 +6,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { simulateWeekly } from "../src/engine.js";
-import { payrollOf, bonusOf } from "../src/payroll.js";
+import { payrollOf, bonusOf, salaryAt } from "../src/payroll.js";
+import { normIncome } from "../src/seeds.js";
 
 const START = new Date(2026, 0, 1); // a Thursday; dates below are chosen to land on/after it
 
@@ -114,4 +115,85 @@ test("extra debt payments roll to the highest-APR remaining loan once the named 
   const afterWeek1 = result.series[1].dbt;
   assert.equal(afterWeek1.low, 0, "the named target should be paid off first");
   assert.equal(afterWeek1.high, 4050, "the $950 leftover after clearing the named target should roll onto the higher-APR loan");
+});
+
+test("a promotion derives take-home from the new salary and a tax rate, not a typed net figure", () => {
+  const accounts = [
+    { id: "chk", type: "checking", balance: 0, rate: 0 },
+    { id: "ret", type: "retirement", balance: 0, rate: 0 },
+  ];
+  const income = [{
+    id: "inc", name: "pay", amount: 1000, gross: 4000, grossMode: "paycheck",
+    date: "2026-01-01", recur: "weekly", raise: 0, weekdayAdj: false,
+    dist: [{ acctId: "chk" }],
+    preTax: [{ mode: "pct", value: 6, toAcct: "ret", counts: true }],
+    match: { rate: 100, limit: 3, toAcct: "ret" },
+    changes: [{ id: "c1", date: "2026-01-08", label: "Promotion", gross: 5000, grossMode: "paycheck", taxRate: 25 }],
+  }];
+  const settings = { withdrawalRate: 4, redirect: true };
+  const result = simulateWeekly({ accounts, debts: [], income, expenses: [], transfers: [], debtPayments: [], settings, start: START, weeks: 2 });
+
+  // week 1's snapshot is taken before that week's paycheck lands, so it still reflects
+  // the baseline salary; week 2's snapshot reflects the promoted paycheck from week 1.
+  const before = result.series[1].acct, after = result.series[2].acct;
+  const employee = 5000 * 0.06; // 300 — 6% of the new gross
+  const takeHome = 5000 * (1 - 0.25) - employee; // 3450
+  const match = Math.min(employee, 5000 * 0.03); // 150 — 100% match up to 3% of gross
+
+  assert.equal(after.chk - before.chk, takeHome, "take-home should be derived from the new gross and tax rate, matching a manual withholding calc");
+  assert.equal(after.ret - before.ret, employee + match, "the 401k contribution and employer match should track the promoted gross");
+});
+
+test("normIncome back-derives a tax rate from a legacy take-home figure so old saved data keeps its projection", () => {
+  const legacy = {
+    gross: 4000, grossMode: "paycheck", recur: "biweekly", amount: 2800,
+    preTax: [{ mode: "pct", value: 6, toAcct: "ret", counts: true }],
+    changes: [{ id: "c1", date: "2026-06-01", label: "Promotion", gross: 5000, grossMode: "paycheck", amount: 3400 }],
+  };
+  const [normalized] = normIncome([legacy], "chk", "ret");
+  const sal = salaryAt(normalized, new Date(2026, 6, 1));
+  assert.ok(Math.abs(sal.amount - 3400) < 0.01, "the migrated promotion's derived take-home should match the legacy typed-in figure");
+});
+
+test("a future account as-of date freezes the account until then", () => {
+  const accounts = [{ id: "chk", type: "checking", balance: 1000, rate: 0, asOf: "2026-01-22" }];
+  const expenses = [{ id: "e1", category: "rent", amount: 100, date: "2026-01-01", recur: "weekly", weekdayAdj: false, fromAcct: "chk" }];
+  const settings = { withdrawalRate: 4, redirect: true };
+  const result = simulateWeekly({ accounts, debts: [], income: [], expenses, transfers: [], debtPayments: [], settings, start: START, weeks: 5 });
+
+  // 2026-01-22 is exactly 3 weeks after START (2026-01-01), so weeks 0-3 should show the
+  // account exactly as entered, untouched by the weekly expense.
+  for (let w = 0; w <= 3; w++) {
+    assert.equal(result.series[w].acct.chk, 1000, `week ${w} should still show the entered balance, before the as-of date`);
+  }
+  assert.equal(result.series[4].acct.chk, 900, "the first expense at or after the as-of date should apply");
+  assert.equal(result.series[5].acct.chk, 800, "expenses continue applying normally once the account is active");
+});
+
+test("a past account as-of date catches the account up to today, without touching debt balances", () => {
+  const accounts = [{ id: "chk", type: "checking", balance: 1000, rate: 0, asOf: "2025-12-11" }];
+  const debts = [{ id: "ln", apr: 5, balance: 500, kind: "loan", interestFrom: "2020-01-01" }];
+  // 2025-12-11 is exactly 3 weeks before START (2026-01-01)
+  const expenses = [{ id: "e1", category: "rent", amount: 100, date: "2025-12-11", recur: "weekly", weekdayAdj: false, fromAcct: "chk" }];
+  const debtPayments = [{ id: "dp", amount: 50, date: "2025-12-11", recur: "weekly", weekdayAdj: false, fromAcct: "chk", toDebt: "ln" }];
+  const settings = { withdrawalRate: 4, redirect: true };
+  const result = simulateWeekly({ accounts, debts, income: [], expenses, transfers: [], debtPayments, settings, start: START, weeks: 2 });
+
+  assert.equal(result.series[0].acct.chk, 1000 - 3 * 100 - 3 * 50, "today's checking balance should already reflect the three historical weeks of expenses and payments");
+  assert.equal(result.series[0].dbt.ln, 500, "the loan's entered balance is today's truth — historical payments during catch-up shouldn't pay it down");
+});
+
+test("a blank account as-of date behaves identically to an account with no as-of field at all", () => {
+  const base = () => ({
+    debts: [{ id: "ln", apr: 6, balance: 1000, kind: "loan", interestFrom: "2020-01-01" }],
+    income: [{ id: "inc", name: "pay", amount: 500, gross: 500, grossMode: "paycheck", date: "2026-01-01", recur: "weekly", raise: 0, weekdayAdj: false, dist: [{ acctId: "chk" }] }],
+    expenses: [{ id: "e1", category: "rent", amount: 80, date: "2026-01-01", recur: "weekly", weekdayAdj: false, fromAcct: "chk" }],
+    transfers: [],
+    debtPayments: [{ id: "dp", amount: 40, date: "2026-01-01", recur: "weekly", weekdayAdj: false, fromAcct: "chk", toDebt: "ln" }],
+    settings: { withdrawalRate: 4, redirect: true },
+    start: START, weeks: 20,
+  });
+  const withoutField = simulateWeekly({ ...base(), accounts: [{ id: "chk", type: "checking", balance: 2000, rate: 3 }] });
+  const withBlank = simulateWeekly({ ...base(), accounts: [{ id: "chk", type: "checking", balance: 2000, rate: 3, asOf: "" }] });
+  assert.deepEqual(withBlank.series, withoutField.series, "a blank as-of string should simulate identically to an account with no as-of field");
 });

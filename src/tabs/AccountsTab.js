@@ -82,7 +82,17 @@ export function AccountsTab({
       suffix: "%",
       value: a.rate,
       onChange: v => upAcct(a.id, "rate", v)
+    }), React.createElement("div", {
+      className: "field"
+    }, React.createElement("label", null, "Balance as of"), React.createElement("input", {
+      type: "date",
+      value: a.asOf || "",
+      onChange: e => upAcct(a.id, "asOf", e.target.value),
+      "aria-label": "Balance as of",
+      title: "The date this balance was true. Leave blank for today."
     })), React.createElement("div", {
+      className: "caphint"
+    }, "Leave blank if this is today's balance. A future date freezes the account until then; a past date catches it up to today using your normal income, expenses and payments.")), React.createElement("div", {
       className: "capline"
     }, React.createElement(NumField, {
       cls: "ramt",

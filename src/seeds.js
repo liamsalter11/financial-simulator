@@ -1,6 +1,7 @@
 // Default/example data shown on first load, and normalization helpers that backfill
 // missing fields when loading older saved data or an imported JSON file.
 import { n0, uid, todayISO, nextFirstISO, isSav, isInvest } from "./format.js";
+import { perCheck, payrollOf } from "./payroll.js";
 
 export const A_CHK = uid(), A_SAV = uid(), A_BRK = uid(), A_RET = uid();
 export const D_EAR = uid(), D_MOH = uid();
@@ -36,7 +37,18 @@ export const normIncome = (list, fbAcct, retAcct) => (list || []).map((x) => ({
     counts: p.counts !== false,
   })),
   match: x.match ? { rate: x.match.rate != null ? x.match.rate : 100, limit: x.match.limit != null ? x.match.limit : 3, toAcct: x.match.toAcct || retAcct } : null,
-  changes: (x.changes || []).map((c) => ({ id: c.id || uid(), date: c.date || todayISO(), label: c.label || "Promotion", amount: c.amount != null ? c.amount : 0, gross: c.gross != null ? c.gross : 0, grossMode: c.grossMode || x.grossMode || "year" })),
+  /* older saved data has a hand-typed "amount" (take-home) instead of a tax rate — back
+     out the rate it implied so the projection doesn't change under existing users */
+  changes: (x.changes || []).map((c) => {
+    const grossMode = c.grossMode || x.grossMode || "year";
+    let taxRate = c.taxRate;
+    if (taxRate == null) {
+      const gpc = perCheck(c.gross, grossMode, x.recur);
+      const employee = gpc > 0 ? payrollOf(x, gpc).employee : 0;
+      taxRate = gpc > 0 ? ((gpc - n0(c.amount) - employee) / gpc) * 100 : 0;
+    }
+    return { id: c.id || uid(), date: c.date || todayISO(), label: c.label || "Promotion", gross: c.gross != null ? c.gross : 0, grossMode, taxRate };
+  }),
   bonus: x.bonus ? {
     mode: x.bonus.mode || "pct",
     value: x.bonus.value != null ? x.bonus.value : 0,

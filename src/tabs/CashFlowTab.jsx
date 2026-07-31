@@ -7,7 +7,7 @@ const {
 import { Plus, Trash2, ArrowRight } from "../icons.js";
 import { Stat, NumField, Seg, EndDate, Tip } from "../components.js";
 import { fmtMoney, n0, num, OPY, parseDate, RECUR, recurLabel } from "../format.js";
-import { payrollOf, bonusOf, perCheck } from "../payroll.js";
+import { payrollOf, bonusOf, perCheck, effectiveTaxRate } from "../payroll.js";
 import { isCard } from "../seeds.js";
 import { sampleRange } from "../useScope.js";
 
@@ -129,7 +129,7 @@ export function CashFlowTab({
                             const pay = payrollOf(inc);
                             const perYear = OPY[inc.recur] || 0;
                             const withheld = pay.gross > 0 ? pay.gross - n0(inc.amount) - pay.employee : 0;
-                            const effRate = pay.gross > 0 ? (withheld / pay.gross) * 100 : 0;
+                            const effRate = effectiveTaxRate(inc);
                             return (<>
                               <div className="dist-lbl"><span>Payroll deductions (not in take-home)</span><span>{fmtMoney(pay.total)} / paycheck</span></div>
                               <div className="dist-row">
@@ -214,13 +214,10 @@ export function CashFlowTab({
                               </div>
                               {(inc.changes || []).slice().sort((a, b) => parseDate(a.date) - parseDate(b.date)).map((ch) => {
                                 const gpc = perCheck(ch.gross, ch.grossMode || inc.grossMode, inc.recur);
-                                const takeHome = n0(ch.amount) * perYear;
                                 const annual = gpc * perYear;
-                                const defer = (inc.preTax || []).reduce((s, pt) => s + (pt.mode === "pct" ? gpc * num(pt.value) / 100 : n0(pt.value)), 0) * perYear;
-                                const held = annual - takeHome - defer;
-                                const rate = annual > 0 ? (held / annual) * 100 : 0;
-                                const curRate = pay.gross > 0 ? withheld * perYear / (pay.gross * perYear) * 100 : 0;
-                                const odd = annual > 0 && (rate < curRate - 6 || rate > curRate + 12);
+                                const employee = gpc > 0 ? payrollOf(inc, gpc).employee : 0;
+                                const takeHomePerCheck = Math.max(0, gpc * (1 - num(ch.taxRate) / 100) - employee);
+                                const takeHome = takeHomePerCheck * perYear;
                                 return (
                                   <div className="card" key={ch.id} style={{ background: "var(--bg)", marginBottom: 8 }}>
                                     <div className="card-r2">
@@ -232,18 +229,17 @@ export function CashFlowTab({
                                     <div className="card-r2" style={{ marginTop: 8 }}>
                                       <span className="cap">salary</span>
                                       <div className="pctbox" style={{ width: 108 }}><span className="u" style={{ marginLeft: 0, marginRight: 3 }}>$</span><input type="number" inputMode="decimal" value={ch.gross} onChange={(e) => upChange(inc.id, ch.id, "gross", e.target.value)} aria-label="New salary" /></div>
-                                      <span className="cap">take-home / check</span>
-                                      <div className="pctbox" style={{ width: 96 }}><span className="u" style={{ marginLeft: 0, marginRight: 3 }}>$</span><input type="number" inputMode="decimal" value={ch.amount} onChange={(e) => upChange(inc.id, ch.id, "amount", e.target.value)} aria-label="New take-home" /></div>
+                                      <span className="cap">tax rate</span>
+                                      <div className="pctbox" style={{ width: 80 }}><input type="number" inputMode="decimal" value={ch.taxRate} onChange={(e) => upChange(inc.id, ch.id, "taxRate", e.target.value)} aria-label="Tax rate" /><span className="u">%</span></div>
                                     </div>
-                                    {annual > 0 && <div className={"caphint" + (odd ? " warn-txt" : "")}>
-                                      {fmtMoney(annual)}/yr gross → {fmtMoney(gpc)}/check · take-home {fmtMoney(n0(ch.amount))}/check ({fmtMoney(takeHome)}/yr) · implies {rate.toFixed(1)}% withheld
-                                      {odd ? ` — your current rate is ${curRate.toFixed(1)}%, so double-check the take-home figure.` : ` vs ${curRate.toFixed(1)}% today, which tracks.`}
+                                    {annual > 0 && <div className="caphint">
+                                      {fmtMoney(annual)}/yr gross → {fmtMoney(gpc)}/check · {num(ch.taxRate).toFixed(1)}% withheld (today's rate is {effRate.toFixed(1)}%) → take-home {fmtMoney(takeHomePerCheck)}/check ({fmtMoney(takeHome)}/yr)
                                     </div>}
                                   </div>
                                 );
                               })}
                               <button className="dist-add" onClick={() => addChange(inc.id)}>+ Add a promotion or salary change</button>
-                              <div className="caphint">Salary steps to the new figure on that date and the raise percentage compounds from there. Your baseline stays intact, so you can compare with the change removed.</div>
+                              <div className="caphint">Salary steps to the new figure on that date and the raise percentage compounds from there. Take-home is worked out from the tax rate, prefilled from today's rate — adjust it if the raise pushes you into a new bracket. Your baseline stays intact, so you can compare with the change removed.</div>
                             </>);
                           })()}
                         </div>

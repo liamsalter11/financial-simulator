@@ -12,7 +12,7 @@ import {
   isInvest, isSav, isCash, BUCKET_COLOR, PAL, acctColor, debtColor,
 } from "./format.js";
 import { firesInWeek } from "./recurrence.js";
-import { payrollOf, bonusOf } from "./payroll.js";
+import { payrollOf, bonusOf, effectiveTaxRate } from "./payroll.js";
 import { simulateWeekly, projectMinWeekly, WEEKS } from "./engine.js";
 import { runMonteCarlo } from "./montecarlo.js";
 import {
@@ -136,7 +136,7 @@ export function FinancialSimulator() {
   const addChange = (iid) => setIncome((p) => p.map((x) => {
     if (x.id !== iid) return x;
     const last = (x.changes || []).slice().sort((a, b) => parseDate(a.date) - parseDate(b.date)).pop();
-    return { ...x, changes: [...(x.changes || []), { id: uid(), date: isoDate(addMonths(new Date(), 12)), label: "Promotion", amount: last ? last.amount : x.amount, gross: last ? last.gross : x.gross, grossMode: x.grossMode || "year" }] };
+    return { ...x, changes: [...(x.changes || []), { id: uid(), date: isoDate(addMonths(new Date(), 12)), label: "Promotion", gross: last ? last.gross : x.gross, grossMode: x.grossMode || "year", taxRate: last ? last.taxRate : effectiveTaxRate(x) }] };
   }));
   const upChange = (iid, cid, k, v) => setIncome((p) => p.map((x) => x.id === iid ? { ...x, changes: (x.changes || []).map((c) => c.id === cid ? { ...c, [k]: v } : c) } : x));
   const rmChange = (iid, cid) => setIncome((p) => p.map((x) => x.id === iid ? { ...x, changes: (x.changes || []).filter((c) => c.id !== cid) } : x));
@@ -160,7 +160,7 @@ export function FinancialSimulator() {
     setSeedNote(true); store.set("fin3:seedNote", "1");
   };
 
-  const buildDump = () => JSON.stringify({ app: "fin-sim", version: 5, exportedAt: new Date().toISOString(), accounts, debts, income, expenses, transfers, debtPayments, payments, settings }, null, 2);
+  const buildDump = () => JSON.stringify({ app: "fin-sim", version: 6, exportedAt: new Date().toISOString(), accounts, debts, income, expenses, transfers, debtPayments, payments, settings }, null, 2);
   const openExport = () => { setImportText(buildDump()); setModal("export"); };
   const copyText = async (text) => {
     try { if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); return true; } } catch { }

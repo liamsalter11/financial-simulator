@@ -29,6 +29,12 @@ export function AccountsTab({ D, accounts, settings, defaultOverflow, upAcct, up
                         <select value={a.type} onChange={(e) => upAcctType(a.id, e.target.value)} aria-label="Type">{ACCT_TYPES.map((t) => <option key={t.v} value={t.v}>{t.label}</option>)}</select>
                         <NumField cls="ramt" label="Balance" prefix="$" value={a.balance} onChange={(v) => upAcct(a.id, "balance", v)} />
                         <NumField cls="rrate" label="Return" suffix="%" value={a.rate} onChange={(v) => upAcct(a.id, "rate", v)} />
+                        <div className="field">
+                          <label>Balance as of</label>
+                          <input type="date" value={a.asOf || ""} onChange={(e) => upAcct(a.id, "asOf", e.target.value)}
+                            aria-label="Balance as of" title="The date this balance was true. Leave blank for today." />
+                        </div>
+                        <div className="caphint">Leave blank if this is today's balance. A future date freezes the account until then; a past date catches it up to today using your normal income, expenses and payments.</div>
                       </div>
                       <div className="capline">
                         <NumField cls="ramt" label="Cap at" prefix="$" value={a.cap == null ? "" : a.cap} onChange={(v) => upAcct(a.id, "cap", v)} />
