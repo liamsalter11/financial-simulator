@@ -1,0 +1,43 @@
+name: Sync to liamsalter11.github.io
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout financial-simulator
+        uses: actions/checkout@v4
+        with:
+          path: financial-simulator
+
+      - name: Checkout liamsalter11.github.io
+        uses: actions/checkout@v4
+        with:
+          repository: liamsalter11/liamsalter11.github.io
+          token: ${{ secrets.SITE_DEPLOY_TOKEN }}
+          path: site
+
+      - name: Sync files into site/financial-simulator
+        run: |
+          rsync -a --delete \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='node_modules' \
+            --exclude='test-results' \
+            --exclude='playwright-report' \
+            financial-simulator/ site/financial-simulator/
+
+      - name: Commit and push if changed
+        run: |
+          cd site
+          git config user.name "financial-simulator sync"
+          git config user.email "actions@users.noreply.github.com"
+          git add financial-simulator
+          if git diff --cached --quiet; then
+            echo "No changes to sync."
+          else
+            git commit -m "Sync financial-simulator@${GITHUB_SHA::7}"
+            git push
+          fi
