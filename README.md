@@ -25,6 +25,8 @@ needed to read them) are both the source and the shipped file.
 | `src/montecarlo.js` | Monte Carlo projection for the invested portfolio (`runMonteCarlo`) — pure logic, no React. |
 | `src/project.js` | The whole expensive projection behind one pure entry point. |
 | `src/worker.js` | The module Web Worker that runs it off the main thread. |
+| `src/solve.js` | Goal seek and the sensitivity sweep — the projection, in reverse. |
+| `src/milestones.js` | The dated milestone list, and the scenario comparison diff. |
 | `src/loan.js` | Amortization: payment ↔ term ↔ months-to-payoff. |
 | `src/tax.js` | Federal brackets, the standard deduction and FICA, plus `estimateTax`. |
 | `src/payroll.js` | Per-paycheck salary/401k-match/bonus math. |
@@ -105,6 +107,9 @@ npm run test:all       # everything
   promotion math, recurrence expansion, seed/normalization of older saved data,
   the Monte Carlo (accumulation and drawdown, including that volatility alone
   sinks plans the average return sustains), and the chart downsampler.
+- **`tests/solve.test.mjs`**, **`tests/milestones.test.mjs`** — the goal seeker
+  (a solved amount must really hit the target when replayed through the engine,
+  and an impossible ask must say so) and the milestone list.
 - **`tests/project.test.mjs`** — `src/project.js`, the seam the worker runs
   behind: that it changes nothing the page used to compute inline, and that
   splitting the comparison runs out of the primary result leaves it identical.
@@ -155,6 +160,20 @@ everything around it gets dearer, so it's deflated week by week and quietly buys
 day and moves no dates, because the independence target inflates at exactly the same rate
 the balances do. At 0% inflation every conversion is the identity, which is what the older
 engine tests assert.
+
+**The projection also runs in reverse.** Goal seek binary-searches one lever — extra toward
+debt, monthly investing, monthly spending — against one target: debt-free by a date,
+independent by a date, or a survival percentage. It assumes monotonicity, which holds for
+every pairing offered, and it reports honestly when it can't deliver: an unreachable target
+says so rather than returning the ceiling dressed up as an answer, and a lever that doesn't
+move the target at all ("spending less won't clear a loan sooner — the freed money piles up
+in checking") says that instead. The sensitivity sweep nudges each input on its own and
+ranks how far your independence date moves, which is usually not in the order you'd guess:
+on the seed plan a point of inflation costs 18 months while $200/mo more invested buys one.
+
+**Scenarios are the same shape as an export.** Save the plan under a name, pick one to
+compare against, and the worker runs it alongside the live one — a ghost line on the net
+worth chart and a table of how far apart the two put each milestone.
 
 **The projection runs off the main thread.** Three 40-year simulations plus a Monte Carlo
 is roughly 180ms of work, and it reruns on every keystroke. `src/project.js` puts all of it
