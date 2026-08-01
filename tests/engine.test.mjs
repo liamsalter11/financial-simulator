@@ -5,11 +5,19 @@
 // to today's date and would make assertions drift.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { simulateWeekly } from "../src/engine.js";
+import { simulateWeekly, projectMinWeekly } from "../src/engine.js";
 import { payrollOf, bonusOf, salaryAt, hasPromotions, withoutPromotions } from "../src/payroll.js";
 import { normIncome } from "../src/seeds.js";
 
 const START = new Date(2026, 0, 1); // a Thursday; dates below are chosen to land on/after it
+
+/* the settings every scenario needs, and the empty lists simulateWeekly always destructures —
+   spread this and override only the part the test is actually about */
+const BASE = {
+  accounts: [], debts: [], income: [], expenses: [], transfers: [], debtPayments: [],
+  settings: { withdrawalRate: 4, redirect: true }, start: START,
+};
+const sim = (cfg) => simulateWeekly({ ...BASE, ...cfg });
 
 test("cap-sweep overflow respects settings.redirect, matching the scheduled debt-payment overflow", () => {
   // Regression test for the bug where the account-cap sweep always redirected leftover
@@ -253,4 +261,347 @@ test("with no promotions configured, both scenarios are identical", () => {
     simulateWeekly(cfg).series,
     "with nothing to strip, the toggle can't change the projection",
   );
+});
+
+/* ================================================================== */
+/*  Credit cards: charges, the grace period, and carried interest      */
+/* ================================================================== */
+
+test("a card that is never paid accrues interest on the spending it accumulates", () => {
+  // Regression test. `carried` (the balance interest is charged on) was only ever updated
+  // when a payment touched the card, so a card that started at zero and simply collected
+  // charges reported a growing balance and *no interest at all* — $6,000 owed at 24% APR
+  // for a year, $0 charged. Give the same card a $1 opening balance and it charged $0.24.
+  const cfg = (balance) => ({
+    accounts: [{ id: "chk", type: "checking", balance: 100000, rate: 0 }],
+    debts: [{ id: "cc", kind: "card", balance, apr: 24, interestFrom: "2020-01-01" }],
+    expenses: [{ id: "e", amount: 500, date: "2026-01-15", recur: "monthly", fromAcct: "cc" }],
+    weeks: 52,
+  });
+
+  const fromZero = sim(cfg(0));
+  assert.ok(fromZero.cardInterest > 500, `a year of unpaid spending at 24% should charge real interest, got ${fromZero.cardInterest}`);
+  assert.ok(fromZero.series[52].dbt.cc > 6000, "the balance should exceed the $6,000 charged, because interest compounds on top");
+
+  // A $1 difference in opening balance must not swing the interest charged — it did before.
+  const fromOne = sim(cfg(1));
+  assert.ok(Math.abs(fromOne.cardInterest - fromZero.cardInterest) < 1, "opening balance shouldn't discontinuously change how spending accrues");
+});
+
+test("paying a card in full charges no interest, whichever day of the month the payment lands", () => {
+  // The grace period: purchases made during a cycle only become interest-bearing at the
+  // statement close, so a card cleared every month costs nothing to carry. This must hold
+  // regardless of whether the payment falls before or after the month's charges.
+  const cfg = (payDate) => ({
+    accounts: [{ id: "chk", type: "checking", balance: 100000, rate: 0 }],
+    debts: [{ id: "cc", kind: "card", balance: 0, apr: 24, interestFrom: "2020-01-01" }],
+    expenses: [{ id: "e", amount: 500, date: "2026-01-15", recur: "monthly", fromAcct: "cc" }],
+    debtPayments: [{ id: "dp", amount: 0, date: payDate, recur: "monthly", fromAcct: "chk", toDebt: "cc", payFull: true }],
+    weeks: 52,
+  });
+
+  for (const payDate of ["2026-01-20", "2026-02-01"]) {
+    const r = sim(cfg(payDate));
+    assert.equal(r.cardInterest, 0, `paying in full on ${payDate} should never accrue card interest`);
+  }
+});
+
+test("a partly-paid card accrues interest on the portion left unpaid", () => {
+  const r = sim({
+    accounts: [{ id: "chk", type: "checking", balance: 100000, rate: 0 }],
+    debts: [{ id: "cc", kind: "card", balance: 0, apr: 24, interestFrom: "2020-01-01" }],
+    expenses: [{ id: "e", amount: 500, date: "2026-01-15", recur: "monthly", fromAcct: "cc" }],
+    debtPayments: [{ id: "dp", amount: 100, date: "2026-01-20", recur: "monthly", fromAcct: "chk", toDebt: "cc" }],
+    weeks: 52,
+  });
+  assert.ok(r.cardInterest > 0, "underpaying a card should cost interest");
+  assert.ok(r.series[52].dbt.cc > 5000, "paying $100 against $500/mo of spending should leave a growing balance");
+});
+
+test("charges to a card are reported as `charged`, not as cash outflow", () => {
+  // Money put on a card hasn't left an account yet — the distinction the Cash flow tab draws.
+  const r = sim({
+    accounts: [{ id: "chk", type: "checking", balance: 1000, rate: 0 }],
+    debts: [{ id: "cc", kind: "card", balance: 0, apr: 24, interestFrom: "2020-01-01" }],
+    expenses: [{ id: "e", amount: 300, date: "2026-01-01", recur: "weekly", fromAcct: "cc" }],
+    weeks: 3,
+  });
+  assert.equal(r.series[0].charged, 300, "the week's card spending should be reported as charged");
+  assert.equal(r.series[0].outflow, 0, "card spending is not cash leaving an account");
+  assert.equal(r.series[3].acct.chk, 1000, "checking should be untouched by card spending");
+  assert.equal(r.series[3].dbt.cc, 900, "three weeks of $300 should sit on the card");
+});
+
+/* ================================================================== */
+/*  projectMinWeekly — the minimum-payments-only comparison path       */
+/* ================================================================== */
+
+test("projectMinWeekly amortises loans monthly and reports when they clear", () => {
+  // This drives the Debt tab's "interest saved" and "years saved" headline stats.
+  const r = projectMinWeekly([{ id: "l", kind: "loan", balance: 1000, apr: 12, minPayment: 100 }], START, 60);
+  assert.equal(r.series[0], 1000, "week 0 should show the entered balance");
+  assert.equal(r.clearedWeek, 48, "$1,000 at 12% with $100/mo should clear in the 11th payment's week");
+  assert.equal(r.series[60], 0, "the loan should stay cleared afterwards");
+  assert.ok(r.interest > 0 && r.interest < 100, `interest should be a plausible ~$59, got ${r.interest}`);
+});
+
+test("projectMinWeekly ignores credit cards — it is a loan-only comparison", () => {
+  const withCard = projectMinWeekly([
+    { id: "l", kind: "loan", balance: 1000, apr: 12, minPayment: 100 },
+    { id: "c", kind: "card", balance: 5000, apr: 24, minPayment: 200 },
+  ], START, 60);
+  const loanOnly = projectMinWeekly([{ id: "l", kind: "loan", balance: 1000, apr: 12, minPayment: 100 }], START, 60);
+  assert.deepEqual(withCard.series, loanOnly.series, "a card shouldn't appear in the minimum-payment loan curve");
+  assert.equal(withCard.interest, loanOnly.interest, "nor contribute interest to it");
+});
+
+test("projectMinWeekly never clears a loan with no minimum payment, and its interest compounds", () => {
+  // Worth pinning: `interestSaved` on the Debt tab is minW.interest minus the plan's
+  // interest, so a loan with a zero minimum makes that comparison grow without bound.
+  const r = projectMinWeekly([{ id: "l", kind: "loan", balance: 1000, apr: 6, minPayment: 0 }], START, 260);
+  assert.equal(r.clearedWeek, null, "a loan nothing is paid against never clears");
+  assert.ok(r.series[260] > 1000, "its balance should grow with accrued interest");
+  assert.ok(r.interest > 0, "and that interest is counted");
+});
+
+test("projectMinWeekly on an empty debt list reports a flat zero curve and no payoff week", () => {
+  const r = projectMinWeekly([], START, 10);
+  assert.deepEqual(r.series, new Array(11).fill(0));
+  assert.equal(r.interest, 0);
+  assert.equal(r.clearedWeek, null, "with no debts there is no payoff to report");
+});
+
+/* ================================================================== */
+/*  Transfers                                                          */
+/* ================================================================== */
+
+test("a recurring transfer moves money between accounts and counts toward invested basis", () => {
+  const r = sim({
+    accounts: [
+      { id: "chk", type: "checking", balance: 1000, rate: 0 },
+      { id: "brk", type: "brokerage", balance: 0, rate: 0 },
+    ],
+    transfers: [{ id: "t", amount: 100, date: "2026-01-01", recur: "weekly", fromAcct: "chk", toAcct: "brk" }],
+    weeks: 4,
+  });
+  assert.deepEqual(r.series[4].acct, { chk: 600, brk: 400 }, "four weekly $100 transfers should have moved $400");
+  assert.equal(r.series[4].basis, 400, "money transferred into an invested account is contributed basis, not growth");
+});
+
+test("a transfer out of an account whose as-of date hasn't arrived is skipped entirely", () => {
+  const r = sim({
+    accounts: [
+      { id: "chk", type: "checking", balance: 1000, rate: 0, asOf: "2026-01-22" },
+      { id: "brk", type: "brokerage", balance: 0, rate: 0 },
+    ],
+    transfers: [{ id: "t", amount: 100, date: "2026-01-01", recur: "weekly", fromAcct: "chk", toAcct: "brk" }],
+    weeks: 5,
+  });
+  // 2026-01-22 is exactly 3 weeks after START, so weeks 0-3 are frozen.
+  assert.equal(r.series[3].acct.chk, 1000, "the frozen source should be untouched");
+  assert.equal(r.series[3].acct.brk, 0, "and the destination must not be credited from a frozen source");
+  assert.equal(r.series[5].acct.brk, 200, "transfers resume once the as-of date has arrived");
+});
+
+/* ================================================================== */
+/*  Income splits across accounts                                      */
+/* ================================================================== */
+
+test("a percentage split routes part of each paycheck to a second account", () => {
+  // The shipped example data sends 15% of pay to savings, so this is the default path.
+  const r = sim({
+    accounts: [
+      { id: "chk", type: "checking", balance: 0, rate: 0 },
+      { id: "sav", type: "savings", balance: 0, rate: 0 },
+    ],
+    income: [{
+      id: "i", amount: 1000, gross: 1000, grossMode: "paycheck", date: "2026-01-01",
+      recur: "weekly", raise: 0, dist: [{ acctId: "chk" }, { acctId: "sav", mode: "pct", value: 15 }],
+    }],
+    weeks: 4,
+  });
+  assert.deepEqual(r.series[4].acct, { chk: 3400, sav: 600 }, "15% of $4,000 should land in savings, the remainder in checking");
+});
+
+test("a fixed-dollar split takes its amount per paycheck, and can't take more than the paycheck holds", () => {
+  const withAmt = sim({
+    accounts: [{ id: "chk", type: "checking", balance: 0, rate: 0 }, { id: "sav", type: "savings", balance: 0, rate: 0 }],
+    income: [{
+      id: "i", amount: 1000, gross: 1000, grossMode: "paycheck", date: "2026-01-01",
+      recur: "weekly", raise: 0, dist: [{ acctId: "chk" }, { acctId: "sav", mode: "amt", value: 250 }],
+    }],
+    weeks: 4,
+  });
+  assert.deepEqual(withAmt.series[4].acct, { chk: 3000, sav: 1000 }, "$250 per weekly paycheck should accumulate in savings");
+
+  const oversized = sim({
+    accounts: [{ id: "chk", type: "checking", balance: 0, rate: 0 }, { id: "sav", type: "savings", balance: 0, rate: 0 }],
+    income: [{
+      id: "i", amount: 1000, gross: 1000, grossMode: "paycheck", date: "2026-01-01",
+      recur: "weekly", raise: 0, dist: [{ acctId: "chk" }, { acctId: "sav", mode: "amt", value: 5000 }],
+    }],
+    weeks: 2,
+  });
+  assert.deepEqual(oversized.series[2].acct, { chk: 0, sav: 2000 }, "a split larger than the paycheck takes all of it, and never invents money");
+});
+
+/* ================================================================== */
+/*  Bonuses through the engine                                         */
+/* ================================================================== */
+
+test("a bonus lands on its own date, with its deferral and match going to retirement", () => {
+  const r = sim({
+    accounts: [
+      { id: "chk", type: "checking", balance: 0, rate: 0 },
+      { id: "ret", type: "retirement", balance: 0, rate: 0 },
+    ],
+    income: [{
+      id: "i", amount: 0, gross: 5000, grossMode: "paycheck", date: "2026-01-01", recur: "monthly", raise: 0,
+      dist: [{ acctId: "chk" }],
+      preTax: [{ mode: "pct", value: 10, toAcct: "ret", counts: true }],
+      match: { rate: 100, limit: 3, toAcct: "ret" },
+      bonus: { mode: "pct", value: 10, date: "2026-03-15", withhold: 30, preTaxApplies: true },
+    }],
+    weeks: 20,
+  });
+
+  // annual gross 5000*12 = 60,000; bonus 10% = 6,000; 10% deferral = 600; withheld 30% = 1,800
+  assert.equal(r.series[20].acct.chk, 3600, "take-home bonus is gross less withholding and the deferral");
+  // 5 monthly paychecks x (500 deferral + 150 capped match) = 3,250, plus the bonus's 600 + 180
+  assert.equal(r.series[20].acct.ret, 4030, "the bonus's own deferral and match should reach retirement on top of the paychecks");
+
+  const beforeBonus = r.series[10].acct.chk; // week 10 is mid-March, before the 15th
+  assert.equal(beforeBonus, 0, "nothing should arrive in checking before the bonus date — take-home pay here is zero");
+});
+
+test("a bonus follows the income's account split rather than always landing in checking", () => {
+  const r = sim({
+    accounts: [
+      { id: "chk", type: "checking", balance: 0, rate: 0 },
+      { id: "sav", type: "savings", balance: 0, rate: 0 },
+    ],
+    income: [{
+      id: "i", amount: 0, gross: 5000, grossMode: "paycheck", date: "2026-01-01", recur: "monthly", raise: 0,
+      dist: [{ acctId: "chk" }, { acctId: "sav", mode: "pct", value: 25 }],
+      bonus: { mode: "amt", value: 4000, date: "2026-02-10", withhold: 0, preTaxApplies: false },
+    }],
+    weeks: 20,
+  });
+  assert.equal(r.series[20].acct.sav, 1000, "25% of the $4,000 bonus should follow the split into savings");
+  assert.equal(r.series[20].acct.chk, 3000, "the remainder goes to the first account in the split");
+});
+
+/* ================================================================== */
+/*  The financial-independence target                                  */
+/* ================================================================== */
+
+test("spending that ends within ten years does not inflate the FI target", () => {
+  // Tuition or a car loan isn't a forever cost, so it shouldn't be capitalised into the
+  // number you need to retire on — but it should still show up in today's spending.
+  const withEnd = (end) => sim({
+    accounts: [{ id: "chk", type: "checking", balance: 0, rate: 0 }],
+    expenses: [
+      { id: "rent", amount: 1000, date: "2026-01-01", recur: "monthly", fromAcct: "chk" },
+      { id: "tuition", amount: 500, date: "2026-01-01", recur: "monthly", end, fromAcct: "chk" },
+    ],
+    weeks: 4,
+  });
+
+  const ending = withEnd("2029-01-01");
+  assert.equal(ending.annualExpNow, 18000, "today's spending includes the tuition");
+  assert.equal(ending.annualExp, 12000, "the long-run figure drops it, because it ends inside ten years");
+  assert.equal(ending.fireNumber, 300000, "at a 4% withdrawal rate the target is 25x the long-run spend");
+  assert.equal(ending.endingSoon.length, 1, "the expense that was excluded should be reported so the UI can explain the gap");
+  assert.equal(ending.endingSoon[0].id, "tuition");
+
+  const perpetual = withEnd("2099-01-01");
+  assert.equal(perpetual.fireNumber, 450000, "an end date beyond ten years is treated as a forever cost");
+  assert.equal(perpetual.endingSoon.length, 0);
+});
+
+test("a zero withdrawal rate disables the FI target rather than dividing by zero", () => {
+  const r = sim({
+    accounts: [{ id: "chk", type: "checking", balance: 0, rate: 0 }],
+    expenses: [{ id: "rent", amount: 1000, date: "2026-01-01", recur: "monthly", fromAcct: "chk" }],
+    settings: { withdrawalRate: 0, redirect: true },
+    weeks: 4,
+  });
+  assert.equal(r.fireNumber, 0);
+  assert.equal(r.fire, null, "with no target there is no independence date to reach");
+});
+
+test("one-off expenses are excluded from the FI target, which is built from recurring spend", () => {
+  const r = sim({
+    accounts: [{ id: "chk", type: "checking", balance: 0, rate: 0 }],
+    expenses: [
+      { id: "rent", amount: 1000, date: "2026-01-01", recur: "monthly", fromAcct: "chk" },
+      { id: "sofa", amount: 5000, date: "2026-02-01", recur: "once", fromAcct: "chk" },
+    ],
+    weeks: 4,
+  });
+  assert.equal(r.annualExp, 12000, "a one-time purchase isn't an ongoing cost to fund forever");
+});
+
+/* ================================================================== */
+/*  Loan interest deferment                                            */
+/* ================================================================== */
+
+test("a loan does not accrue interest before its 'interest starts' date", () => {
+  const r = sim({
+    accounts: [{ id: "chk", type: "checking", balance: 0, rate: 0 }],
+    debts: [{ id: "l", kind: "loan", balance: 10000, apr: 12, interestFrom: "2027-01-01" }],
+    weeks: 104,
+  });
+  assert.equal(r.series[26].dbt.l, 10000, "a deferred loan holds its balance while interest is held off");
+  assert.ok(r.series[104].dbt.l > 10000, "and starts accruing once the date passes");
+  // roughly a year of 12% on $10,000 — enough to confirm only one year accrued, not two
+  assert.ok(r.series[104].dbt.l < 11500, `only the post-deferment period should have accrued, got ${r.series[104].dbt.l}`);
+});
+
+/* ================================================================== */
+/*  Account cap sweeps                                                 */
+/* ================================================================== */
+
+test("a cap sweep can spill into another account, not just at debt", () => {
+  const r = sim({
+    accounts: [
+      { id: "chk", type: "checking", balance: 0, rate: 0, cap: 1000, spillTo: "sav", spillEvery: "weekly" },
+      { id: "sav", type: "savings", balance: 0, rate: 0 },
+    ],
+    income: [{ id: "i", amount: 600, gross: 600, grossMode: "paycheck", date: "2026-01-01", recur: "weekly", raise: 0, dist: [{ acctId: "chk" }] }],
+    weeks: 6,
+  });
+  assert.equal(r.series[6].acct.chk, 1000, "checking should be held at its cap");
+  assert.equal(r.series[6].acct.sav, 2600, "everything above the cap should have spilled into savings");
+});
+
+test("a monthly cap sweep waits for the month's final week instead of spilling every week", () => {
+  const cfg = (spillEvery) => ({
+    accounts: [
+      { id: "chk", type: "checking", balance: 0, rate: 0, cap: 1000, spillTo: "sav", spillEvery },
+      { id: "sav", type: "savings", balance: 0, rate: 0 },
+    ],
+    income: [{ id: "i", amount: 600, gross: 600, grossMode: "paycheck", date: "2026-01-01", recur: "weekly", raise: 0, dist: [{ acctId: "chk" }] }],
+    weeks: 4,
+  });
+  const monthly = sim(cfg("monthly"));
+  const weekly = sim(cfg("weekly"));
+
+  // Week 3 is still mid-January, so a monthly sweep hasn't fired yet but a weekly one has.
+  assert.equal(monthly.series[3].acct.chk, 1800, "a monthly sweep lets the buffer build up during the month");
+  assert.equal(monthly.series[3].swept, 0, "and doesn't spill mid-month");
+  assert.equal(weekly.series[3].acct.chk, 1000, "a weekly sweep holds the cap continuously");
+  assert.ok(weekly.series[3].acct.sav > 0, "spilling as it goes");
+});
+
+/* ================================================================== */
+/*  Degenerate inputs                                                  */
+/* ================================================================== */
+
+test("a projection with no accounts returns a single empty snapshot rather than throwing", () => {
+  const r = sim({ accounts: [], weeks: 5 });
+  assert.equal(r.series.length, 1, "there's nothing to project without an account");
+  assert.equal(r.series[0].nw, 0);
+  assert.equal(r.debtFree, null);
+  assert.equal(r.fire, null);
 });

@@ -4,11 +4,16 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
-import { startStaticServer } from "./helpers/staticServer.mjs";
+import { startStaticServer, hasFrontPage } from "./helpers/staticServer.mjs";
 
 let server;
 let baseUrl;
 let browser;
+
+/* The front page belongs to the site repo, not this one, so it's only servable when this
+   repo is checked out inside a clone of it. Everything else here tests pages this repo
+   does own and runs anywhere. */
+const frontPage = await hasFrontPage();
 
 before(async () => {
   ({ server, baseUrl } = await startStaticServer());
@@ -30,7 +35,26 @@ async function newPage() {
   return { page, consoleErrors };
 }
 
-test("front page links to the financial simulator, which loads and works", async () => {
+test("the simulator page loads, renders its tabs and reports no console errors", async () => {
+  // The standalone equivalent of the front-page test below, which needs the site repo
+  // checked out around this one. This covers the same "does the app boot at all" ground
+  // for a plain clone, so a broken module graph fails everywhere rather than only locally.
+  const { page, consoleErrors } = await newPage();
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+
+  assert.equal(await page.locator(".nwbig").isVisible(), true, "the net worth figure should render");
+  assert.deepEqual(
+    await page.locator(".tabbtn").allTextContents(),
+    ["Overview", "Accounts", "Cash flow", "Debt", "Invest"],
+  );
+
+  assert.deepEqual(consoleErrors, [], "no console/page errors expected");
+  await page.close();
+});
+
+test("front page links to the financial simulator, which loads and works", {
+  skip: frontPage ? false : "no site front page alongside this repo — run inside a liamsalter11.github.io checkout to exercise it",
+}, async () => {
   const { page, consoleErrors } = await newPage();
   await page.goto(`${baseUrl}/`, { waitUntil: "networkidle" });
 
@@ -220,6 +244,71 @@ test("the Monte Carlo panel handles zero invested accounts without erroring", as
   await page.locator(".tabbtn", { hasText: "Invest" }).click();
   await page.waitForTimeout(300);
   assert.equal(await page.locator(".stat", { hasText: "hit your FI number" }).locator(".v").textContent(), "0%");
+
+  assert.deepEqual(consoleErrors, []);
+  await page.close();
+});
+
+test("exported data can be re-imported, restoring a projection after a reset", async () => {
+  // Export/import is the only backup and the only way to move data between devices —
+  // there is no account and no server. A dump that can't be loaded back is a silent
+  // data-loss bug, and nothing else in the suite exercises the round trip.
+  const { page, consoleErrors } = await newPage();
+  page.on("dialog", (d) => d.accept()); // Reset asks for confirmation
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+
+  // Make the saved state distinctive, so restoring it is unambiguous.
+  await page.locator(".tabbtn", { hasText: "Accounts" }).click();
+  await page.locator(".row.acct input[type=number]").first().fill("123456");
+  await page.locator(".tabbtn", { hasText: "Overview" }).click();
+  const edited = await page.locator(".nwbig").textContent();
+
+  // Export, and keep the dump.
+  await page.locator(".tbtn", { hasText: "Export" }).click();
+  const dump = await page.locator(".jsonbox").inputValue();
+  const parsed = JSON.parse(dump);
+  assert.equal(parsed.app, "fin-sim", "the dump should identify itself");
+  assert.ok(Array.isArray(parsed.accounts) && parsed.accounts.length, "and carry the accounts");
+  assert.ok(parsed.accounts.some((a) => Number(a.balance) === 123456), "including the edit just made");
+  await page.locator(".modal-head .icon-btn").click();
+
+  // Throw the state away.
+  await page.locator(".tbtn", { hasText: "Reset" }).click();
+  await page.waitForFunction((prev) => document.querySelector(".nwbig").textContent !== prev, edited);
+  const afterReset = await page.locator(".nwbig").textContent();
+  assert.notEqual(afterReset, edited, "a reset should have discarded the edit");
+
+  // Load the dump back.
+  await page.locator(".tbtn", { hasText: "Import" }).click();
+  await page.locator(".modal .jsonbox").fill(dump);
+  await page.locator(".btn", { hasText: "Load data" }).click();
+  await page.waitForSelector(".modal", { state: "detached" });
+
+  assert.equal(await page.locator(".nwbig").textContent(), edited, "importing the dump should restore the exported projection");
+
+  // And it should persist, like any other edit.
+  await page.reload({ waitUntil: "networkidle" });
+  assert.equal(await page.locator(".nwbig").textContent(), edited, "the imported data should survive a reload");
+
+  assert.deepEqual(consoleErrors, []);
+  await page.close();
+});
+
+test("importing malformed JSON warns instead of destroying the current data", async () => {
+  const { page, consoleErrors } = await newPage();
+  const dialogs = [];
+  page.on("dialog", (d) => { dialogs.push(d.message()); d.accept(); });
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+  const before = await page.locator(".nwbig").textContent();
+
+  await page.locator(".tbtn", { hasText: "Import" }).click();
+  await page.locator(".modal .jsonbox").fill("{ this is not json");
+  await page.locator(".btn", { hasText: "Load data" }).click();
+
+  assert.equal(dialogs.length, 1, "the user should be told the paste wasn't valid");
+  assert.match(dialogs[0], /valid saved data/);
+  await page.locator(".modal-head .icon-btn").click();
+  assert.equal(await page.locator(".nwbig").textContent(), before, "a failed import must leave the existing projection alone");
 
   assert.deepEqual(consoleErrors, []);
   await page.close();

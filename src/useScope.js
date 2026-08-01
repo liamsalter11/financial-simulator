@@ -1,5 +1,9 @@
-// Pinch-zoom / drag-to-pan windowing for the interactive charts, plus the series
-// downsampler that keeps chart data points bounded regardless of zoom level.
+// Pinch-zoom / drag-to-pan windowing for the interactive charts. The series downsampler
+// that goes with it lives in sample.js — it's pure and needs no React, so it's kept out of
+// this file, which reads the global `React` below and therefore only loads in a browser.
+// Re-exported here so the chart tabs can keep importing both from one place.
+export { sampleRange } from "./sample.js";
+
 const { useState, useEffect, useRef, useCallback } = React;
 
 export function useScope(maxW, defSpan) {
@@ -67,12 +71,4 @@ export function useScope(maxW, defSpan) {
   };
   const onPointerUp = (e) => { ptrs.current.delete(e.pointerId); last.current = null; };
   return { lo: win.lo, hi: win.hi, snap, ref: setNode, handlers: { onPointerDown, onPointerMove, onPointerUp, onPointerCancel: onPointerUp, onPointerLeave: onPointerUp } };
-}
-export function sampleRange(series, lo, hi, maxPts) {
-  const a = Math.max(0, Math.floor(lo)), b = Math.min(series.length - 1, Math.ceil(hi));
-  const step = Math.max(1, Math.ceil((b - a) / (maxPts || 300)));
-  const out = [];
-  for (let w = a; w <= b; w += step) out.push(series[w]);
-  if (out.length && out[out.length - 1].w !== series[b].w) out.push(series[b]);
-  return out;
 }
