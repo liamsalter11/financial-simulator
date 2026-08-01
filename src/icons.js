@@ -38,6 +38,11 @@ export const RotateCcw = p => React.createElement(IconBase, p, React.createEleme
 }), React.createElement("path", {
   d: "M3 3v5h5"
 }));
+export const RotateCw = p => React.createElement(IconBase, p, React.createElement("path", {
+  d: "M21 12a9 9 0 1 1-9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"
+}), React.createElement("path", {
+  d: "M21 3v5h-5"
+}));
 export const LayoutGrid = p => React.createElement(IconBase, p, React.createElement("rect", {
   width: "7",
   height: "7",

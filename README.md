@@ -27,6 +27,7 @@ needed to read them) are both the source and the shipped file.
 | `src/worker.js` | The module Web Worker that runs it off the main thread. |
 | `src/solve.js` | Goal seek and the sensitivity sweep — the projection, in reverse. |
 | `src/milestones.js` | The dated milestone list, and the scenario comparison diff. |
+| `src/history.js` | Undo/redo coalescing, and the daily snapshot list. |
 | `src/loan.js` | Amortization: payment ↔ term ↔ months-to-payoff. |
 | `src/tax.js` | Federal brackets, the standard deduction and FICA, plus `estimateTax`. |
 | `src/payroll.js` | Per-paycheck salary/401k-match/bonus math. |
@@ -107,6 +108,9 @@ npm run test:all       # everything
   promotion math, recurrence expansion, seed/normalization of older saved data,
   the Monte Carlo (accumulation and drawdown, including that volatility alone
   sinks plans the average return sustains), and the chart downsampler.
+- **`tests/history.test.mjs`** — the undo coalescing rules (one gesture is one
+  step; a deleted row is never folded into the previous edit) and the daily
+  snapshot list.
 - **`tests/solve.test.mjs`**, **`tests/milestones.test.mjs`** — the goal seeker
   (a solved amount must really hit the target when replayed through the engine,
   and an impossible ask must say so) and the milestone list.
@@ -160,6 +164,17 @@ everything around it gets dearer, so it's deflated week by week and quietly buys
 day and moves no dates, because the independence target inflates at exactly the same rate
 the balances do. At 0% inflation every conversion is the identity, which is what the older
 engine tests assert.
+
+**Nothing you do is one-way.** Every edit goes on an undo stack (⌘Z / ⌘⇧Z), and a burst of
+typing collapses into a single step — but adding or deleting a row always starts a new one,
+so undo can never quietly skip past a deletion. Separately, the app keeps a copy of the
+whole plan once a day, capped at a fortnight, so a bad edit or a bad import is recoverable
+even if you never saved a scenario. Restoring one is itself undoable.
+
+Those daily copies double as a record: each stores what net worth actually was and what the
+plan was predicting at the time. The Overview draws the recorded figures as points against
+the projection, and says whether independence has moved closer or further away since you
+last looked — which no single projection can tell you.
 
 **The projection also runs in reverse.** Goal seek binary-searches one lever — extra toward
 debt, monthly investing, monthly spending — against one target: debt-free by a date,
