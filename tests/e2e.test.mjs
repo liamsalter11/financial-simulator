@@ -313,3 +313,104 @@ test("importing malformed JSON warns instead of destroying the current data", as
   assert.deepEqual(consoleErrors, []);
   await page.close();
 });
+
+test("the inflation controls change the projection, and the display toggle changes only the labels", async () => {
+  // The engine works in today's dollars; "show future dollars" is display-only. The
+  // milestone dates are the assertion that matters — they must hold still across the
+  // toggle, because the independence target inflates at the same rate the balances do.
+  const { page, consoleErrors } = await newPage();
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+
+  const fiDate = () => page.locator(".stat").last().locator(".v").textContent();
+  const inflation = page.locator('input[aria-label="Inflation (annual)"]');
+
+  await inflation.fill("0");
+  await page.waitForTimeout(250);
+  const atZero = await fiDate();
+  await inflation.fill("6");
+  await page.waitForTimeout(250);
+  const atSix = await fiDate();
+  assert.notEqual(atZero, atSix, "inflation should push financial independence further out");
+
+  const statsBefore = await page.locator(".sgrid").first().textContent();
+  await page.locator(".hypo .switch", { hasText: "future dollars" }).click();
+  await page.waitForTimeout(300);
+  assert.equal(
+    await page.locator(".sgrid").first().textContent(), statsBefore,
+    "showing future dollars must not move any date or today's figures",
+  );
+
+  await page.reload({ waitUntil: "networkidle" });
+  assert.equal(await inflation.inputValue(), "6", "the inflation rate should persist");
+  assert.equal(await page.locator(".hypo .switch input").last().isChecked(), true, "and so should the display toggle");
+
+  assert.deepEqual(consoleErrors, []);
+  await page.close();
+});
+
+test("the payoff strategy can be switched, is priced against the alternative, and persists", async () => {
+  const { page, consoleErrors } = await newPage();
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+  await page.locator(".tabbtn", { hasText: "Debt" }).click();
+
+  const panel = page.locator(".panel", { hasText: "payoff order" });
+  const note = () => panel.locator(".caphint").first().textContent();
+
+  assert.match(await note(), /Avalanche/, "avalanche is the default, matching the old hardcoded behaviour");
+  await panel.locator(".phead .seg button", { hasText: "Smallest first" }).click();
+  await page.waitForTimeout(300);
+  assert.match(await note(), /Snowball/);
+  assert.match(await note(), /Switching to highest-rate-first/, "the note should price the strategy not chosen");
+
+  await page.reload({ waitUntil: "networkidle" });
+  await page.locator(".tabbtn", { hasText: "Debt" }).click();
+  assert.equal(await panel.locator(".phead .seg button.on").textContent(), "Smallest first", "the choice should persist");
+
+  assert.deepEqual(consoleErrors, []);
+  await page.close();
+});
+
+test("a loan can be described by its term, and says so when a payment never clears it", async () => {
+  const { page, consoleErrors } = await newPage();
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+  await page.locator(".tabbtn", { hasText: "Debt" }).click();
+
+  const loan = page.locator(".loan").first();
+  const badge = () => loan.locator(".payoff-badge").first().textContent();
+  assert.match(await badge(), /at this minimum/, "payment mode shows how long the minimum takes");
+
+  await loan.locator(".seg button", { hasText: "by term" }).click();
+  await loan.locator(".field input").nth(2).fill("60");
+  await page.waitForTimeout(300);
+  assert.match(await badge(), /minimum \$/, "term mode derives the payment instead");
+
+  await loan.locator(".seg button", { hasText: "by payment" }).click();
+  await loan.locator(".field input").nth(2).fill("1");
+  await page.waitForTimeout(300);
+  assert.match(await badge(), /never clears/, "a payment below the interest should say so rather than show a huge term");
+
+  assert.deepEqual(consoleErrors, []);
+  await page.close();
+});
+
+test("pre-tax contributions report when they hit the annual limit", async () => {
+  const { page, consoleErrors } = await newPage();
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+  await page.locator(".tabbtn", { hasText: "Cash flow" }).click();
+
+  const deductions = page.locator(".dist", { hasText: "Payroll deductions" });
+  const capNote = async () => (await deductions.locator(".caphint").allTextContents())
+    .find((t) => t.includes("calendar year") || t.includes("Hits the") || t.includes("No limit")) || "";
+
+  assert.equal(await page.locator('input[aria-label="Annual deferral limit"]').inputValue(), "24500");
+  assert.match(await capNote(), /calendar year/, "the seed's 6% contribution stays under the limit");
+
+  await deductions.locator(".dist-row", { hasText: "401k" }).locator('input[aria-label="Value"]').fill("45");
+  await page.waitForTimeout(400);
+  const hit = await capNote();
+  assert.match(hit, /Hits the \$24,500 limit/, "front-loading should be reported");
+  assert.match(hit, /employer match unclaimed/, "along with the match it forfeits");
+
+  assert.deepEqual(consoleErrors, []);
+  await page.close();
+});

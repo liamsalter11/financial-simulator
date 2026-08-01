@@ -47,6 +47,7 @@ There is no bundler and no in-browser transpiler. `index.html` loads `src/main.j
 | `src/tabs/*.jsx` | One file per tab (`OverviewTab`, `AccountsTab`, `CashFlowTab`, `DebtTab`, `InvestTab`) — just the rendering for that tab. |
 | `src/engine.js` | The simulation engine (`simulateWeekly`, `projectMinWeekly`) — pure logic, no React. |
 | `src/montecarlo.js` | Monte Carlo projection for the invested portfolio (`runMonteCarlo`) — pure logic, no React. |
+| `src/loan.js` | Amortization: `amortPayment`, `monthsToPayoff`, and `minPaymentOf` (a loan's effective minimum, whether it's described by payment or by term). |
 | `src/payroll.js` | Per-paycheck salary/401k-match/bonus math. |
 | `src/recurrence.js` | Expands a recurring event into concrete dates and counts firings per week. |
 | `src/format.js` | Money/date formatting, recurrence labels, shared constants. |
@@ -59,19 +60,22 @@ There is no bundler and no in-browser transpiler. `index.html` loads `src/main.j
 | `src/styles.js` | The app's CSS, as a template string injected via a `<style>` tag. |
 | `vendor/` | Pinned copies of React, ReactDOM, PropTypes and Recharts (UMD builds). |
 
-The pure-logic modules (`engine.js`, `montecarlo.js`, `payroll.js`, `recurrence.js`, `format.js`, `seeds.js`, `store.js`, `sample.js`) have no React dependency and are `import`ed directly in tests — no browser or stubbing needed.
+The pure-logic modules (`engine.js`, `montecarlo.js`, `loan.js`, `payroll.js`, `recurrence.js`, `format.js`, `seeds.js`, `store.js`, `sample.js`) have no React dependency and are `import`ed directly in tests — no browser or stubbing needed.
 
 ## Key domain logic to know before changing simulation behavior
 
 - **Credit cards charge interest only on a carried balance, resolved at a monthly statement close.** Purchases raise the balance during a cycle but don't become interest-bearing until that month's close, so a card paid in full never costs anything — while a card that just accumulates spending does accrue. Paying a card down (scheduled payment or cap sweep) resets what's carried.
 - **Monte Carlo reuses the deterministic contribution schedule.** The Invest tab's "range of outcomes" chart takes the same week-by-week contributions the deterministic engine already computed (`simulateWeekly`'s `basis` series) and randomizes only the *returns* on top, using a fixed-seed PRNG so results are reproducible rather than reshuffling on every unrelated edit. Returns are modeled as one blended portfolio (balance-weighted rate across invested accounts), not per-account. It steps monthly, not weekly.
-- **Debt payoff rolls over highest-APR-first**, and card interest only accrues on a carried balance.
-- The deterministic projection holds returns, rates, and spending constant, works in today's dollars, and models no inflation, tax on gains, volatility, or sequence-of-returns risk — it's a directional comparison tool, not a forecast.
+- **Everything is computed in today's dollars, from nominal inputs.** Every rate a user enters is nominal; `simulateWeekly` converts each one to a real rate via `toReal` (`src/format.js`) before it compounds — account returns, debt APRs, the annual raise, and a promotion's future salary (deflated back from its own date in `salaryAt`). Nominally-fixed commitments are the deliberate exception: debt payments and loan minimums are multiplied by a running deflator, so a fixed payment correctly buys less each year. `settings.showNominal` is **display only** — the tabs re-inflate what they draw and nothing else; an engine test asserts it never changes a simulation. At `inflation: 0` every conversion is the identity, which is what the pre-existing engine tests rely on.
+- **Debt payoff order is a setting**, `settings.payoffOrder`: avalanche (highest APR first, the default and the old hardcoded behavior) or snowball (smallest balance first). Both rollover sites in `simulateWeekly` share one comparator, `payoffSort`. The Debt tab runs the *other* strategy as a second full projection to price the difference, the same way the promotions toggle runs a with/without pair.
+- **Pre-tax contributions stop at an annual limit.** `settings.deferralLimit` caps per-income calendar-year deferrals (entries opt out with `capped: false`); the engine tracks year-to-date per income source and reports back through `capInfo` — the week the cap bit and the employer match forfeited, since a per-paycheck match stops when the contribution it rides on stops. The count starts at the simulation start date, so a mid-year run doesn't know what was contributed earlier that year.
+- The deterministic projection holds returns, rates, and spending constant in real terms, and models no tax on gains, volatility, or sequence-of-returns risk — it's a directional comparison tool, not a forecast.
 
 ## Tests
 
 - `tests/sync.test.mjs` — the `.jsx`/`.js` sync guard described above.
-- `tests/engine.test.mjs` — `simulateWeekly` and `projectMinWeekly` (`src/engine.js`) against small deterministic scenarios: the employer-match formula, card interest (charges, the grace period, partial payments), highest-APR-first debt rollover, transfers, multi-account paycheck splits, bonuses, the FI target's exclusion of spending that ends within ten years, loan-interest deferment, account-cap sweeps, and account as-of dates.
+- `tests/engine.test.mjs` — `simulateWeekly` and `projectMinWeekly` (`src/engine.js`) against small deterministic scenarios: the employer-match formula, card interest (charges, the grace period, partial payments), debt rollover under both payoff strategies, transfers, multi-account paycheck splits, bonuses, the FI target's exclusion of spending that ends within ten years, loan-interest deferment, account-cap sweeps, account as-of dates, the real-terms inflation conversion (including that it's the identity at 0% and that `showNominal` never reaches the engine), and the annual pre-tax contribution limit.
+- `tests/loan.test.mjs` — `src/loan.js`: the amortizing payment against a textbook figure, payment ↔ term round-trips, and the payment that never covers the interest.
 - `tests/payroll.test.mjs` — `src/payroll.js`: annualised vs per-paycheck gross, deduction and match resolution, the derived effective tax rate, promotions (ordering, and the raise re-anchoring to the promotion date), and which deductions a bonus is subject to.
 - `tests/recurrence.test.mjs` — `src/recurrence.js`. Beyond per-frequency cases, it checks the engine's weekly windows against an **independent calendar enumeration** across a year of simulation start dates, which is what would catch a firing dropped or double-counted at a window seam (month lengths, leap days, DST).
 - `tests/seeds.test.mjs` — `src/seeds.js` normalization: the migrations that keep older saved data working, plus `pickIds`' fallback chain. With no backend, these run on every load and are the only thing between a returning visitor and a broken projection.

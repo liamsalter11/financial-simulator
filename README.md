@@ -29,7 +29,8 @@ needed to read them) are both the source and the shipped file.
 | `src/format.js` | Money/date formatting, recurrence labels, shared constants. |
 | `src/seeds.js` | Example data shown on first load, and normalization for older saved/imported data. |
 | `src/store.js` | `localStorage` wrapper. |
-| `src/useScope.js` | The pinch-zoom/pan chart-windowing hook, plus the series downsampler. |
+| `src/useScope.js` | The pinch-zoom/pan chart-windowing hook. Reads the global `React`, so it only loads in a browser; it re-exports `sampleRange` for the tabs' convenience. |
+| `src/sample.js` | `sampleRange`, the chart series downsampler — pure, and kept separate from `useScope.js` so it's importable in Node tests. |
 | `src/icons.jsx`, `src/components.jsx` | Inline icon set, and small shared UI pieces (`Stat`, `NumField`, `Modal`, `Donut`, `LoanCard`, ...). |
 | `src/help-content.js` | The per-tab Help panel copy. |
 | `src/styles.js` | The app's CSS, as a template string injected via a `<style>` tag. |
@@ -73,7 +74,8 @@ the script loads.
 
 ```bash
 npm install
-npm test              # sync + engine tests — fast, no browser
+npm test              # every pure-logic test + the .jsx/.js sync guard — fast, no browser
+npm run test:cov      # the same suite with a coverage report
 npx playwright install --with-deps chromium   # once, before the first e2e run
 npm run test:e2e       # browser tests (loads the real page in Chromium)
 npm run test:all       # everything
@@ -84,23 +86,35 @@ npm run test:all       # everything
   `node --check` syntax check on each. Catches "edited a `.jsx` file, forgot
   to rebuild."
 - **`tests/engine.test.mjs`** — unit tests for the simulation engine
-  (`simulateWeekly` from `src/engine.js`, `payrollOf`/`bonusOf` from
-  `src/payroll.js`) against small, deterministic scenarios. These are plain
-  ES modules with no React dependency, so the tests `import` them directly —
-  no browser, no stubbing. Covers the employer-match formula, bonus
-  withholding, card-interest-only-on-a-carried-balance, the highest-APR-first
-  debt rollover, and a regression test for the account-cap sweep respecting
-  the "redirect into investing" setting.
+  (`simulateWeekly` and `projectMinWeekly` from `src/engine.js`) against small,
+  deterministic scenarios. These are plain ES modules with no React dependency,
+  so the tests `import` them directly — no browser, no stubbing. Covers the
+  employer-match formula, card interest (charges, the grace period, partial
+  payments), the debt rollover under both payoff strategies, account-cap sweeps
+  and as-of dates, the real-terms inflation conversion (and that it's the
+  identity at 0%), and the annual pre-tax contribution limit.
+- **`tests/loan.test.mjs`** — `src/loan.js`: the amortizing payment against a
+  textbook figure, payment ↔ term round-trips, and the case where a payment
+  never covers the interest.
+- **`tests/payroll.test.mjs`**, **`tests/recurrence.test.mjs`**,
+  **`tests/seeds.test.mjs`**, **`tests/montecarlo.test.mjs`**,
+  **`tests/sample.test.mjs`** — the remaining pure-logic modules: paycheck and
+  promotion math, recurrence expansion, seed/normalization of older saved data,
+  the Monte Carlo bands, and the chart downsampler.
 - **`tests/e2e.test.mjs`** — Playwright tests against the actual served page:
-  the front-page link, the help panel (closed by default, follows the active
-  tab), `localStorage` persistence across a reload, the one-time warning toast
-  when storage writes fail, the redirect toggle, and a regression test that
-  edits income and triggers every tab's chart tooltip (a past module-split
-  bug — a missing import in a shared component — only surfaced once a
-  Tooltip actually rendered, which static page-load checks don't trigger).
+  the front-page link (skipped unless run inside a site checkout), the help
+  panel (closed by default, follows the active tab), `localStorage` persistence
+  across a reload, the one-time warning toast when storage writes fail, the
+  redirect toggle, export → reset → import round-tripping, the inflation and
+  payoff-strategy controls, and a regression test that edits income and triggers
+  every tab's chart tooltip (a past module-split bug — a missing import in a
+  shared component — only surfaced once a Tooltip actually rendered, which
+  static page-load checks don't trigger).
 
-CI (`.github/workflows/financial-simulator-ci.yml`) runs all of this on every
-push or pull request that touches `financial-simulator/`.
+CI (`.github/workflows/test.yml`) runs the unit suite and the browser tests on
+every pull request and every push to `main`. The deploy workflow
+(`.github/workflows/sync-to-site.yml`) gates on it, so a failing suite blocks
+the sync to the live site.
 
 ## Design notes
 
