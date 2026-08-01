@@ -7,7 +7,7 @@
 // governing which deductions a bonus is subject to.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { perCheck, grossPerCheck, salaryAt, payrollOf, effectiveTaxRate, bonusOf, hasPromotions, withoutPromotions } from "../src/payroll.js";
+import { perCheck, grossPerCheck, salaryAt, payrollOf, effectiveTaxRate, bonusOf, hasPromotions, withoutPromotions, isDerived, takeHomeOf, taxBreakdown } from "../src/payroll.js";
 
 const near = (a, b, tol = 0.01) => Math.abs(a - b) < tol;
 
@@ -253,4 +253,64 @@ test("bonusOf returns null when there is no bonus to pay", () => {
 test("bonusOf defaults the growth factor to 1 when it isn't supplied", () => {
   const inc = { gross: 5000, grossMode: "paycheck", recur: "monthly", bonus: { mode: "pct", value: 10, withhold: 0 } };
   assert.equal(bonusOf(inc).gross, bonusOf(inc, 1).gross);
+});
+
+/* ================================================================== */
+/*  Derived take-home — opt-in, off by default                         */
+/* ================================================================== */
+
+const salaried = (extra = {}) => ({
+  id: "inc", name: "pay", amount: 3000, gross: 120000, grossMode: "year", recur: "biweekly",
+  date: "2026-01-01", raise: 0, weekdayAdj: false,
+  preTax: [{ id: "d", name: "401k", mode: "pct", value: 6, toAcct: "ret", counts: true, capped: true }],
+  ...extra,
+});
+const TAX = { filing: "single", stateRate: 0 };
+
+test("an income with no taxMode keeps the take-home figure it was given", () => {
+  const inc = salaried();
+  assert.equal(isDerived(inc), false, "typed is the default, so saved data doesn't move");
+  assert.equal(salaryAt(inc, new Date(2027, 0, 1), TAX).amount, 3000);
+});
+
+test("switching to derived replaces the typed figure with the bracket result", () => {
+  const inc = salaried({ taxMode: "derived" });
+  const derived = salaryAt(inc, new Date(2027, 0, 1), TAX).amount;
+  assert.notEqual(derived, 3000, "the typed figure should no longer be used");
+  assert.ok(derived > 0 && derived < 120000 / 26, "take-home is positive and below gross per paycheck");
+  assert.equal(derived, takeHomeOf(inc, TAX), "salaryAt and takeHomeOf must agree");
+});
+
+test("a state rate reduces derived take-home and nothing else", () => {
+  const inc = salaried({ taxMode: "derived" });
+  const noState = takeHomeOf(inc, { filing: "single", stateRate: 0 });
+  const taxed = takeHomeOf(inc, { filing: "single", stateRate: 6 });
+  assert.ok(taxed < noState);
+  assert.equal(payrollOf(inc).employee, payrollOf(inc).employee, "deductions are unaffected by where you live");
+});
+
+test("in derived mode a promotion needs no tax rate of its own", () => {
+  const inc = salaried({
+    taxMode: "derived",
+    changes: [{ id: "c", date: "2026-06-01", label: "Promotion", gross: 180000, grossMode: "year" }],
+  });
+  const before = salaryAt(inc, new Date(2026, 0, 15), TAX);
+  const after = salaryAt(inc, new Date(2026, 11, 1), TAX);
+  assert.ok(after.gross > before.gross, "the promotion raises gross");
+  assert.ok(after.amount > before.amount, "and take-home follows without a typed rate");
+  // the raise is taxed at a higher marginal rate, so net rises by less than gross does
+  assert.ok(after.amount - before.amount < after.gross - before.gross, "the increase is taxed, not banked whole");
+});
+
+test("a stale per-promotion tax rate is ignored once an income derives its tax", () => {
+  const changes = [{ id: "c", date: "2026-06-01", label: "Promotion", gross: 180000, grossMode: "year", taxRate: 0 }];
+  const typed = salaryAt(salaried({ changes }), new Date(2026, 11, 1), TAX);
+  const derived = salaryAt(salaried({ changes, taxMode: "derived" }), new Date(2026, 11, 1), TAX);
+  assert.ok(typed.amount > derived.amount, "a 0% typed rate should look better than the real brackets");
+});
+
+test("taxBreakdown returns null rather than dividing by zero for an income with no gross", () => {
+  assert.equal(taxBreakdown(salaried({ gross: 0 }), TAX), null);
+  assert.equal(takeHomeOf(salaried({ gross: 0 }), TAX), 0);
+  assert.equal(taxBreakdown(salaried({ recur: "once" }), TAX), null, "a one-off has no paychecks per year");
 });

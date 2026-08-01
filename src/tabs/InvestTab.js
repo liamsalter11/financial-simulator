@@ -11,7 +11,7 @@ const {
   ReferenceLine
 } = Recharts;
 import { Stat, NumField, Tip } from "../components.js";
-import { fmtMoney, fmtBig, fmtDate, n0, addDays } from "../format.js";
+import { fmtMoney, fmtBig, fmtDate, fmtDur, n0, addDays } from "../format.js";
 import { sampleRange } from "../useScope.js";
 const McTip = ({
   active,
@@ -169,7 +169,7 @@ export function InvestTab({
     cursor: {
       stroke: "var(--line2)"
     }
-  }), fireN > 0 && D.sim.fire != null && !D.showNom && React.createElement(ReferenceLine, {
+  }), fireN > 0 && D.sim.fire != null && !D.fiSloped && React.createElement(ReferenceLine, {
     y: fireN,
     stroke: "var(--amber)",
     strokeDasharray: "3 3",
@@ -180,7 +180,7 @@ export function InvestTab({
       fontSize: 9.5,
       fontFamily: "var(--mono)"
     }
-  }), fireN > 0 && D.showNom && React.createElement(Line, {
+  }), fireN > 0 && D.fiSloped && React.createElement(Line, {
     type: "monotone",
     dataKey: "fi",
     stroke: "var(--amber)",
@@ -268,7 +268,7 @@ export function InvestTab({
     cursor: {
       stroke: "var(--line2)"
     }
-  }), fireN > 0 && !D.showNom && React.createElement(ReferenceLine, {
+  }), fireN > 0 && !D.fiSloped && React.createElement(ReferenceLine, {
     y: fireN,
     stroke: "var(--amber)",
     strokeDasharray: "3 3",
@@ -279,7 +279,7 @@ export function InvestTab({
       fontSize: 9.5,
       fontFamily: "var(--mono)"
     }
-  }), fireN > 0 && D.showNom && React.createElement(Line, {
+  }), fireN > 0 && D.fiSloped && React.createElement(Line, {
     type: "monotone",
     dataKey: "fi",
     stroke: "var(--amber)",
@@ -363,7 +363,34 @@ export function InvestTab({
     readOnly: true
   })), React.createElement("div", {
     className: "assume"
-  }, "Based on ", fmtMoney(D.sim.annualExp / 12), "/mo of long-run living expenses \u2014 ", fmtBig(D.sim.annualExp), " a year. Only expenses count here, not transfers or debt payments.", D.sim.endingSoon.length > 0 && React.createElement(React.Fragment, null, " Excluded because they end before then: ", D.sim.endingSoon.map(e => e.category).join(", "), " \u2014 worth ", fmtBig((D.sim.annualExpNow - D.sim.annualExp) * (100 / (n0(settings.withdrawalRate) || 4))), " off the target.")), React.createElement("label", {
+  }, "Based on ", fmtMoney(D.sim.annualExp / 12), "/mo of long-run living expenses \u2014 ", fmtBig(D.sim.annualExp), " a year. Only expenses count here, not transfers or debt payments.", D.sim.endingSoon.length > 0 && React.createElement(React.Fragment, null, " Excluded because they end before then: ", D.sim.endingSoon.map(e => e.category).join(", "), " \u2014 worth ", fmtBig((D.sim.annualExpNow - D.sim.annualExp) * (100 / (n0(settings.withdrawalRate) || 4))), " off the target."), D.sim.guaranteedAnnual > 0 && React.createElement(React.Fragment, null, " Your guaranteed retirement income covers ", fmtBig(D.sim.guaranteedAnnual), " of that a year, leaving ", fmtBig(D.sim.annualExpNet), " for the portfolio \u2014 which is why the target line slopes: until that income starts, the target also carries the capital to cover the gap yourself.")), React.createElement("div", {
+    className: "fields3",
+    style: {
+      gridTemplateColumns: "1fr 1fr 1fr",
+      marginTop: 14
+    }
+  }, React.createElement(NumField, {
+    label: "Tax drag on taxable investing",
+    suffix: "%/yr",
+    value: settings.taxDrag,
+    onChange: v => setS("taxDrag", n0(v))
+  }), React.createElement(NumField, {
+    label: "Tax rate on withdrawals",
+    suffix: "%",
+    value: settings.retireTaxRate,
+    onChange: v => setS("retireTaxRate", n0(v))
+  }), React.createElement(NumField, {
+    label: "Birth year (optional)",
+    value: settings.birthYear,
+    onChange: v => setS("birthYear", v)
+  })), React.createElement("div", {
+    className: "caphint"
+  }, "The independence date is measured against what your balance sheet is worth ", React.createElement("i", null, "to spend"), ": a tax-deferred dollar is docked ", n0(settings.retireTaxRate), "% because the withdrawal is taxed, and taxable investments lose ", n0(settings.taxDrag), "%/yr of return to tax on distributions. Set each account's treatment on the Accounts tab. A birth year is only used to work out when retirement accounts open up \u2014 leave it blank and every account is treated as reachable."), D.bridge && React.createElement("div", {
+    className: "caphint" + (D.bridge.gap > 0 ? " warn-txt" : ""),
+    style: {
+      marginTop: 8
+    }
+  }, D.bridge.gap > 0 ? React.createElement(React.Fragment, null, "Bridge gap: independence lands about ", fmtDur(Math.round(D.bridge.years * 12)), " before your retirement accounts open at 59\xBD. Living on ", fmtBig(D.sim.annualExpNet), "/yr until then needs ", fmtBig(D.bridge.need), " you can actually reach, and only ", fmtBig(D.bridge.reachable), " of your money is reachable that early \u2014 ", React.createElement("b", null, fmtBig(D.bridge.gap), " short"), ". Taxable investing, a Roth contribution ladder or a later date all close it.") : React.createElement(React.Fragment, null, "Bridge covered: independence lands about ", fmtDur(Math.round(D.bridge.years * 12)), " before 59\xBD, and the ", fmtBig(D.bridge.reachable), " outside your retirement accounts covers the ", fmtBig(D.bridge.need), " of spending until they open.")), React.createElement("label", {
     className: "switch"
   }, React.createElement("input", {
     type: "checkbox",

@@ -35,6 +35,11 @@ export const normIncome = (list, fbAcct, retAcct) => (list || []).map((x) => ({
   ...x,
   weekdayAdj: x.weekdayAdj != null ? x.weekdayAdj : true,
   grossMode: x.grossMode || "paycheck",
+  /* older data has a hand-typed take-home, and keeps it — deriving from the brackets is
+     opt-in, so nobody's saved projection moves without them asking */
+  taxMode: x.taxMode === "derived" ? "derived" : "typed",
+  /* Social Security, a pension: income that also reduces what the portfolio has to cover */
+  guaranteed: !!x.guaranteed,
   dist: normDist(x.dist, fbAcct),
   preTax: (x.preTax || []).map((p) => ({
     id: p.id || uid(),
@@ -101,9 +106,22 @@ export const seedDebtPays = (id, dbts) => {
   if (id.hiDebt) list.push({ id: uid(), name: "Extra toward payoff", amount: 400, date: nextFirstISO(), recur: "monthly", fromAcct: id.chk, toDebt: id.hiDebt });
   return list;
 };
+/* An account's tax treatment decides three things: whether its growth is dragged by tax
+   each year, whether a withdrawal is taxed, and whether it can be reached before 59½.
+   Defaulted from the account type, because older saves have no such field — and surfaced
+   as a visible control, because "retirement" covers both traditional and Roth money. */
+export const defaultTreatment = (type) => (type === "retirement" ? "traditional" : "taxable");
+export const normAccounts = (list) => (list || []).map((a) => ({
+  ...a,
+  taxTreatment: ["taxable", "traditional", "roth"].includes(a.taxTreatment) ? a.taxTreatment : defaultTreatment(a.type),
+}));
+
 /* deferralLimit is the annual employee 401k/403b election cap — editable because the IRS
-   moves it every year, and 0 turns the whole check off */
+   moves it every year, and 0 turns the whole check off. taxDrag is roughly a 2% qualified
+   dividend yield taxed at 15%: what a taxable brokerage loses to tax each year without
+   selling anything. retireTaxRate is what a traditional dollar costs on the way out. */
 export const seedSettings = () => ({
   withdrawalRate: 4, redirect: true, mcVolatility: 15, hypotheticals: true,
   inflation: 2.5, showNominal: false, payoffOrder: "avalanche", deferralLimit: 24500,
+  filing: "single", stateRate: 0, taxDrag: 0.4, retireTaxRate: 15, birthYear: "",
 });

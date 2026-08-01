@@ -30,11 +30,27 @@ export function AccountsTab({ D, accounts, settings, defaultOverflow, upAcct, up
                         <NumField cls="ramt" label="Balance" prefix="$" value={a.balance} onChange={(v) => upAcct(a.id, "balance", v)} />
                         <NumField cls="rrate" label="Return" suffix="%" value={a.rate} onChange={(v) => upAcct(a.id, "rate", v)} />
                         <div className="field">
+                          <label>Tax treatment</label>
+                          <select value={a.taxTreatment || "taxable"} onChange={(e) => upAcct(a.id, "taxTreatment", e.target.value)} aria-label="Tax treatment">
+                            <option value="taxable">Taxable</option>
+                            <option value="traditional">Tax-deferred (traditional)</option>
+                            <option value="roth">Tax-free (Roth)</option>
+                          </select>
+                        </div>
+                        <div className="field">
                           <label>Balance as of</label>
                           <input type="date" value={a.asOf || ""} onChange={(e) => upAcct(a.id, "asOf", e.target.value)}
                             aria-label="Balance as of" title="The date this balance was true. Leave blank for today." />
                         </div>
                         <div className="caphint">Leave blank if this is today's balance. A future date freezes the account until then; a past date catches it up to today using your normal income, expenses and payments.</div>
+                        <div className="caphint">
+                          {a.taxTreatment === "traditional"
+                            ? `Tax-deferred: a withdrawal is taxed, so ${fmtMoney(n0(a.balance))} here is worth about ${fmtMoney(n0(a.balance) * (1 - n0(settings.retireTaxRate) / 100))} to spend, and it's locked until 59½.`
+                            : a.taxTreatment === "roth"
+                              ? "Tax-free: growth and withdrawals are untaxed, but it's still locked until 59½ for the independence bridge."
+                              : `Taxable: reachable at any age, and its investment growth is docked ${n0(settings.taxDrag)}%/yr for tax on distributions.`}
+                          {" "}Defaulted from the account type — a "Roth + 401k" account holding both is worth splitting in two so each half is counted properly.
+                        </div>
                       </div>
                       <div className="capline">
                         <NumField cls="ramt" label="Cap at" prefix="$" value={a.cap == null ? "" : a.cap} onChange={(v) => upAcct(a.id, "cap", v)} />

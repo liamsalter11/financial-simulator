@@ -60,8 +60,8 @@ export function OverviewTab({ D, accounts, debts, chart, scNW, scBal, fireN, set
                       <YAxis {...yProps} />
                       <Tooltip content={(p) => <Tip {...p} start={start} rows={[{ key: "nw", name: "Net worth", color: "var(--amber)" }, { key: "invest", name: "Investments", color: "var(--green)" }, { key: "debt", name: "Debt", color: "var(--red)" }]} />} cursor={{ stroke: "var(--line2)" }} />
                       {/* in future dollars the target climbs with everything else, so it's a line rather than a level */}
-                      {fireN > 0 && D.sim.fire != null && !D.showNom && <ReferenceLine y={fireN} stroke="var(--amber)" strokeDasharray="3 3" label={{ value: "FI " + fmtBig(fireN), position: "insideTopRight", fill: "var(--amber)", fontSize: 9.5, fontFamily: "var(--mono)" }} />}
-                      {fireN > 0 && D.showNom && <Line type="monotone" dataKey="fi" stroke="var(--amber)" strokeWidth={1.2} strokeDasharray="3 3" dot={false} isAnimationActive={false} />}
+                      {fireN > 0 && D.sim.fire != null && !D.fiSloped && <ReferenceLine y={fireN} stroke="var(--amber)" strokeDasharray="3 3" label={{ value: "FI " + fmtBig(fireN), position: "insideTopRight", fill: "var(--amber)", fontSize: 9.5, fontFamily: "var(--mono)" }} />}
+                      {fireN > 0 && D.fiSloped && <Line type="monotone" dataKey="fi" stroke="var(--amber)" strokeWidth={1.2} strokeDasharray="3 3" dot={false} isAnimationActive={false} />}
                       {D.sim.debtFree != null && <ReferenceLine x={D.sim.debtFree} stroke="var(--red)" strokeDasharray="2 3" strokeOpacity={0.6} label={{ value: "DEBT-FREE", position: "top", fill: "var(--red)", fontSize: 9, fontFamily: "var(--mono)" }} />}
                       <Area type="monotone" dataKey="nw" stroke="var(--amber)" strokeWidth={2.6} fill="url(#nwFill)" dot={false} activeDot={{ r: 4, fill: "var(--amber)", stroke: "none" }} isAnimationActive={false} />
                       <Line type="monotone" dataKey="invest" stroke="var(--green)" strokeWidth={1.5} dot={false} isAnimationActive={false} />

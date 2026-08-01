@@ -24,6 +24,7 @@ needed to read them) are both the source and the shipped file.
 | `src/engine.js` | The simulation engine (`simulateWeekly`, `projectMinWeekly`) — pure logic, no React. |
 | `src/montecarlo.js` | Monte Carlo projection for the invested portfolio (`runMonteCarlo`) — pure logic, no React. |
 | `src/loan.js` | Amortization: payment ↔ term ↔ months-to-payoff. |
+| `src/tax.js` | Federal brackets, the standard deduction and FICA, plus `estimateTax`. |
 | `src/payroll.js` | Per-paycheck salary/401k-match/bonus math. |
 | `src/recurrence.js` | Expands a recurring event into concrete dates and counts firings per week. |
 | `src/format.js` | Money/date formatting, recurrence labels, shared constants. |
@@ -147,6 +148,28 @@ day and moves no dates, because the independence target inflates at exactly the 
 the balances do. At 0% inflation every conversion is the identity, which is what the older
 engine tests assert.
 
+**Tax is opt-in, then it's everywhere.** An income keeps the take-home figure you typed
+unless you switch it to derive one from `src/tax.js` — federal brackets, the standard
+deduction, FICA, and a flat state rate. Once derived, a promotion needs no tax rate of its
+own, and a raise is taxed at the rate the extra actually lands in rather than at last
+year's average. The bracket tables are labelled with their year and held constant across
+the projection, which is the consistent choice given everything runs in today's dollars:
+real brackets are inflation-indexed, so a salary that keeps its real value keeps its real
+rate.
+
+Account tax treatment then decides three separate things — whether growth is docked each
+year for tax on distributions, whether a withdrawal is taxed (so a tax-deferred dollar
+counts for less toward independence than a Roth one), and whether the money can be reached
+before 59½. That last one is what the **bridge** check reports: independence at 47 with
+everything locked in a 401(k) isn't independence, and the Invest tab says how short the
+reachable pile is.
+
+**Guaranteed retirement income shrinks the target rather than replacing it.** Social
+Security or a pension covers part of your spending forever after it starts, so the
+portfolio only has to fund the gap — but until it starts, the target also carries the
+capital to bridge those years yourself. The result is a target that slopes down toward the
+start date instead of stepping, which is why the charts draw it as a line.
+
 **Debt payoff order is a choice.** Surplus from a payment rolls either to the highest-rate
 loan (avalanche, the cheapest) or to the smallest balance (snowball, which clears
 individual loans soonest). The Debt tab runs the strategy you didn't pick as a second full
@@ -177,6 +200,15 @@ The annual pre-tax contribution limit counts from today rather than from January
 so a mid-year start doesn't know what has already gone in this calendar year, and
 it's applied per income source rather than per person — model two jobs for one
 person and each gets its own allowance, which the IRS would not.
+
+The tax model is an estimate, not a return. Bracket tables are for the year named
+in `src/tax.js` and go stale every January; state tax is a single flat rate rather
+than real state brackets; there are no itemised deductions, credits, or
+self-employment tax; and bonus withholding stays the flat rate you set, since
+supplemental wages are withheld under a different regime. Withdrawals are docked a
+single flat retirement rate rather than run back through the brackets, and the
+59½ access date is inferred from a birth year alone, so it's accurate to within a
+year either way.
 
 The Monte Carlo chart relaxes the volatility assumption only, and only for
 the invested portion of your net worth — cash, savings, and debt payoff still

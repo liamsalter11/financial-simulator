@@ -171,7 +171,7 @@ export function OverviewTab({
     cursor: {
       stroke: "var(--line2)"
     }
-  }), fireN > 0 && D.sim.fire != null && !D.showNom && React.createElement(ReferenceLine, {
+  }), fireN > 0 && D.sim.fire != null && !D.fiSloped && React.createElement(ReferenceLine, {
     y: fireN,
     stroke: "var(--amber)",
     strokeDasharray: "3 3",
@@ -182,7 +182,7 @@ export function OverviewTab({
       fontSize: 9.5,
       fontFamily: "var(--mono)"
     }
-  }), fireN > 0 && D.showNom && React.createElement(Line, {
+  }), fireN > 0 && D.fiSloped && React.createElement(Line, {
     type: "monotone",
     dataKey: "fi",
     stroke: "var(--amber)",
