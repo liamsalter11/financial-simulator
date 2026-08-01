@@ -5,7 +5,7 @@ const {
   useRef,
   useDeferredValue
 } = React;
-import { HelpCircle, Upload, Download, RotateCcw, Zap, AlertTriangle, Check, X, LayoutGrid, Wallet, Receipt, TrendingDown, InvestIcon, Trash2 } from "./icons.js";
+import { HelpCircle, Upload, Download, RotateCcw, Zap, AlertTriangle, Check, X, LayoutGrid, Wallet, Receipt, TrendingDown, InvestIcon, Trash2, RotateCw } from "./icons.js";
 import { Modal } from "./components.js";
 import { n0, num, uid, todayISO, nextFirstISO, firstOfYear, isoDate, addMonths, parseDate, addDays, fmtMoney, fmtBig, fmtC, weekTick, r2, parse, OPY, ACCT_TYPES, isInvest, isSav, isCash, BUCKET_COLOR, PAL, acctColor, debtColor, inflFactor } from "./format.js";
 import { firesInWeek } from "./recurrence.js";
@@ -14,6 +14,7 @@ import { WEEKS } from "./engine.js";
 import { projectAll, payoffVsInvest } from "./project.js";
 import { goalSeek, tornado, KNOBS, TARGETS, knobOf, targetOf } from "./solve.js";
 import { milestones, milestoneDiff } from "./milestones.js";
+import { pushUndo, dailySnapshots, previousSnapshot, actualSeries } from "./history.js";
 import { SEED_ACCOUNTS, SEED_DEBTS, normDebts, normIncome, normAccounts, isCard, pickIds, seedIncome, seedExpenses, seedTransfers, seedDebtPays, seedSettings } from "./seeds.js";
 import { store } from "./store.js";
 import { useScope } from "./useScope.js";
@@ -61,6 +62,11 @@ export function FinancialSimulator() {
     });
   };
   const [scenarios, setScenarios] = useState([]);
+  const [snapshots, setSnapshots] = useState([]);
+  const undoRef = useRef([]);
+  const redoRef = useRef([]);
+  const applyingRef = useRef(false);
+  const [histTick, setHistTick] = useState(0);
   const [compareId, setCompareId] = useState("");
   const [scenarioName, setScenarioName] = useState("");
   const [logLoan, setLogLoan] = useState("");
@@ -72,9 +78,11 @@ export function FinancialSimulator() {
   }, []);
   useEffect(() => {
     (async () => {
-      const K = ["fin3:accounts", "fin3:debts", "fin3:income", "fin3:expenses", "fin3:transfers", "fin3:debtPayments", "fin3:payments", "fin3:settings", "fin3:seedNote", "fin3:scenarios", "fin3:compareWith"];
+      const K = ["fin3:accounts", "fin3:debts", "fin3:income", "fin3:expenses", "fin3:transfers", "fin3:debtPayments", "fin3:payments", "fin3:settings", "fin3:seedNote", "fin3:scenarios", "fin3:compareWith", "fin3:snapshots"];
       const O = ["fin2:accounts", "fin2:debts", "fin2:income", "fin2:expenses", "fin2:contributions", "fin2:payments", "fin2:settings"];
-      const [a3, d3, i3, e3, t3, dp3, p3, s3, note, scen, cmp, a2, d2, i2, e2, c2, p2, s2] = await Promise.all([...K, ...O].map(k => store.get(k)));
+      const [a3, d3, i3, e3, t3, dp3, p3, s3, note, scen, cmp, snaps, a2, d2, i2, e2, c2, p2, s2] = await Promise.all([...K, ...O].map(k => store.get(k)));
+      const savedSnaps = parse(snaps, []);
+      setSnapshots(Array.isArray(savedSnaps) ? savedSnaps : []);
       const savedScenarios = parse(scen, []);
       setScenarios(Array.isArray(savedScenarios) ? savedScenarios : []);
       if (cmp) setCompareId(cmp);
@@ -150,6 +158,9 @@ export function FinancialSimulator() {
   useEffect(() => {
     if (ready) persist("fin3:compareWith", compareId);
   }, [compareId, ready]);
+  useEffect(() => {
+    if (ready) persist("fin3:snapshots", JSON.stringify(snapshots));
+  }, [snapshots, ready]);
   const setS = (k, v) => setSettings(p => ({
     ...p,
     [k]: v
@@ -490,6 +501,68 @@ export function FinancialSimulator() {
       ...p.settings
     });
   };
+  useEffect(() => {
+    if (!ready || !accounts) return;
+    if (applyingRef.current) {
+      applyingRef.current = false;
+      return;
+    }
+    const {
+      stack,
+      changed
+    } = pushUndo(undoRef.current, planNow(), Date.now());
+    if (!changed) return;
+    undoRef.current = stack;
+    redoRef.current = [];
+    setHistTick(t => t + 1);
+  }, [accounts, debts, income, expenses, transfers, debtPayments, payments, settings, ready]);
+  const stepHistory = (from, to) => {
+    if (from.current.length < 2) return;
+    const current = from.current[from.current.length - 1];
+    const target = from.current[from.current.length - 2];
+    from.current = from.current.slice(0, -1);
+    to.current = [...to.current, current];
+    applyingRef.current = true;
+    applyPlan(target.plan);
+    setHistTick(t => t + 1);
+  };
+  const undo = () => {
+    if (undoRef.current.length < 2) return;
+    stepHistory(undoRef, redoRef);
+  };
+  const redo = () => {
+    const next = redoRef.current[redoRef.current.length - 1];
+    if (!next) return;
+    redoRef.current = redoRef.current.slice(0, -1);
+    undoRef.current = [...undoRef.current, next];
+    applyingRef.current = true;
+    applyPlan(next.plan);
+    setHistTick(t => t + 1);
+  };
+  const canUndo = undoRef.current.length > 1;
+  const canRedo = redoRef.current.length > 0;
+  useEffect(() => {
+    const onKey = e => {
+      const z = e.key === "z" || e.key === "Z";
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      if (z && e.shiftKey) {
+        e.preventDefault();
+        redo();
+        return;
+      }
+      if (z) {
+        e.preventDefault();
+        undo();
+        return;
+      }
+      if (e.key === "y" || e.key === "Y") {
+        e.preventDefault();
+        redo();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
   const saveScenario = name => {
     const trimmed = (name || "").trim();
     if (!trimmed) return;
@@ -522,6 +595,14 @@ export function FinancialSimulator() {
     setCompareId(c => c === id ? "" : c);
   };
   const compareScenario = scenarios.find(s => s.id === compareId) || null;
+  const restoreSnapshot = at => {
+    const s = snapshots.find(x => x.at === at);
+    if (!s) return;
+    if (!window.confirm(`Restore the plan as it was on ${String(at).slice(0, 10)}? You can undo this.`)) return;
+    applyPlan(s.plan);
+    setModal(null);
+    showToast(`Restored ${String(at).slice(0, 10)}`);
+  };
   const buildDump = () => JSON.stringify({
     app: "fin-sim",
     version: 7,
@@ -946,7 +1027,12 @@ export function FinancialSimulator() {
       ...s,
       cmp: r2(cmpSeries[s.w].nw * nomAt(s.w))
     } : s;
-    const viewSeries = (showNom ? sim.series.map(scaleSnap) : sim.series).map(withCmp);
+    const actualAt = new Map(actualSeries(snapshots, start).map(a => [a.week, a.nw]));
+    const withActual = s => actualAt.has(s.w) ? {
+      ...s,
+      actual: r2(actualAt.get(s.w) * nomAt(s.w))
+    } : s;
+    const viewSeries = (showNom ? sim.series.map(scaleSnap) : sim.series).map(withCmp).map(withActual);
     const cf = [];
     const cfMax = Math.min(sim.series.length - 1, 312);
     for (let w = 0; w <= cfMax; w++) {
@@ -1033,6 +1119,14 @@ export function FinancialSimulator() {
       })
     } : mc;
     const fiSloped = showNom || sim.guaranteedAnnual > 0;
+    const actuals = actualSeries(snapshots, start);
+    const prevSnap = previousSnapshot(snapshots, new Date().toISOString());
+    const drift = prevSnap ? {
+      at: prevSnap.at,
+      nw: typeof prevSnap.nw === "number" ? prevSnap.nw : null,
+      fire: prevSnap.fire || null,
+      debtFree: prevSnap.debtFree || null
+    } : null;
     const timeline = milestones(P, {
       start,
       debts,
@@ -1112,9 +1206,11 @@ export function FinancialSimulator() {
       horizonWeeks,
       busy,
       timeline,
-      compare
+      compare,
+      actuals,
+      drift
     };
-  }, [accounts, debts, income, expenses, transfers, debtPayments, settings, start, P, busy, compareScenario]);
+  }, [accounts, debts, income, expenses, transfers, debtPayments, settings, start, P, busy, compareScenario, snapshots]);
   const maxW = D ? D.maxW : 520;
   const scNW = useScope(maxW, 260);
   const scBal = useScope(maxW, 260);
@@ -1122,6 +1218,22 @@ export function FinancialSimulator() {
   const scDebt = useScope(maxW, 260);
   const scInv = useScope(maxW, 260);
   const scMC = useScope(maxW, 260);
+  useEffect(() => {
+    if (!ready || !D || D.busy) return;
+    const at = new Date().toISOString();
+    const today = at.slice(0, 10);
+    const existing = snapshots[0];
+    if (existing && String(existing.at).slice(0, 10) === today && existing.nw === D.netWorth) return;
+    const entry = {
+      at,
+      plan: planNow(),
+      nw: D.netWorth,
+      debtFree: D.sim.debtFree == null ? null : isoDate(addDays(start, D.sim.debtFree * 7)),
+      fire: D.sim.fire == null ? null : isoDate(addDays(start, D.sim.fire * 7))
+    };
+    const next = dailySnapshots(snapshots, entry);
+    if (next !== snapshots) setSnapshots(next);
+  }, [D, ready]);
   if (!accounts || !D) return React.createElement(React.Fragment, null, React.createElement("style", null, CSS), React.createElement("div", {
     className: "fin"
   }, React.createElement("div", {
@@ -1235,6 +1347,22 @@ export function FinancialSimulator() {
   }, React.createElement(HelpCircle, {
     size: 13
   }), "Help"), React.createElement("button", {
+    className: "tbtn",
+    onClick: undo,
+    disabled: !canUndo,
+    title: "Undo (\u2318Z)",
+    "aria-label": "Undo"
+  }, React.createElement(RotateCcw, {
+    size: 13
+  }), "Undo"), React.createElement("button", {
+    className: "tbtn",
+    onClick: redo,
+    disabled: !canRedo,
+    title: "Redo (\u2318\u21E7Z)",
+    "aria-label": "Redo"
+  }, React.createElement(RotateCw, {
+    size: 13
+  }), "Redo"), React.createElement("button", {
     className: "tbtn" + (compareScenario ? " on" : ""),
     onClick: () => {
       setScenarioName("");
@@ -1422,7 +1550,46 @@ export function FinancialSimulator() {
     type: "checkbox",
     checked: compareId === s.id,
     onChange: e => setCompareId(e.target.checked ? s.id : "")
-  }), "compare against this")))))), modal === "import" && React.createElement(Modal, {
+  }), "compare against this"))))), React.createElement("div", {
+    className: "mnote",
+    style: {
+      marginTop: 20
+    }
+  }, React.createElement("b", null, "Automatic history."), " The app keeps a copy of your plan once a day, so a bad edit or a bad import is recoverable even if you didn't save a scenario first. Restoring is itself undoable."), snapshots.length === 0 ? React.createElement("div", {
+    className: "empty"
+  }, "Nothing saved automatically yet \u2014 the first copy is written after your next edit.") : React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 2,
+      maxHeight: 220,
+      overflow: "auto"
+    }
+  }, snapshots.map(s => React.createElement("div", {
+    key: s.at,
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      padding: "8px 4px",
+      borderBottom: "1px solid var(--line)",
+      fontFamily: "var(--mono)",
+      fontSize: 12
+    }
+  }, React.createElement("span", {
+    style: {
+      color: "var(--faint)",
+      width: 84
+    }
+  }, String(s.at).slice(0, 10)), React.createElement("span", {
+    style: {
+      color: "var(--muted)",
+      flex: 1
+    }
+  }, typeof s.nw === "number" ? fmtMoney(s.nw) : "—", s.fire ? ` · FI ${s.fire.slice(0, 7)}` : ""), React.createElement("button", {
+    className: "btn btn-ghost",
+    onClick: () => restoreSnapshot(s.at)
+  }, "Restore"))))), modal === "import" && React.createElement(Modal, {
     title: "Load saved data",
     onClose: () => setModal(null)
   }, React.createElement("div", {

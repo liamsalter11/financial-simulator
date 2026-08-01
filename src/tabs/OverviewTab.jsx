@@ -81,6 +81,9 @@ export function OverviewTab({ D, accounts, debts, chart, scNW, scBal, fireN, set
                       <Line type="monotone" dataKey="invest" stroke="var(--green)" strokeWidth={1.5} dot={false} isAnimationActive={false} />
                       <Line type="monotone" dataKey="debt" stroke="var(--red)" strokeWidth={1.5} dot={false} isAnimationActive={false} />
                       {D.compare && <Line type="monotone" dataKey="cmp" stroke="var(--muted)" strokeWidth={1.6} strokeDasharray="5 4" dot={false} isAnimationActive={false} />}
+                      {/* what was actually recorded, as points rather than a line — there
+                          are only as many as there are days you've opened the app */}
+                      {D.actuals.length > 1 && <Line type="monotone" dataKey="actual" stroke="var(--cyan)" strokeWidth={2} dot={{ r: 2.5, fill: "var(--cyan)", stroke: "none" }} connectNulls isAnimationActive={false} />}
                     </ComposedChart>
                   </ResponsiveContainer>
                 </div>
@@ -120,6 +123,29 @@ export function OverviewTab({ D, accounts, debts, chart, scNW, scBal, fireN, set
                     Every rate you enter is nominal, and the projection runs in today's money: a 7% return against {n0(settings.inflation)}% inflation compounds at {(((1.07) / (1 + n0(settings.inflation) / 100) - 1) * 100).toFixed(2)}% here, and your spending stays constant in real terms. Loan payments are the exception — a fixed payment doesn't rise with prices, so it quietly gets easier to make. The toggle re-labels the charts in the money of the day; it moves no dates, because the independence target inflates alongside the balances.
                   </div>
                 </div>
+                {D.drift && (
+                  <div className="caphint" style={{ marginTop: 10 }}>
+                    {(() => {
+                      const when = fmtDate(new Date(D.drift.at));
+                      const bits = [];
+                      if (D.drift.nw != null) {
+                        const moved = D.netWorth - D.drift.nw;
+                        bits.push(<span key="nw">net worth is <b style={{ color: moved >= 0 ? "var(--green)" : "var(--red)" }}>{fmtMoney(Math.abs(moved))} {moved >= 0 ? "up" : "down"}</b></span>);
+                      }
+                      const shifted = (label, then, now) => {
+                        if (!then || !now) return null;
+                        const months = Math.round((new Date(then) - new Date(now)) / 86400000 / 30.44);
+                        if (Math.abs(months) < 1) return <span key={label}>{label} hasn't moved</span>;
+                        return <span key={label}>{label} is <b style={{ color: months > 0 ? "var(--green)" : "var(--red)" }}>{fmtDur(Math.abs(months))} {months > 0 ? "sooner" : "later"}</b></span>;
+                      };
+                      const fi = shifted("independence", D.drift.fire, D.sim.fire == null ? null : w2date(D.sim.fire).toISOString());
+                      const df = shifted("debt-free", D.drift.debtFree, D.sim.debtFree == null ? null : w2date(D.sim.debtFree).toISOString());
+                      [fi, df].forEach((x) => x && bits.push(x));
+                      if (!bits.length) return null;
+                      return <>Since {when}: {bits.map((b, i) => <span key={i}>{i ? ", " : ""}{b}</span>)}. The app keeps a copy of your plan once a day, which is where this comes from — and the cyan points are net worth as it was actually recorded.</>;
+                    })()}
+                  </div>
+                )}
                 <div className="assume">Today's dollars · returns, rates and spending held constant in real terms · a projection, not a guarantee or financial advice.</div>
               </div>
 
