@@ -1,12 +1,20 @@
-// Minimal static file server for e2e tests — serves the repo root so both "/" (the
-// front page) and "/financial-simulator/" resolve exactly as they do on GitHub Pages.
+// Minimal static file server for e2e tests — serves the *parent* of this repo, so that
+// both "/" (the site's front page) and "/financial-simulator/" resolve exactly as they do
+// on GitHub Pages. That layout only exists when this repo is checked out inside a clone of
+// liamsalter11.github.io; in a standalone clone (CI, or a fresh `git clone`) there is no
+// front page to serve, which is what hasFrontPage() reports so those tests can skip
+// instead of failing on something the repo doesn't contain.
 import http from "node:http";
-import { readFile } from "node:fs/promises";
+import { readFile, access } from "node:fs/promises";
 import { join, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 const repoRoot = join(here, "..", "..", "..");
+
+export async function hasFrontPage() {
+  try { await access(join(repoRoot, "index.html")); return true; } catch { return false; }
+}
 
 const MIME = {
   ".html": "text/html", ".js": "application/javascript", ".jsx": "text/plain",

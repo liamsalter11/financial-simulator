@@ -4,7 +4,32 @@ on:
     branches: [main]
   workflow_dispatch: {}
 jobs:
+  # The live site is published straight from this repo's contents, so the suite runs
+  # before anything is copied across — a red build must not reach liamsalter.com.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Unit tests (includes the .jsx/.js sync guard)
+        run: npm test
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser tests
+        run: npm run test:e2e
+
   sync:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout financial-simulator

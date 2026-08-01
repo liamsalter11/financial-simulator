@@ -120,10 +120,18 @@ export function simulateWeekly(cfg) {
           if (x.interestFrom) { const f = parseDate(x.interestFrom); if (!isNaN(f) && ws < f) continue; }
           /* cards only charge interest on a carried balance — pay in full and there's none */
           const base = x.kind === "card" ? Math.max(0, x.carried) : x.bal;
-          if (base <= 0.005) continue;
-          const i = base * (x.apr / 1200);
-          x.bal += i; x.carried += i; interest += i;
-          if (x.kind === "card") cardInterest += i;
+          if (base > 0.005) {
+            const i = base * (x.apr / 1200);
+            x.bal += i; x.carried += i; interest += i;
+            if (x.kind === "card") cardInterest += i;
+          }
+          /* statement close: whatever is on the card now is what next month's interest is
+             charged on, unless a payment clears it first (both the scheduled-payment and
+             cap-sweep paths reset `carried` when they pay a card down). Purchases made
+             during the coming cycle don't join it until the next close — that grace period
+             is what makes "pay the statement in full, owe nothing" come out right, while
+             still charging a card that simply accumulates spending and is never paid. */
+          if (x.kind === "card") x.carried = Math.max(0, x.bal);
         }
       }
     }
