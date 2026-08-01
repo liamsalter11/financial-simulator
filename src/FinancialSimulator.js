@@ -6,7 +6,7 @@ const {
 } = React;
 import { HelpCircle, Upload, Download, RotateCcw, Zap, AlertTriangle, Check, X, LayoutGrid, Wallet, Receipt, TrendingDown, InvestIcon } from "./icons.js";
 import { Modal } from "./components.js";
-import { n0, num, uid, todayISO, nextFirstISO, firstOfYear, isoDate, addMonths, parseDate, addDays, fmtMoney, fmtBig, fmtC, weekTick, r2, parse, OPY, ACCT_TYPES, isInvest, isSav, isCash, BUCKET_COLOR, PAL, acctColor, debtColor } from "./format.js";
+import { n0, num, uid, todayISO, nextFirstISO, firstOfYear, isoDate, addMonths, parseDate, addDays, fmtMoney, fmtBig, fmtC, weekTick, r2, parse, OPY, ACCT_TYPES, isInvest, isSav, isCash, BUCKET_COLOR, PAL, acctColor, debtColor, toReal, inflFactor } from "./format.js";
 import { firesInWeek } from "./recurrence.js";
 import { payrollOf, bonusOf, effectiveTaxRate, hasPromotions, withoutPromotions } from "./payroll.js";
 import { simulateWeekly, projectMinWeekly, WEEKS } from "./engine.js";
@@ -385,7 +385,7 @@ export function FinancialSimulator() {
     [k]: v
   } : x));
   const addDp = recur => {
-    const id = pickIds(accounts, debts);
+    const id = pickIds(accounts, debts, settings.payoffOrder);
     setDebtPayments(p => [...p, {
       id: uid(),
       name: recur === "once" ? "Extra payment" : "New payment",
@@ -604,13 +604,35 @@ export function FinancialSimulator() {
       const i = Math.max(0, Math.min(Math.round(w), simWith.series.length - 1, simWithout.series.length - 1));
       return simWith.series[i].nw - simWithout.series[i].nw;
     };
-    const minW = projectMinWeekly(debts, start, WEEKS);
+    const minW = projectMinWeekly(debts, start, WEEKS, settings.inflation);
     const maxW = Math.min(WEEKS, Math.max(sim.fire || 520, (sim.debtFree || 260) + 130, 260) + 60);
     const interestSaved = Math.max(0, minW.interest - sim.interest);
     const wksSaved = Math.max(0, (minW.clearedWeek == null ? WEEKS : minW.clearedWeek) - (sim.debtFree == null ? WEEKS : sim.debtFree));
+    const otherOrder = settings.payoffOrder === "snowball" ? "avalanche" : "snowball";
+    const canCompare = loans.filter(l => n0(l.balance) > 0).length > 1;
+    const simAlt = canCompare ? simulateWeekly({
+      ...simCfg,
+      income: hypoOn ? income : withoutPromotions(income),
+      settings: {
+        ...settings,
+        payoffOrder: otherOrder
+      }
+    }) : null;
+    const firstClear = s => {
+      const ws = Object.values(s.payoffWeek).filter(w => w != null);
+      return ws.length ? Math.min(...ws) : null;
+    };
+    const strategy = simAlt ? {
+      order: settings.payoffOrder,
+      other: otherOrder,
+      interestDelta: simAlt.interest - sim.interest,
+      freeDelta: (simAlt.debtFree == null ? WEEKS : simAlt.debtFree) - (sim.debtFree == null ? WEEKS : sim.debtFree),
+      firstDelta: (firstClear(simAlt) == null ? WEEKS : firstClear(simAlt)) - (firstClear(sim) == null ? WEEKS : firstClear(sim))
+    } : null;
     const investAccts = accounts.filter(a => isInvest(a.type));
     const investBalTotal = investAccts.reduce((s, a) => s + n0(a.balance), 0);
-    const mcReturn = investBalTotal > 0 ? investAccts.reduce((s, a) => s + n0(a.rate) * n0(a.balance), 0) / investBalTotal / 100 : 0.07;
+    const mcNominal = investBalTotal > 0 ? investAccts.reduce((s, a) => s + n0(a.rate) * n0(a.balance), 0) / investBalTotal : 7;
+    const mcReturn = toReal(mcNominal, settings.inflation) / 100;
     const mc = runMonteCarlo({
       series: sim.series,
       weeks: maxW,
@@ -665,15 +687,41 @@ export function FinancialSimulator() {
       names[l.id] = l.name;
     });
     names.nw = "Net worth";
+    const infl = num(settings.inflation);
+    const showNom = !!settings.showNominal && infl !== 0;
+    const nomAt = w => showNom ? inflFactor(infl, w) : 1;
+    const scaleSnap = s => {
+      const f = nomAt(s.w);
+      const acct = {};
+      for (const k in s.acct) acct[k] = r2(s.acct[k] * f);
+      const dbt = {};
+      for (const k in s.dbt) dbt[k] = r2(s.dbt[k] * f);
+      return {
+        ...s,
+        nw: r2(s.nw * f),
+        debt: r2(s.debt * f),
+        loanDebt: r2(s.loanDebt * f),
+        invest: r2(s.invest * f),
+        basis: r2(s.basis * f),
+        acct,
+        dbt,
+        fi: r2(sim.fireNumber * f)
+      };
+    };
+    const viewSeries = showNom ? sim.series.map(scaleSnap) : sim.series.map(s => ({
+      ...s,
+      fi: sim.fireNumber
+    }));
     const cf = [];
     const cfMax = Math.min(sim.series.length - 1, 312);
     for (let w = 0; w <= cfMax; w++) {
-      const s = sim.series[w];
+      const s = sim.series[w],
+        f = nomAt(w);
       cf.push({
         w,
-        income: s.inflow,
-        spend: s.outflow,
-        net: r2(s.inflow - s.outflow)
+        income: r2(s.inflow * f),
+        spend: r2(s.outflow * f),
+        net: r2((s.inflow - s.outflow) * f)
       });
     }
     for (let i = 0; i < cf.length; i++) {
@@ -685,11 +733,14 @@ export function FinancialSimulator() {
       }
       cf[i].smooth = r2(sum / cnt);
     }
-    const debtCurve = sim.series.map(s => ({
-      w: s.w,
-      plan: s.loanDebt,
-      min: minW.series[s.w]
-    }));
+    const debtCurve = sim.series.map(s => {
+      const f = nomAt(s.w);
+      return {
+        w: s.w,
+        plan: r2(s.loanDebt * f),
+        min: r2(minW.series[s.w] * f)
+      };
+    });
     const bInv = accounts.filter(a => isInvest(a.type)).reduce((s, a) => s + n0(a.balance), 0);
     const bSav = accounts.filter(a => isSav(a.type)).reduce((s, a) => s + n0(a.balance), 0);
     const bCash = accounts.filter(a => isCash(a.type)).reduce((s, a) => s + n0(a.balance), 0);
@@ -721,6 +772,31 @@ export function FinancialSimulator() {
         break;
       }
     }
+    const liquid = bCash + bSav;
+    const runway = mExp > 0 ? liquid / mExp : null;
+    const deferralNotes = income.map(inc => {
+      const ci = sim.capInfo && sim.capInfo[inc.id];
+      return ci ? {
+        id: inc.id,
+        name: inc.name,
+        date: addDays(start, ci.week * 7),
+        lostMatch: ci.lostMatch
+      } : null;
+    }).filter(Boolean);
+    const mcView = showNom ? {
+      ...mc,
+      bands: mc.bands.map(b => {
+        const f = nomAt(b.w);
+        return {
+          ...b,
+          p10: b.p10 * f,
+          p25: b.p25 * f,
+          p50: b.p50 * f,
+          p75: b.p75 * f,
+          p90: b.p90 * f
+        };
+      })
+    } : mc;
     return {
       totalAssets,
       totalDebt,
@@ -746,7 +822,7 @@ export function FinancialSimulator() {
       nwGapAt,
       minW,
       maxW,
-      mc,
+      mc: mcView,
       mcReturn,
       interestSaved,
       wksSaved,
@@ -764,7 +840,15 @@ export function FinancialSimulator() {
       chargedTo,
       worstMonthOut,
       avgSweep,
-      capped
+      capped,
+      infl,
+      showNom,
+      nomAt,
+      viewSeries,
+      strategy,
+      liquid,
+      runway,
+      deferralNotes
     };
   }, [accounts, debts, income, expenses, transfers, debtPayments, settings, start]);
   const maxW = D ? D.maxW : 520;
@@ -1038,6 +1122,8 @@ export function FinancialSimulator() {
     D: D,
     chart: chartProps,
     scCF: scCF,
+    settings: settings,
+    setS: setS,
     income: income,
     accounts: accounts,
     expenses: expenses,
@@ -1077,6 +1163,8 @@ export function FinancialSimulator() {
     D: D,
     chart: chartProps,
     scDebt: scDebt,
+    settings: settings,
+    setS: setS,
     debts: debts,
     debtPayments: debtPayments,
     payments: payments,

@@ -4,7 +4,9 @@ export const HELP = {
     title: "Overview",
     intro: "A read-only summary. Nothing here is editable — every number is driven by what you enter on the other tabs.",
     points: [
-      ["The four stat cards", "Net worth is assets minus debts today. Monthly surplus is income minus living costs, before debt payments and investing. The debt-free and independence dates come from the projection below."],
+      ["The five stat cards", "Net worth is assets minus debts today. Monthly surplus is income minus living costs, before debt payments and investing. Cash runway is how long your cash and savings alone would cover spending with no income arriving at all — under three months turns red. The debt-free and independence dates come from the projection below."],
+      ["Inflation", "Every rate you enter — returns, APRs, raises, a promotion's new salary — is nominal, and the projection runs in today's dollars, so each one is converted to a real rate first: 7% growth against 2.5% inflation compounds at 4.39% here. Your spending holds its value in the same way. Loan payments are the deliberate exception, because a fixed payment doesn't rise with prices — in today's money it shrinks year after year, which is a real and usually welcome effect."],
+      ["Show future dollars", "A display toggle, not a change to the simulation. It re-labels the charts in the money of the day rather than today's, which is what a future statement would actually show. No date moves, because the independence target inflates at exactly the same rate the balances do — which is why the target is drawn as a rising line in that mode rather than a flat one."],
       ["Net worth projection", "Simulates your accounts, debts, income and spending forward week by week for up to 40 years. Amber is net worth, green is investments, red is total debt."],
       ["Reading the chart", "Scroll or pinch to zoom, drag to pan, or use the 1Y / 5Y / Max buttons. Hover any point for exact figures on that date."],
       ["Include future promotions", "A toggle under the net worth chart. Switch it off to re-run the whole projection on today's salary, with every planned promotion ignored — the fastest way to see what you're counting on them for. The note beside it reports the net worth gap at the chart's current zoom, plus how much sooner they get you to debt-free and financial independence. The toggle applies everywhere, not just this chart."],
@@ -19,7 +21,7 @@ export const HELP = {
       ["Add your accounts", "Give each one a name, a type, today's balance, and an expected annual return. Picking a type fills in a sensible default rate, which you can then override."],
       ["Balance as of (optional)", "Leave blank if the balance is accurate today. Set a future date to freeze the account until then — useful for one you haven't opened yet. Set a past date (a recent statement balance, say) and it's caught up to today using your normal income, expenses and payments in the meantime."],
       ["Types matter", "Brokerage and Retirement count as 'invested' for the asset mix and the independence target. Savings, Checking, Cash and Other asset don't."],
-      ["Returns are nominal and constant", "The projection applies the rate you set every week, forever. It does not model volatility, crashes, inflation or tax on gains."],
+      ["Enter returns as nominal, constant rates", "Enter the rate you'd quote — 7% for a stock portfolio, 4% for a savings account. The projection deflates it by your inflation setting on the Overview tab and applies the result every week, forever. It does not model volatility, crashes, or tax on gains. A 0% account genuinely loses ground here, because holding cash does."],
       ["Caps and sweeping (optional)", "Set a cap to stop cash idling in an account. Anything above the cap is swept to the destination you pick — another account, or a debt to pay down."],
       ["Watch the cap warning", "The hint under each cap tells you what that account's heaviest month costs. A cap below that number will overdraw the account, and it turns red to say so."],
     ],
@@ -30,6 +32,7 @@ export const HELP = {
     points: [
       ["Income", "Enter take-home pay per paycheck and how often it arrives. Enter gross separately — as an annual salary or per paycheck — since percentage-based deductions are calculated off gross."],
       ["Pre-tax deductions and match", "401k contributions never reach take-home, so they're added on top and sent straight to the account you choose. An employer match of '100% up to 3%' means every dollar matched, capped at the first 3% of gross."],
+      ["The annual limit", "The IRS caps what you can elect into a 401k or 403b each year. Contributions stop once they reach the figure you set and start again in January, and anything marked as not counting toward it — an HSA, insurance — is left alone. If you'd hit the cap early, the note says when: a match paid per paycheck stops when the contribution it rides on stops, so front-loading can quietly forfeit part of the year's match unless your plan trues up. The limit applies per income source, counts from today rather than from January (so it doesn't know what you've already contributed this year), and it's editable because the IRS moves it most years."],
       ["Raises, promotions and bonuses", "A raise compounds annually. A promotion is a step change to a new salary on a date — enter the new gross and a tax rate (prefilled from today's rate) and take-home is worked out for you. A bonus lands once a year on its own date and can be a flat amount or a percentage of salary."],
       ["Splitting a paycheck", "Route a percentage or fixed amount to other accounts. The first row in the list receives whatever is left over."],
       ["Expenses", "Set an amount, how often, and which account or credit card it comes from. Add an end date for anything temporary — tuition, a lease — so it doesn't inflate your long-run independence target."],
@@ -42,7 +45,8 @@ export const HELP = {
     points: [
       ["Balance decay", "Amber is your actual plan. Cyan is what would happen paying only the minimums. The gap between them is what your extra payments are buying you."],
       ["Interest saved and time saved", "Both stat cards compare your plan against that minimums-only path."],
-      ["Payoff order", "Loans are ranked highest rate first. When a payment more than clears its target, the surplus rolls to your highest-rate remaining loan automatically."],
+      ["Payoff order", "Pick the strategy at the top of the loan list. Avalanche sends any surplus to your highest-rate loan, which costs the least interest. Snowball sends it to your smallest balance, which clears individual loans sooner. The note underneath prices the difference both ways, since the cheaper plan isn't always the one that's easiest to stick to."],
+      ["By payment or by term", "A loan can be described either way. Type a minimum payment and the card tells you how long that takes — or how long it never takes, if the payment doesn't cover the interest. Switch to \"by term\", enter the months, and the payment is derived instead."],
       ["Interest start date", "Interest accrues from this date. Push it into the future for a subsidised loan sitting in deferment, and it won't accrue until then."],
       ["Credit cards behave differently", "A card only charges interest on a balance you carry. Pay it in full each month and it costs nothing — so cards are excluded from the debt-free date calculation."],
       ["Changing the plan", "To pay debt down faster, edit or add a payment on the Cash flow tab. This tab shows the result."],
@@ -58,7 +62,7 @@ export const HELP = {
       ["Adjust the withdrawal rate", "Lower it for a more conservative target that needs a bigger portfolio; raise it for the opposite."],
       ["Monte Carlo: range of outcomes", "Runs the same contribution schedule hundreds of times with randomized annual returns, instead of one constant rate — the shaded band shows where returns could land instead of just where they're expected to land on average."],
       ["Volatility, not a market forecast", "Higher volatility widens the band without moving the median much. It's a measure of how much a real market could disagree with the average return, not a prediction of which path you'll actually get."],
-      ["A projection, not advice", "The chart above this one holds returns constant — today's dollars, no inflation, tax, or volatility. The Monte Carlo chart relaxes the volatility assumption only, as one blended portfolio; neither models sequence-of-returns risk in retirement or fees. Treat the dates as a direction of travel, not a promise."],
+      ["A projection, not advice", "The chart above this one holds returns constant — today's dollars, real returns after your inflation setting, no tax or volatility. The Monte Carlo chart relaxes the volatility assumption only, as one blended portfolio at that same real return; neither models sequence-of-returns risk in retirement or fees. Treat the dates as a direction of travel, not a promise."],
     ],
   },
 };

@@ -2,6 +2,7 @@
 // missing fields when loading older saved data or an imported JSON file.
 import { n0, uid, todayISO, nextFirstISO, isSav, isInvest } from "./format.js";
 import { perCheck, payrollOf } from "./payroll.js";
+import { minPaymentOf } from "./loan.js";
 
 export const A_CHK = uid(), A_SAV = uid(), A_BRK = uid(), A_RET = uid();
 export const D_EAR = uid(), D_MOH = uid();
@@ -15,8 +16,15 @@ export const SEED_DEBTS = () => [
   { id: D_EAR, name: "Earnest (private)", kind: "loan", balance: 18500, originalBalance: 18500, apr: 7.75, minPayment: 235, interestFrom: todayISO() },
   { id: D_MOH, name: "MOHELA (federal)", kind: "loan", balance: 24200, originalBalance: 24200, apr: 5.5, minPayment: 255, interestFrom: todayISO() },
 ];
-/* interest accrues from the day you add a loan unless you push the date out for a deferment */
-export const normDebts = (list) => (list || []).map((x) => ({ ...x, kind: x.kind === "card" ? "card" : "loan", interestFrom: x.interestFrom || todayISO() }));
+/* interest accrues from the day you add a loan unless you push the date out for a deferment.
+   A loan is described either by its payment or by its term — older data has only a payment. */
+export const normDebts = (list) => (list || []).map((x) => ({
+  ...x,
+  kind: x.kind === "card" ? "card" : "loan",
+  interestFrom: x.interestFrom || todayISO(),
+  payMode: x.payMode === "term" ? "term" : "payment",
+  termMonths: x.termMonths != null ? x.termMonths : "",
+}));
 
 export const normDist = (dist, fb) => {
   if (!Array.isArray(dist) || !dist.length) return [{ acctId: fb }];
@@ -35,6 +43,7 @@ export const normIncome = (list, fbAcct, retAcct) => (list || []).map((x) => ({
     value: p.value != null ? p.value : (p.amount != null ? p.amount : 0),
     toAcct: p.toAcct || retAcct,
     counts: p.counts !== false,
+    capped: p.capped !== false,
   })),
   match: x.match ? { rate: x.match.rate != null ? x.match.rate : 100, limit: x.match.limit != null ? x.match.limit : 3, toAcct: x.match.toAcct || retAcct } : null,
   /* older saved data has a hand-typed "amount" (take-home) instead of a tax rate — back
@@ -58,13 +67,15 @@ export const normIncome = (list, fbAcct, retAcct) => (list || []).map((x) => ({
   } : null,
 }));
 export const isCard = (x) => !!x && x.kind === "card";
-export function pickIds(accts, dbts) {
+export function pickIds(accts, dbts, payoffOrder) {
   const chk = accts.find((a) => a.type === "checking") || accts[0] || {};
   const sav = accts.find((a) => isSav(a.type)) || chk;
   const brk = accts.find((a) => isInvest(a.type)) || chk;
   const ret = accts.find((a) => a.type === "retirement") || brk;
   const loans = (dbts || []).filter((x) => !isCard(x));
-  const hi = [...loans].filter((x) => n0(x.balance) > 0).sort((a, b) => n0(b.apr) - n0(a.apr))[0] || loans[0] || {};
+  /* a new "extra payment" defaults to whichever loan the chosen strategy attacks first */
+  const first = payoffOrder === "snowball" ? (a, b) => n0(a.balance) - n0(b.balance) : (a, b) => n0(b.apr) - n0(a.apr);
+  const hi = [...loans].filter((x) => n0(x.balance) > 0).sort(first)[0] || loans[0] || {};
   return { chk: chk.id, sav: sav.id, brk: brk.id, ret: ret.id, hiDebt: hi.id };
 }
 export const seedIncome = (id) => [{
@@ -85,9 +96,14 @@ export const seedExpenses = (id) => [
 export const seedTransfers = (id) => [{ id: uid(), name: "Auto-invest", amount: 800, date: nextFirstISO(), recur: "monthly", fromAcct: id.chk, toAcct: id.brk }];
 export const seedDebtPays = (id, dbts) => {
   const list = (dbts || []).filter((x) => !isCard(x) && n0(x.balance) > 0).map((x) => ({
-    id: uid(), name: x.name + " payment", amount: n0(x.minPayment), date: nextFirstISO(), recur: "monthly", fromAcct: id.chk, toDebt: x.id,
+    id: uid(), name: x.name + " payment", amount: Math.round(minPaymentOf(x) * 100) / 100, date: nextFirstISO(), recur: "monthly", fromAcct: id.chk, toDebt: x.id,
   }));
   if (id.hiDebt) list.push({ id: uid(), name: "Extra toward payoff", amount: 400, date: nextFirstISO(), recur: "monthly", fromAcct: id.chk, toDebt: id.hiDebt });
   return list;
 };
-export const seedSettings = () => ({ withdrawalRate: 4, redirect: true, mcVolatility: 15, hypotheticals: true });
+/* deferralLimit is the annual employee 401k/403b election cap — editable because the IRS
+   moves it every year, and 0 turns the whole check off */
+export const seedSettings = () => ({
+  withdrawalRate: 4, redirect: true, mcVolatility: 15, hypotheticals: true,
+  inflation: 2.5, showNominal: false, payoffOrder: "avalanche", deferralLimit: 24500,
+});
