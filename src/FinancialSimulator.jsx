@@ -1,6 +1,6 @@
 /* The main component: all state and handlers live here; each tab's rendering is
    delegated to src/tabs/*.jsx, which receive whatever slice of state/handlers they need. */
-const { useState, useEffect, useMemo, useRef } = React;
+const { useState, useEffect, useMemo, useRef, useDeferredValue } = React;
 import {
   HelpCircle, Upload, Download, RotateCcw, Zap, AlertTriangle, Check, X,
   LayoutGrid, Wallet, Receipt, TrendingDown, InvestIcon,
@@ -9,12 +9,12 @@ import { Modal } from "./components.js";
 import {
   n0, num, uid, todayISO, nextFirstISO, firstOfYear, isoDate, addMonths, parseDate, addDays,
   fmtMoney, fmtBig, fmtC, weekTick, r2, parse, OPY, ACCT_TYPES,
-  isInvest, isSav, isCash, BUCKET_COLOR, PAL, acctColor, debtColor, toReal, inflFactor,
+  isInvest, isSav, isCash, BUCKET_COLOR, PAL, acctColor, debtColor, inflFactor,
 } from "./format.js";
 import { firesInWeek } from "./recurrence.js";
-import { payrollOf, bonusOf, effectiveTaxRate, hasPromotions, withoutPromotions, isDerived, takeHomeOf } from "./payroll.js";
-import { simulateWeekly, projectMinWeekly, WEEKS } from "./engine.js";
-import { runMonteCarlo } from "./montecarlo.js";
+import { payrollOf, bonusOf, effectiveTaxRate, isDerived, takeHomeOf } from "./payroll.js";
+import { WEEKS } from "./engine.js";
+import { projectAll } from "./project.js";
 import {
   SEED_ACCOUNTS, SEED_DEBTS, normDebts, normIncome, normAccounts, isCard, pickIds,
   seedIncome, seedExpenses, seedTransfers, seedDebtPays, seedSettings,
@@ -232,9 +232,69 @@ export function FinancialSimulator() {
   };
   const onJsonFile = (e) => { const f = e.target.files && e.target.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => setImportText(String(rd.result || "")); rd.readAsText(f); e.target.value = ""; };
 
+  /* ================================================================== */
+  /*  The projection, off the main thread                                */
+  /* ================================================================== */
+  /* Three full 40-year simulations plus a Monte Carlo is ~180ms of work, and it reruns on
+     every keystroke. Run it in a module worker and keep rendering the previous result while
+     the next one is in flight: the input stays responsive and the charts catch up. */
+  const [P, setP] = useState(null);
+  const [busy, setBusy] = useState(true);
+  const workerRef = useRef(null);
+  const reqRef = useRef(0);
+  const inputRef = useRef(null);
+  /* a worker that fails — blocked, wrong MIME type, thrown — must never leave the page
+     staring at stale charts, so every failure path recomputes here instead */
+  const fallback = () => {
+    workerRef.current = null;
+    if (inputRef.current) setP(projectAll(inputRef.current));
+    setBusy(false);
+  };
+
+  useEffect(() => {
+    if (typeof Worker === "undefined") return undefined;
+    let w = null;
+    try { w = new Worker(new URL("./worker.js", import.meta.url), { type: "module" }); } catch { return undefined; }
+    w.onmessage = (e) => {
+      const { id, stage, result } = e.data || {};
+      if (id !== reqRef.current) return; /* a reply to a keystroke that's already stale */
+      if (stage === "error") { w.terminate(); fallback(); return; }
+      /* merge rather than replace, so the comparison panels keep their last numbers for the
+         moment between a primary result and the extras that follow it */
+      setP((prev) => ({ ...(prev || {}), ...result }));
+      if (stage !== "primary") setBusy(false);
+    };
+    w.onerror = () => { w.terminate(); fallback(); };
+    workerRef.current = w;
+    return () => { w.terminate(); workerRef.current = null; };
+  }, []);
+
+  /* what the projection actually depends on — deferred, so a burst of typing queues one
+     run rather than one per character */
+  const projectionInput = useMemo(
+    () => ({ accounts, debts, income, expenses, transfers, debtPayments, settings, start, weeks: WEEKS }),
+    [accounts, debts, income, expenses, transfers, debtPayments, settings, start],
+  );
+  const deferredInput = useDeferredValue(projectionInput);
+
+  useEffect(() => {
+    /* the guard is on the deferred input, not on `accounts`: one render after loading
+       finishes, `accounts` is populated but the deferred copy can still be the empty
+       pre-load state, and projecting that throws */
+    if (!ready || !deferredInput.accounts) return;
+    inputRef.current = deferredInput;
+    const id = ++reqRef.current;
+    setBusy(true);
+    const w = workerRef.current;
+    if (w) { w.postMessage({ id, input: deferredInput }); return; }
+    /* no worker (or it failed): same code, same results, just on this thread */
+    setP(projectAll(deferredInput));
+    setBusy(false);
+  }, [deferredInput, ready]);
+
   /* derived */
   const D = useMemo(() => {
-    if (!accounts) return null;
+    if (!accounts || !P || !P.sim) return null;
     const per = (list, key) => list.reduce((s, x) => s + n0(x[key || "amount"]) * OPY[x.recur] / 12, 0);
     /* "this month" figures should only count income that has actually started: Social
        Security thirty years out is real money, but it isn't part of today's surplus. */
@@ -266,59 +326,19 @@ export function FinancialSimulator() {
     const leftover = surplus - mTr - mDp;
     const monthlyInterest = loans.reduce((s, l) => s + n0(l.balance) * n0(l.apr) / 1200, 0);
 
-    /* two projections: one with planned promotions, one without. Whichever the toggle
-       selects drives every chart and stat; both are kept so the Overview can always say
-       what the promotions are actually worth, in either direction. */
-    const simCfg = { accounts, debts, expenses, transfers, debtPayments, settings, start, weeks: WEEKS };
-    const hasHypo = hasPromotions(income);
-    const simWith = simulateWeekly({ ...simCfg, income });
-    const simWithout = hasHypo ? simulateWeekly({ ...simCfg, income: withoutPromotions(income) }) : simWith;
-    const hypoOn = settings.hypotheticals !== false;
-    const sim = hypoOn ? simWith : simWithout;
+    /* Everything expensive comes from src/project.js, computed in the worker (or inline
+       when there isn't one). The comparison runs arrive a beat after the primary result,
+       so fall back to the primary projection until they do. */
+    const { sim, minW, mc, mcReturn, maxW, hypoOn, interestSaved, wksSaved, retireWeek, horizonWeeks } = P;
+    const hasHypo = P.hasHypo;
+    const simWith = P.simWith || sim;
+    const simWithout = P.simWithout || sim;
+    const strategy = P.strategy || null;
     /* net-worth gap at a given week — the Overview reads this at the chart's zoom edge */
     const nwGapAt = (w) => {
       const i = Math.max(0, Math.min(Math.round(w), simWith.series.length - 1, simWithout.series.length - 1));
       return simWith.series[i].nw - simWithout.series[i].nw;
     };
-    const minW = projectMinWeekly(debts, start, WEEKS, settings.inflation);
-    const maxW = Math.min(WEEKS, Math.max(sim.fire || 520, (sim.debtFree || 260) + 130, 260) + 60);
-    const interestSaved = Math.max(0, minW.interest - sim.interest);
-    const wksSaved = Math.max(0, (minW.clearedWeek == null ? WEEKS : minW.clearedWeek) - (sim.debtFree == null ? WEEKS : sim.debtFree));
-
-    /* the other payoff strategy, run the same way the promotions comparison is, so the
-       Debt tab can say what choosing this one costs or buys. Only worth the third full
-       simulation when there's more than one loan for an order to matter. */
-    const otherOrder = settings.payoffOrder === "snowball" ? "avalanche" : "snowball";
-    const canCompare = loans.filter((l) => n0(l.balance) > 0).length > 1;
-    const simAlt = canCompare ? simulateWeekly({ ...simCfg, income: hypoOn ? income : withoutPromotions(income), settings: { ...settings, payoffOrder: otherOrder } }) : null;
-    /* when each strategy clears its first loan — snowball's whole appeal is that this
-       comes sooner, which total-interest alone never shows */
-    const firstClear = (s) => { const ws = Object.values(s.payoffWeek).filter((w) => w != null); return ws.length ? Math.min(...ws) : null; };
-    const strategy = simAlt ? {
-      order: settings.payoffOrder, other: otherOrder,
-      interestDelta: simAlt.interest - sim.interest,          /* >0: this plan is cheaper */
-      freeDelta: (simAlt.debtFree == null ? WEEKS : simAlt.debtFree) - (sim.debtFree == null ? WEEKS : sim.debtFree),
-      firstDelta: (firstClear(simAlt) == null ? WEEKS : firstClear(simAlt)) - (firstClear(sim) == null ? WEEKS : firstClear(sim)),
-    } : null;
-
-    /* Monte Carlo: reuses the deterministic sim's own contribution schedule (basis
-       growth), randomizing only the returns on top of it — see montecarlo.js. The
-       expected return is a single blended figure across invested accounts, weighted
-       by today's balance, since modeling each account as an independent random walk
-       would overstate diversification that may not really be there. */
-    const investAccts = accounts.filter((a) => isInvest(a.type));
-    const investBalTotal = investAccts.reduce((s, a) => s + n0(a.balance), 0);
-    /* real, like everything else the engine produces — the contributions it rides on are
-       already in today's dollars, so a nominal return here would compound a currency the
-       rest of the chart doesn't use */
-    const mcNominal = investBalTotal > 0
-      ? investAccts.reduce((s, a) => s + n0(a.rate) * n0(a.balance), 0) / investBalTotal
-      : 7;
-    const mcReturn = toReal(mcNominal, settings.inflation) / 100;
-    const mc = runMonteCarlo({
-      series: sim.series, weeks: maxW, annualReturn: mcReturn,
-      annualVolatility: n0(settings.mcVolatility) / 100, fireNumber: sim.fireNumber,
-    });
 
     /* next projected payment per card: find the next week a payment for it fires */
     const nextCardPay = {};
@@ -414,8 +434,8 @@ export function FinancialSimulator() {
        date that income starts. Either way the charts draw a line rather than a level. */
     const fiSloped = showNom || sim.guaranteedAnnual > 0;
 
-    return { totalAssets, totalDebt, totalLoans, netWorth, loans, cards, mInc, mExp, mTr, mDp, mPreTax, mBonusNet, surplus, savingsRate, leftover, monthlyInterest, sim, simWith, simWithout, hasHypo, hypoOn, nwGapAt, minW, maxW, mc: mcView, mcReturn, interestSaved, wksSaved, acctColors, debtColors, names, cf, debtCurve, alloc, spend, bInv, negAcct, nextCardPay, loansNoPayment, chargedTo, worstMonthOut, avgSweep, capped, infl, showNom, nomAt, viewSeries, strategy, liquid, runway, deferralNotes, fiSloped, bridge: sim.bridge };
-  }, [accounts, debts, income, expenses, transfers, debtPayments, settings, start]);
+    return { totalAssets, totalDebt, totalLoans, netWorth, loans, cards, mInc, mExp, mTr, mDp, mPreTax, mBonusNet, surplus, savingsRate, leftover, monthlyInterest, sim, simWith, simWithout, hasHypo, hypoOn, nwGapAt, minW, maxW, mc: mcView, mcReturn, interestSaved, wksSaved, acctColors, debtColors, names, cf, debtCurve, alloc, spend, bInv, negAcct, nextCardPay, loansNoPayment, chargedTo, worstMonthOut, avgSweep, capped, infl, showNom, nomAt, viewSeries, strategy, liquid, runway, deferralNotes, fiSloped, bridge: sim.bridge, retireWeek, horizonWeeks, busy };
+  }, [accounts, debts, income, expenses, transfers, debtPayments, settings, start, P, busy]);
 
   const maxW = D ? D.maxW : 520;
   const scNW = useScope(maxW, 260);
@@ -466,7 +486,8 @@ export function FinancialSimulator() {
             <div>
               <div className="eyebrow">Net worth</div>
               <div className="nwbig mono" style={{ color: D.netWorth >= 0 ? "var(--text)" : "var(--red)" }}>{fmtMoney(D.netWorth)}</div>
-              <div className="nwsub">assets <b>{fmtBig(D.totalAssets)}</b> · debts <b>{fmtBig(D.totalDebt)}</b> · surplus <b>{fmtMoney(D.surplus)}</b>/mo</div>
+              <div className="nwsub">assets <b>{fmtBig(D.totalAssets)}</b> · debts <b>{fmtBig(D.totalDebt)}</b> · surplus <b>{fmtMoney(D.surplus)}</b>/mo
+                {D.busy && <span className="recalc"> · recalculating</span>}</div>
             </div>
             <div className="toolbar">
               <button className={"tbtn" + (showHelp ? " on" : "")} onClick={() => setShowHelp((v) => !v)}

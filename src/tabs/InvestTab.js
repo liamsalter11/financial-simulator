@@ -86,6 +86,8 @@ export function InvestTab({
     p75to90: Math.max(0, b.p90 - b.p75)
   }));
   const mcEnd = D.mc.bands[D.mc.bands.length - 1];
+  const retires = !!D.mc.retires;
+  const mcMax = Math.max(maxW, D.horizonWeeks || 0);
   const last = D.viewSeries[Math.min(maxW, D.viewSeries.length - 1)];
   const endVal = last.invest,
     endBasis = last.basis,
@@ -217,30 +219,56 @@ export function InvestTab({
     className: "phead"
   }, React.createElement("div", {
     className: "ptitle"
-  }, "Monte Carlo: range of outcomes"), ranges(scMC, maxW)), React.createElement("div", {
+  }, "Monte Carlo: does the money last?"), ranges(scMC, mcMax)), React.createElement("div", {
     className: "sgrid",
     style: {
       marginBottom: 14
     }
-  }, React.createElement(Stat, {
+  }, retires ? React.createElement(Stat, {
+    k: "Chance the money lasts<br/>to " + fmtDate(w2date(D.horizonWeeks)),
+    v: Math.round(D.mc.survivalProb * 100) + "%",
+    accent: D.mc.survivalProb >= 0.8 ? "green" : D.mc.survivalProb >= 0.5 ? "amber" : "red"
+  }) : React.createElement(Stat, {
     k: "Chance investments alone<br/>hit your FI number",
     v: Math.round(D.mc.successProb * 100) + "%",
     accent: D.mc.successProb >= 0.5 ? "green" : "red"
   }), React.createElement(Stat, {
-    k: "Median value by<br/>" + fmtDate(w2date(maxW)),
+    k: "Median value by<br/>" + fmtDate(w2date(mcMax)),
     v: fmtBig(mcEnd.p50),
     accent: "cyan"
   })), React.createElement("div", {
     className: "fields3",
     style: {
-      gridTemplateColumns: "1fr 1fr"
+      gridTemplateColumns: "1fr 1fr 1fr"
     }
   }, React.createElement(NumField, {
     label: "Return volatility (annual)",
     suffix: "%",
     value: settings.mcVolatility,
     onChange: v => setS("mcVolatility", n0(v))
-  })), React.createElement("div", _extends({
+  }), React.createElement("div", {
+    className: "field"
+  }, React.createElement("label", null, "Retire on (blank = your FI date)"), React.createElement("input", {
+    type: "date",
+    value: settings.mcRetireDate || "",
+    onChange: e => setS("mcRetireDate", e.target.value),
+    "aria-label": "Retirement date",
+    title: "When contributions stop and withdrawals begin. Leave blank to use the projection's own independence date."
+  })), n0(settings.birthYear) > 0 ? React.createElement(NumField, {
+    label: "Money must last to age",
+    value: settings.mcEndAge,
+    onChange: v => setS("mcEndAge", n0(v))
+  }) : React.createElement(NumField, {
+    label: "Years it must last",
+    suffix: "yr",
+    value: settings.mcYears,
+    onChange: v => setS("mcYears", n0(v))
+  })), retires && React.createElement("div", {
+    className: "caphint" + (D.mc.survivalProb < 0.8 ? " warn-txt" : ""),
+    style: {
+      marginTop: 8
+    }
+  }, "Retiring ", fmtDate(w2date(D.retireWeek)), ": contributions stop and the portfolio starts paying out ", fmtMoney(D.mc.monthlySpend), "/mo, held constant in today's dollars.", D.mc.investShare < 0.999 ? ` That's its ${Math.round(D.mc.investShare * 100)}% share of your ${fmtMoney(D.sim.annualExpNet / 12)}/mo of long-run spending — cash, savings and paid-down debt cover the rest.` : "", D.mc.medianDepletionWeek != null ? ` The money runs out in ${Math.round((1 - D.mc.survivalProb) * D.mc.trials)} of ${D.mc.trials} runs, around ${fmtDate(w2date(D.mc.medianDepletionWeek))} in the median failure.` : " No simulated run ran out."), React.createElement("div", _extends({
     className: "scope-wrap",
     ref: scMC.ref
   }, scMC.handlers, {
@@ -287,6 +315,18 @@ export function InvestTab({
     strokeDasharray: "3 3",
     dot: false,
     isAnimationActive: false
+  }), retires && React.createElement(ReferenceLine, {
+    x: D.retireWeek,
+    stroke: "var(--cyan)",
+    strokeDasharray: "2 3",
+    strokeOpacity: 0.7,
+    label: {
+      value: "RETIRE",
+      position: "top",
+      fill: "var(--cyan)",
+      fontSize: 9,
+      fontFamily: "var(--mono)"
+    }
   }), React.createElement(Area, {
     dataKey: "p10",
     stackId: "mc",
@@ -340,7 +380,7 @@ export function InvestTab({
     }
   }), "Middle 50% / 80% of outcomes")), React.createElement("div", {
     className: "assume"
-  }, "Same contributions as the chart above \u2014 only the returns are randomized, ", D.mc.trials, " times, as one blended portfolio at your accounts' balance-weighted expected return, after inflation (", (D.mcReturn * 100).toFixed(2), "% real). Higher volatility widens the shaded range without changing the median much; it's a measure of how much a real market could disagree with the average, not a prediction of which path you'll get.", React.createElement("br", null), React.createElement("br", null), "The percentage checks your invested portfolio's own value against the FI number, same as this chart's line \u2014 a narrower question than the \"Financial independence\" date above, which also counts cash, savings, and paid-down debt. A lower number here doesn't contradict a nearer date up there; it means the rest of your net worth is doing some of that work too.")), React.createElement("div", {
+  }, "Same contributions as the chart above until the retirement date, then they stop and withdrawals begin \u2014 only the returns are randomized, ", D.mc.trials, " times, as one blended portfolio at your accounts' balance-weighted expected return, after inflation (", (D.mcReturn * 100).toFixed(2), "% real).", React.createElement("br", null), React.createElement("br", null), retires ? React.createElement(React.Fragment, null, "This is the sequence-of-returns question, and it's the one the deterministic chart above can't answer: two portfolios with the same average return can end very differently depending on ", React.createElement("i", null, "when"), " the bad years land. A crash early in retirement is withdrawn from as well as fallen through, and it may never recover. That's why raising volatility cuts the survival number far more than it moves the median line \u2014 the median barely notices, and the plans that fail are the ones that met a bad decade first.") : React.createElement(React.Fragment, null, "No retirement falls inside this horizon yet, so nothing is being withdrawn and the percentage above is the older question \u2014 whether the invested portfolio alone ever reaches the FI number. Set a retirement date, or reach independence inside 40 years, and this becomes a test of whether the money lasts."), React.createElement("br", null), React.createElement("br", null), "Withdrawals are held constant in today's dollars, which is the assumption behind the 4% rule and the one your withdrawal rate already implies. It models no spending flexibility \u2014 a real retiree cuts back after a bad year, and that alone rescues many of the runs counted as failures here. Treat the number as a stress test, not a verdict.")), React.createElement("div", {
     className: "panel rise"
   }, React.createElement("div", {
     className: "phead"
