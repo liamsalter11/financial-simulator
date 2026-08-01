@@ -5,9 +5,9 @@ const {
   useRef,
   useDeferredValue
 } = React;
-import { HelpCircle, Upload, Download, RotateCcw, Zap, AlertTriangle, Check, X, LayoutGrid, Wallet, Receipt, TrendingDown, InvestIcon, Trash2, RotateCw } from "./icons.js";
+import { HelpCircle, Upload, Download, RotateCcw, Zap, AlertTriangle, Check, X, LayoutGrid, Wallet, Receipt, TrendingDown, InvestIcon, Trash2, RotateCw, Link2 } from "./icons.js";
 import { Modal } from "./components.js";
-import { n0, num, uid, todayISO, nextFirstISO, firstOfYear, isoDate, addMonths, parseDate, addDays, fmtMoney, fmtBig, fmtC, weekTick, r2, parse, OPY, ACCT_TYPES, isInvest, isSav, isCash, BUCKET_COLOR, PAL, acctColor, debtColor, inflFactor } from "./format.js";
+import { n0, num, uid, todayISO, nextFirstISO, firstOfYear, isoDate, addMonths, parseDate, addDays, fmtMoney, fmtBig, fmtC, weekTick, r2, parse, OPY, RECUR, ACCT_TYPES, isInvest, isSav, isCash, BUCKET_COLOR, PAL, CATEGORIES, acctColor, debtColor, inflFactor } from "./format.js";
 import { firesInWeek } from "./recurrence.js";
 import { payrollOf, bonusOf, effectiveTaxRate, isDerived, takeHomeOf } from "./payroll.js";
 import { WEEKS } from "./engine.js";
@@ -15,7 +15,9 @@ import { projectAll, payoffVsInvest } from "./project.js";
 import { goalSeek, tornado, KNOBS, TARGETS, knobOf, targetOf } from "./solve.js";
 import { milestones, milestoneDiff } from "./milestones.js";
 import { pushUndo, dailySnapshots, previousSnapshot, actualSeries } from "./history.js";
-import { SEED_ACCOUNTS, SEED_DEBTS, normDebts, normIncome, normAccounts, isCard, pickIds, seedIncome, seedExpenses, seedTransfers, seedDebtPays, seedSettings } from "./seeds.js";
+import { encodePlan, decodePlan, readHash, stripHash, shareUrl } from "./share.js";
+import { suggestExpenses, toExpense } from "./csv.js";
+import { SEED_ACCOUNTS, SEED_DEBTS, normDebts, normIncome, normAccounts, normExpenses, isCard, pickIds, seedIncome, seedExpenses, seedTransfers, seedDebtPays, seedSettings } from "./seeds.js";
 import { store } from "./store.js";
 import { useScope } from "./useScope.js";
 import { HELP } from "./help-content.js";
@@ -68,6 +70,12 @@ export function FinancialSimulator() {
   const applyingRef = useRef(false);
   const [histTick, setHistTick] = useState(0);
   const [compareId, setCompareId] = useState("");
+  const [offered, setOffered] = useState(null);
+  const [spendItemised, setSpendItemised] = useState(false);
+  const [csvText, setCsvText] = useState("");
+  const [csvInfo, setCsvInfo] = useState(null);
+  const [csvRows, setCsvRows] = useState([]);
+  const [csvAcct, setCsvAcct] = useState("");
   const [scenarioName, setScenarioName] = useState("");
   const [logLoan, setLogLoan] = useState("");
   const [logAmt, setLogAmt] = useState("");
@@ -93,7 +101,7 @@ export function FinancialSimulator() {
       setDebts(normDebts(dbts));
       const rawInc = i3 ? parse(i3, null) : i2 ? parse(i2, null) : null;
       setIncome(rawInc ? normIncome(rawInc, id.chk, id.ret) : seedIncome(id));
-      setExpenses(e3 ? parse(e3, seedExpenses(id)) : e2 ? parse(e2, seedExpenses(id)) : seedExpenses(id));
+      setExpenses(normExpenses(e3 ? parse(e3, seedExpenses(id)) : e2 ? parse(e2, seedExpenses(id)) : seedExpenses(id)));
       setTransfers(t3 ? parse(t3, seedTransfers(id)) : c2 ? parse(c2, seedTransfers(id)) : seedTransfers(id));
       const oldS = parse(s2, {});
       if (dp3) setDebtPayments(parse(dp3, []));else {
@@ -403,7 +411,8 @@ export function FinancialSimulator() {
   } : x));
   const addExp = () => setExpenses(p => [...p, {
     id: uid(),
-    category: "New expense",
+    label: "New expense",
+    category: "other",
     amount: 0,
     date: todayISO(),
     recur: "monthly",
@@ -492,7 +501,7 @@ export function FinancialSimulator() {
     if (Array.isArray(p.debts)) setDebts(normDebts(p.debts));
     const id = pickIds(p.accounts || accounts, p.debts || debts);
     if (Array.isArray(p.income)) setIncome(normIncome(p.income, id.chk, id.ret));
-    if (Array.isArray(p.expenses)) setExpenses(p.expenses);
+    if (Array.isArray(p.expenses)) setExpenses(normExpenses(p.expenses));
     if (Array.isArray(p.transfers)) setTransfers(p.transfers);
     if (Array.isArray(p.debtPayments)) setDebtPayments(p.debtPayments);
     if (Array.isArray(p.payments)) setPayments(p.payments);
@@ -699,7 +708,7 @@ export function FinancialSimulator() {
     if (Array.isArray(data.accounts)) setAccounts(normAccounts(data.accounts));
     if (Array.isArray(data.debts)) setDebts(normDebts(data.debts));
     if (Array.isArray(data.income)) setIncome(normIncome(data.income, id.chk, id.ret));
-    if (Array.isArray(data.expenses)) setExpenses(data.expenses);
+    if (Array.isArray(data.expenses)) setExpenses(normExpenses(data.expenses));
     if (Array.isArray(data.transfers)) setTransfers(data.transfers);else if (Array.isArray(data.contributions)) setTransfers(data.contributions);
     if (Array.isArray(data.debtPayments)) setDebtPayments(data.debtPayments);
     if (Array.isArray(data.payments)) setPayments(data.payments);
@@ -717,6 +726,85 @@ export function FinancialSimulator() {
     if (!f) return;
     const rd = new FileReader();
     rd.onload = () => setImportText(String(rd.result || ""));
+    rd.readAsText(f);
+    e.target.value = "";
+  };
+  useEffect(() => {
+    let live = true;
+    const offer = () => {
+      const payload = readHash(window.location.hash);
+      if (!payload) return;
+      decodePlan(payload).then(p => {
+        if (!live) return;
+        if (p) setOffered(p);else showToast("That shared link couldn't be read — it may have been truncated", true, 5000);
+        clearHash();
+      });
+    };
+    offer();
+    window.addEventListener("hashchange", offer);
+    return () => {
+      live = false;
+      window.removeEventListener("hashchange", offer);
+    };
+  }, []);
+  const clearHash = () => {
+    try {
+      window.history.replaceState(null, "", window.location.pathname + window.location.search + stripHash(window.location.hash));
+    } catch {}
+  };
+  const acceptOffered = () => {
+    if (!offered) return;
+    applyPlan(offered);
+    setOffered(null);
+    setSeedNote(false);
+    store.set("fin3:seedNote", "0");
+    showToast("Loaded the shared plan — ⌘Z puts yours back");
+  };
+  const shareLink = async () => {
+    const url = shareUrl(window.location.href, await encodePlan(planNow()));
+    if (url.length > 30000) {
+      showToast("This plan is too large to fit in a link — use Export instead", true, 5000);
+      return;
+    }
+    const ok = await copyText(url);
+    showToast(ok ? `Link copied — ${(url.length / 1024).toFixed(1)} KB, the whole plan is in the URL` : "Couldn't copy the link", !ok);
+  };
+  const readCsv = text => {
+    setCsvText(text);
+    const r = suggestExpenses(text);
+    setCsvInfo(r);
+    setCsvRows(r.rows);
+  };
+  const openCsv = () => {
+    setCsvText("");
+    setCsvInfo(null);
+    setCsvRows([]);
+    setCsvAcct(pickIds(accounts, debts).chk);
+    setModal("csv");
+  };
+  const upCsvRow = (key, k, v) => setCsvRows(p => p.map(r => r.key === key ? {
+    ...r,
+    [k]: v
+  } : r));
+  const applyCsv = () => {
+    const picked = csvRows.filter(r => r.pick);
+    if (!picked.length) {
+      setModal(null);
+      return;
+    }
+    const acct = csvAcct || pickIds(accounts, debts).chk;
+    setExpenses(p => [...p, ...picked.map(r => toExpense({
+      ...r,
+      amount: n0(r.amount)
+    }, acct, todayISO(), uid()))]);
+    setModal(null);
+    showToast(`Added ${picked.length} ${picked.length === 1 ? "expense" : "expenses"} — ⌘Z undoes it`);
+  };
+  const onCsvFile = e => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    const rd = new FileReader();
+    rd.onload = () => readCsv(String(rd.result || ""));
     rd.readAsText(f);
     e.target.value = "";
   };
@@ -1085,6 +1173,16 @@ export function FinancialSimulator() {
       ...e,
       color: PAL[i % PAL.length]
     }));
+    const spendCat = CATEGORIES.map(c => {
+      const rows = spend.filter(e => (e.category || "other") === c.v);
+      return {
+        v: c.v,
+        name: c.label,
+        color: c.color,
+        monthly: rows.reduce((s, e) => s + e.monthly, 0),
+        count: rows.length
+      };
+    }).filter(c => c.monthly > 0).sort((a, b) => b.monthly - a.monthly);
     let negAcct = null;
     for (let w = 0; w < Math.min(sim.series.length, 312) && !negAcct; w++) {
       const m = sim.series[w].acct;
@@ -1184,6 +1282,7 @@ export function FinancialSimulator() {
       debtCurve,
       alloc,
       spend,
+      spendCat,
       bInv,
       negAcct,
       nextCardPay,
@@ -1381,6 +1480,12 @@ export function FinancialSimulator() {
     size: 13
   }), "Import"), React.createElement("button", {
     className: "tbtn",
+    onClick: shareLink,
+    title: "Copy a link with this whole plan in it"
+  }, React.createElement(Link2, {
+    size: 13
+  }), "Share"), React.createElement("button", {
+    className: "tbtn",
     onClick: openExport
   }, React.createElement(Download, {
     size: 13
@@ -1432,7 +1537,19 @@ export function FinancialSimulator() {
     }, React.createElement("dt", null, term), React.createElement("dd", null, body)))), React.createElement("div", {
       className: "help-foot"
     }, "Switch tabs with the help open and these notes follow along."));
-  })(), seedNote && React.createElement("div", {
+  })(), offered && React.createElement("div", {
+    className: "notice rise offer",
+    "data-testid": "share-offer"
+  }, React.createElement(Link2, {
+    size: 14,
+    color: "var(--cyan)"
+  }), React.createElement("span", null, "This link carries a plan \u2014 ", offered.accounts.length, " accounts, ", (offered.expenses || []).length, " expenses. Your own plan is still here and untouched."), React.createElement("button", {
+    className: "btn btn-amber",
+    onClick: acceptOffered
+  }, "Load the shared plan"), React.createElement("button", {
+    className: "btn btn-ghost",
+    onClick: () => setOffered(null)
+  }, "Keep mine")), seedNote && React.createElement("div", {
     className: "notice rise"
   }, React.createElement(Zap, {
     size: 14,
@@ -1623,6 +1740,117 @@ export function FinancialSimulator() {
   }), "Load data"), React.createElement("button", {
     className: "btn btn-ghost",
     onClick: () => setModal(null)
+  }, "Cancel"))), modal === "csv" && React.createElement(Modal, {
+    title: "Import spending from a statement",
+    onClose: () => setModal(null)
+  }, React.createElement("div", {
+    className: "mnote"
+  }, "Export a few months of transactions from your bank as CSV and drop them in. Nothing leaves this page \u2014 the file is read in your browser. Charges are grouped by merchant and a frequency is inferred from the spacing of the dates; every guess is shown here before anything is created."), React.createElement("div", {
+    className: "modal-row"
+  }, React.createElement("label", {
+    className: "filebtn"
+  }, React.createElement(Upload, {
+    size: 15
+  }), "Choose a .csv file", React.createElement("input", {
+    type: "file",
+    accept: ".csv,text/csv",
+    hidden: true,
+    onChange: onCsvFile,
+    "data-testid": "csv-file"
+  })), React.createElement("span", {
+    className: "cap"
+  }, "paid with"), React.createElement("select", {
+    value: csvAcct,
+    onChange: e => setCsvAcct(e.target.value),
+    "aria-label": "Paid with"
+  }, React.createElement("optgroup", {
+    label: "Accounts"
+  }, accounts.map(a => React.createElement("option", {
+    key: a.id,
+    value: a.id
+  }, a.name))), D.cards.length > 0 && React.createElement("optgroup", {
+    label: "Credit cards"
+  }, D.cards.map(c => React.createElement("option", {
+    key: c.id,
+    value: c.id
+  }, c.name))))), React.createElement("div", {
+    className: "mnote",
+    style: {
+      marginTop: 12
+    }
+  }, "\u2026or paste the rows here:"), React.createElement("textarea", {
+    className: "jsonbox",
+    value: csvText,
+    onChange: e => readCsv(e.target.value),
+    "data-testid": "csv-paste",
+    placeholder: "Date,Description,Amount\n2026-01-01,RENT PAYMENT,-1500.00"
+  }), csvInfo && !csvInfo.ok && React.createElement("div", {
+    className: "mnote",
+    style: {
+      color: "var(--red)"
+    }
+  }, "Couldn't find a date, description and amount in that. Most banks offer a \"CSV\" or \"spreadsheet\" download that has all three."), csvInfo && csvInfo.ok && React.createElement(React.Fragment, null, React.createElement("div", {
+    className: "mnote",
+    style: {
+      marginTop: 12
+    }
+  }, csvInfo.txns, " charges, ", csvRows.length, " merchants. Confidence is how tightly the dates hold to the frequency \u2014 a low one usually means a merchant you visit rather than a bill you're charged."), React.createElement("div", {
+    className: "csvlist",
+    "data-testid": "csv-rows"
+  }, csvRows.map(r => React.createElement("div", {
+    className: "csvrow" + (r.pick ? " on" : ""),
+    key: r.key
+  }, React.createElement("label", {
+    className: "chk"
+  }, React.createElement("input", {
+    type: "checkbox",
+    checked: !!r.pick,
+    onChange: e => upCsvRow(r.key, "pick", e.target.checked),
+    "aria-label": `Include ${r.label}`
+  }), React.createElement("span", {
+    className: "csvname"
+  }, r.label)), React.createElement("span", {
+    className: "badge lvl-" + r.level,
+    title: `${r.count} charges between ${r.first} and ${r.last}`
+  }, r.recur === "once" ? "one-off" : `${r.level} confidence`), React.createElement("div", {
+    className: "num-box sm"
+  }, React.createElement("span", {
+    className: "pfx"
+  }, "$"), React.createElement("input", {
+    className: "num-input",
+    type: "number",
+    inputMode: "decimal",
+    value: r.amount,
+    onChange: e => upCsvRow(r.key, "amount", e.target.value),
+    "aria-label": `Amount for ${r.label}`
+  })), React.createElement("select", {
+    value: r.recur,
+    onChange: e => upCsvRow(r.key, "recur", e.target.value),
+    "aria-label": `Frequency for ${r.label}`
+  }, RECUR.map(x => React.createElement("option", {
+    key: x.v,
+    value: x.v
+  }, x.label))), React.createElement("select", {
+    value: r.category,
+    onChange: e => upCsvRow(r.key, "category", e.target.value),
+    "aria-label": `Category for ${r.label}`
+  }, CATEGORIES.map(c => React.createElement("option", {
+    key: c.v,
+    value: c.v
+  }, c.label))), r.varies && React.createElement("span", {
+    className: "cap",
+    title: "The charges swing a lot \u2014 this is the median"
+  }, "amount varies"))))), React.createElement("div", {
+    className: "modal-row"
+  }, React.createElement("button", {
+    className: "btn btn-amber",
+    onClick: applyCsv,
+    disabled: !csvRows.some(r => r.pick)
+  }, React.createElement(Check, {
+    size: 15
+  }), "Add ", csvRows.filter(r => r.pick).length || "", " ", csvRows.filter(r => r.pick).length === 1 ? "expense" : "expenses"), React.createElement("button", {
+    className: "btn btn-ghost",
+    onClick: () => setModal(null)
   }, "Cancel"))), tab === "overview" && React.createElement(OverviewTab, {
     D: D,
     accounts: accounts,
@@ -1693,7 +1921,10 @@ export function FinancialSimulator() {
     addDp: addDp,
     upTr: upTr,
     rmTr: rmTr,
-    addTr: addTr
+    addTr: addTr,
+    openCsv: openCsv,
+    itemised: spendItemised,
+    setItemised: setSpendItemised
   }), tab === "debt" && React.createElement(DebtTab, {
     D: D,
     chart: chartProps,

@@ -12,9 +12,9 @@ const {
   ReferenceLine,
   Cell
 } = Recharts;
-import { Plus, Trash2, ArrowRight } from "../icons.js";
+import { Plus, Trash2, ArrowRight, Upload } from "../icons.js";
 import { Stat, NumField, Seg, EndDate, Tip } from "../components.js";
-import { fmtMoney, fmtDate, n0, num, OPY, parseDate, RECUR, recurLabel } from "../format.js";
+import { fmtMoney, fmtDate, n0, num, OPY, parseDate, RECUR, recurLabel, CATEGORIES, catLabel } from "../format.js";
 import { payrollOf, bonusOf, perCheck, effectiveTaxRate, isDerived, taxBreakdown } from "../payroll.js";
 import { FILING, TAX_YEAR } from "../tax.js";
 import { isCard } from "../seeds.js";
@@ -60,7 +60,10 @@ export function CashFlowTab({
   addDp,
   upTr,
   rmTr,
-  addTr
+  addTr,
+  openCsv,
+  itemised,
+  setItemised
 }) {
   const {
     ranges,
@@ -265,20 +268,33 @@ export function CashFlowTab({
     className: "phead"
   }, React.createElement("div", {
     className: "ptitle"
-  }, "Spending by category"), React.createElement("div", {
-    className: "psub"
-  }, fmtMoney(D.mExp), "/mo")), D.spend.length === 0 ? React.createElement("div", {
+  }, "Spending by category"), React.createElement(Seg, {
+    value: itemised ? "items" : "cats",
+    onChange: v => setItemised(v === "items"),
+    options: [{
+      v: "cats",
+      label: "Grouped"
+    }, {
+      v: "items",
+      label: "Itemised"
+    }]
+  })), React.createElement("div", {
+    className: "psub",
+    style: {
+      marginBottom: 10
+    }
+  }, fmtMoney(D.mExp), "/mo"), D.spend.length === 0 ? React.createElement("div", {
     className: "empty"
-  }, "No expenses yet.") : D.spend.map(e => React.createElement("div", {
+  }, "No expenses yet.") : itemised ? D.spend.map(e => React.createElement("div", {
     className: "catrow",
     key: e.id
   }, React.createElement("div", {
     className: "cattop"
   }, React.createElement("span", {
     className: "cn"
-  }, e.category, React.createElement("span", {
+  }, e.label, React.createElement("span", {
     className: "cp"
-  }, recurLabel(e.recur).toLowerCase())), React.createElement("span", {
+  }, recurLabel(e.recur).toLowerCase(), " \xB7 ", catLabel(e.category))), React.createElement("span", {
     className: "cv"
   }, fmtMoney(e.monthly), "/mo")), React.createElement("div", {
     className: "catbar"
@@ -287,6 +303,25 @@ export function CashFlowTab({
     style: {
       width: (D.mExp > 0 ? e.monthly / D.mExp * 100 : 0) + "%",
       background: e.color
+    }
+  })))) : D.spendCat.map(c => React.createElement("div", {
+    className: "catrow",
+    key: c.v
+  }, React.createElement("div", {
+    className: "cattop"
+  }, React.createElement("span", {
+    className: "cn"
+  }, c.name, React.createElement("span", {
+    className: "cp"
+  }, c.count, " ", c.count === 1 ? "expense" : "expenses")), React.createElement("span", {
+    className: "cv"
+  }, fmtMoney(c.monthly), "/mo")), React.createElement("div", {
+    className: "catbar"
+  }, React.createElement("div", {
+    className: "catfill",
+    style: {
+      width: (D.mExp > 0 ? c.monthly / D.mExp * 100 : 0) + "%",
+      background: c.color
     }
   }))))), React.createElement("div", {
     className: "panel rise"
@@ -920,18 +955,21 @@ export function CashFlowTab({
     className: "phead"
   }, React.createElement("div", {
     className: "ptitle"
-  }, "Expenses"), React.createElement("div", {
-    className: "psub"
-  }, "dated \xB7 drawn from an account")), expenses.map(ex => React.createElement("div", {
+  }, "Expenses"), React.createElement("button", {
+    className: "tbtn",
+    onClick: openCsv
+  }, React.createElement(Upload, {
+    size: 13
+  }), "Import from a statement")), expenses.map(ex => React.createElement("div", {
     className: "card",
     key: ex.id
   }, React.createElement("div", {
     className: "card-r1"
   }, React.createElement("input", {
     className: "rname",
-    value: ex.category,
-    onChange: e => upExp(ex.id, "category", e.target.value),
-    "aria-label": "Category"
+    value: ex.label,
+    onChange: e => upExp(ex.id, "label", e.target.value),
+    "aria-label": "Expense name"
   }), React.createElement("div", {
     className: "num-box sm"
   }, React.createElement("span", {
@@ -982,7 +1020,16 @@ export function CashFlowTab({
   }, D.cards.map(c => React.createElement("option", {
     key: c.id,
     value: c.id
-  }, c.name)))), ex.recur !== "once" && React.createElement(EndDate, {
+  }, c.name)))), React.createElement("span", {
+    className: "cap"
+  }, "counts as"), React.createElement("select", {
+    value: ex.category || "other",
+    onChange: e => upExp(ex.id, "category", e.target.value),
+    "aria-label": "Category"
+  }, CATEGORIES.map(c => React.createElement("option", {
+    key: c.v,
+    value: c.v
+  }, c.label))), ex.recur !== "once" && React.createElement(EndDate, {
     value: ex.end,
     onChange: v => upExp(ex.id, "end", v)
   })))), React.createElement("button", {
@@ -990,7 +1037,9 @@ export function CashFlowTab({
     onClick: addExp
   }, React.createElement(Plus, {
     size: 15
-  }), "Add expense")), React.createElement("div", {
+  }), "Add expense"), React.createElement("div", {
+    className: "assume"
+  }, "The name is yours to write; the category is a fixed list so spending can be totted up across differently-named rows.")), React.createElement("div", {
     className: "panel rise"
   }, React.createElement("div", {
     className: "phead"

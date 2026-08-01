@@ -28,6 +28,8 @@ needed to read them) are both the source and the shipped file.
 | `src/solve.js` | Goal seek and the sensitivity sweep — the projection, in reverse. |
 | `src/milestones.js` | The dated milestone list, and the scenario comparison diff. |
 | `src/history.js` | Undo/redo coalescing, and the daily snapshot list. |
+| `src/share.js` | A plan packed into a URL fragment, and the `#plan=` reader — pure logic, no React. |
+| `src/csv.js` | Bank-export parsing and recurrence detection — pure logic, no React. |
 | `src/loan.js` | Amortization: payment ↔ term ↔ months-to-payoff. |
 | `src/tax.js` | Federal brackets, the standard deduction and FICA, plus `estimateTax`. |
 | `src/payroll.js` | Per-paycheck salary/401k-match/bonus math. |
@@ -111,6 +113,11 @@ npm run test:all       # everything
 - **`tests/history.test.mjs`** — the undo coalescing rules (one gesture is one
   step; a deleted row is never folded into the previous edit) and the daily
   snapshot list.
+- **`tests/share.test.mjs`**, **`tests/csv.test.mjs`** — a plan surviving encode
+  → decode into a URL fragment (and a corrupt one returning null rather than
+  throwing), and the statement reader: quoted CSV, every shape a bank writes an
+  amount in, merchant grouping, and the recurrence inference — including that a
+  one-off stays a one-off and that irregular spacing scores below tight spacing.
 - **`tests/solve.test.mjs`**, **`tests/milestones.test.mjs`** — the goal seeker
   (a solved amount must really hit the target when replayed through the engine,
   and an impossible ask must say so) and the milestone list.
@@ -127,7 +134,10 @@ npm run test:all       # everything
   numbers with `Worker` deleted, and a regression test that edits income and triggers
   every tab's chart tooltip (a past module-split bug — a missing import in a
   shared component — only surfaced once a Tooltip actually rendered, which
-  static page-load checks don't trigger).
+  static page-load checks don't trigger), undo/redo and the daily snapshots, a
+  `#plan=` link that offers rather than applies (with `localStorage` provably
+  untouched when it's declined), and a pasted CSV becoming a review table where
+  only the ticked rows are created.
 
 CI (`.github/workflows/test.yml`) runs the unit suite and the browser tests on
 every pull request and every push to `main`. The deploy workflow
@@ -189,6 +199,26 @@ on the seed plan a point of inflation costs 18 months while $200/mo more investe
 **Scenarios are the same shape as an export.** Save the plan under a name, pick one to
 compare against, and the worker runs it alongside the live one — a ghost line on the net
 worth chart and a table of how far apart the two put each milestone.
+
+**A plan fits in a link.** Share copies a URL with the whole plan compressed into its
+fragment — around 1.4 KB for the example data, via the browser's own `CompressionStream`,
+so there is still no backend and nothing is uploaded anywhere. Opening someone's link never
+replaces what you have: the plan is decoded and *offered*, your own stays on screen and in
+`localStorage` until you choose it, and loading it is undoable like any other edit. The
+plain URL keeps behaving exactly as it always did.
+
+**Spending can come from a bank export.** Paste or pick a CSV of transactions and the app
+groups them by merchant and infers a frequency from the spacing of the dates — a rent charge
+on the 1st of five months is unmistakable; a dozen coffees at random intervals is not, and
+the confidence badge says which you're looking at. The file is read in your browser and goes
+nowhere. Because detection is a heuristic on someone's real statement, nothing is created
+from it unseen: every merchant appears in a review table with its amount, frequency and
+category editable, and only the rows you tick become expenses.
+
+**Expenses have a name and a category.** The name is free text; the category is a fixed list,
+which is what lets spending be totted up across rows named differently — rent and a mortgage
+are both housing. Plans saved before this keep what was typed as the name, with the category
+matched from that same text.
 
 **The projection runs off the main thread.** Three 40-year simulations plus a Monte Carlo
 is roughly 180ms of work, and it reruns on every keystroke. `src/project.js` puts all of it

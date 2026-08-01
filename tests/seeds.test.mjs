@@ -5,7 +5,8 @@
 // earlier version and a broken projection. Pure JS, no browser, imported directly.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normDist, normDebts, normIncome, pickIds, isCard, seedDebtPays } from "../src/seeds.js";
+import { normDist, normDebts, normIncome, normExpenses, pickIds, isCard, seedDebtPays, seedExpenses } from "../src/seeds.js";
+import { isCategory, matchCategory } from "../src/format.js";
 import { todayISO } from "../src/format.js";
 import { salaryAt } from "../src/payroll.js";
 
@@ -216,4 +217,53 @@ test("seedDebtPays skips cards and cleared loans, and only adds an extra payment
   assert.equal(seeded[0].amount, 50);
   assert.equal(seeded[1].name, "Extra toward payoff");
   assert.ok(!seeded.some((p) => p.toDebt === "cc"), "cards get a pay-in-full payment elsewhere, not a seeded minimum");
+});
+
+/* ---------- expense categories ---------- */
+
+test("the old free-text category becomes the row's name, and a fixed category is matched from it", () => {
+  const [rent, groceries, car] = normExpenses([
+    { id: "1", category: "Rent", amount: 1500 },
+    { id: "2", category: "Groceries", amount: 110 },
+    { id: "3", category: "Car insurance", amount: 180 },
+  ]);
+  assert.equal(rent.label, "Rent");
+  assert.equal(rent.category, "housing");
+  assert.equal(groceries.label, "Groceries");
+  assert.equal(groceries.category, "food");
+  assert.equal(car.label, "Car insurance");
+  assert.equal(car.category, "insurance", "insurance beats transport for a car policy");
+});
+
+test("a category the list doesn't recognise lands in Other rather than being dropped", () => {
+  const [e] = normExpenses([{ id: "1", category: "Alpaca boarding", amount: 90 }]);
+  assert.equal(e.label, "Alpaca boarding", "what was typed is never lost");
+  assert.equal(e.category, "other");
+});
+
+test("normalizing is idempotent — a migrated expense survives a second pass unchanged", () => {
+  const once = normExpenses([{ id: "1", category: "Rent", amount: 1500 }]);
+  assert.deepEqual(normExpenses(once), once);
+});
+
+test("an expense with neither label nor category still gets both", () => {
+  const [e] = normExpenses([{ id: "1", amount: 40 }]);
+  assert.equal(e.label, "Expense");
+  assert.equal(e.category, "other");
+  assert.ok(isCategory(e.category));
+});
+
+test("every seeded expense already carries a fixed category", () => {
+  for (const e of seedExpenses({ chk: "C" })) {
+    assert.ok(isCategory(e.category), `${e.label} has category ${e.category}`);
+    assert.ok(e.label, "and a name of its own");
+  }
+});
+
+test("matchCategory resolves the words that belong to two buckets", () => {
+  assert.equal(matchCategory("Gas bill"), "housing");
+  assert.equal(matchCategory("Shell gas station"), "transport");
+  assert.equal(matchCategory("Renters insurance"), "insurance");
+  assert.equal(matchCategory(""), "other");
+  assert.equal(matchCategory(null), "other");
 });
