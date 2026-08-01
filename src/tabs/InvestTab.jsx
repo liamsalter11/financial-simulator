@@ -25,6 +25,10 @@ export function InvestTab({ D, chart, scInv, scMC, fireN, settings, setS, accoun
     p10to25: Math.max(0, b.p25 - b.p10), p25to75: Math.max(0, b.p75 - b.p25), p75to90: Math.max(0, b.p90 - b.p75),
   }));
   const mcEnd = D.mc.bands[D.mc.bands.length - 1];
+  /* the Monte Carlo runs to its own horizon — the retirement it has to survive — which is
+     usually further out than the accumulation charts above it */
+  const retires = !!D.mc.retires;
+  const mcMax = Math.max(maxW, D.horizonWeeks || 0);
             const last = D.viewSeries[Math.min(maxW, D.viewSeries.length - 1)];
             const endVal = last.invest, endBasis = last.basis, growth = Math.max(0, endVal - endBasis);
             return (
@@ -58,14 +62,35 @@ export function InvestTab({ D, chart, scInv, scMC, fireN, settings, setS, accoun
                 </div>
 
                 <div className="panel rise">
-                  <div className="phead"><div className="ptitle">Monte Carlo: range of outcomes</div>{ranges(scMC, maxW)}</div>
+                  <div className="phead"><div className="ptitle">Monte Carlo: does the money last?</div>{ranges(scMC, mcMax)}</div>
                   <div className="sgrid" style={{ marginBottom: 14 }}>
-                    <Stat k="Chance investments alone<br/>hit your FI number" v={Math.round(D.mc.successProb * 100) + "%"} accent={D.mc.successProb >= 0.5 ? "green" : "red"} />
-                    <Stat k={"Median value by<br/>" + fmtDate(w2date(maxW))} v={fmtBig(mcEnd.p50)} accent="cyan" />
+                    {retires
+                      ? <Stat k={"Chance the money lasts<br/>to " + fmtDate(w2date(D.horizonWeeks))} v={Math.round(D.mc.survivalProb * 100) + "%"} accent={D.mc.survivalProb >= 0.8 ? "green" : D.mc.survivalProb >= 0.5 ? "amber" : "red"} />
+                      : <Stat k="Chance investments alone<br/>hit your FI number" v={Math.round(D.mc.successProb * 100) + "%"} accent={D.mc.successProb >= 0.5 ? "green" : "red"} />}
+                    <Stat k={"Median value by<br/>" + fmtDate(w2date(mcMax))} v={fmtBig(mcEnd.p50)} accent="cyan" />
                   </div>
-                  <div className="fields3" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                  <div className="fields3" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
                     <NumField label="Return volatility (annual)" suffix="%" value={settings.mcVolatility} onChange={(v) => setS("mcVolatility", n0(v))} />
+                    <div className="field">
+                      <label>Retire on (blank = your FI date)</label>
+                      <input type="date" value={settings.mcRetireDate || ""} onChange={(e) => setS("mcRetireDate", e.target.value)}
+                        aria-label="Retirement date" title="When contributions stop and withdrawals begin. Leave blank to use the projection's own independence date." />
+                    </div>
+                    {n0(settings.birthYear) > 0
+                      ? <NumField label="Money must last to age" value={settings.mcEndAge} onChange={(v) => setS("mcEndAge", n0(v))} />
+                      : <NumField label="Years it must last" suffix="yr" value={settings.mcYears} onChange={(v) => setS("mcYears", n0(v))} />}
                   </div>
+                  {retires && (
+                    <div className={"caphint" + (D.mc.survivalProb < 0.8 ? " warn-txt" : "")} style={{ marginTop: 8 }}>
+                      Retiring {fmtDate(w2date(D.retireWeek))}: contributions stop and the portfolio starts paying out {fmtMoney(D.mc.monthlySpend)}/mo, held constant in today's dollars.
+                      {D.mc.investShare < 0.999 ? ` That's its ${Math.round(D.mc.investShare * 100)}% share of your ${fmtMoney(D.sim.annualExpNet / 12)}/mo of long-run spending — cash, savings and paid-down debt cover the rest.` : ""}
+                      {/* counts, not a rounded percentage: at 249 of 250 surviving, "0% fail"
+                          alongside a depletion date reads like a contradiction */}
+                      {D.mc.medianDepletionWeek != null
+                        ? ` The money runs out in ${Math.round((1 - D.mc.survivalProb) * D.mc.trials)} of ${D.mc.trials} runs, around ${fmtDate(w2date(D.mc.medianDepletionWeek))} in the median failure.`
+                        : " No simulated run ran out."}
+                    </div>
+                  )}
                   <div className="scope-wrap" ref={scMC.ref} {...scMC.handlers} style={{ marginTop: 12 }}>
                     <ResponsiveContainer width="100%" height={286}>
                       <ComposedChart data={mcData} margin={{ top: 16, right: 12, bottom: 0, left: 6 }}>
@@ -75,6 +100,7 @@ export function InvestTab({ D, chart, scInv, scMC, fireN, settings, setS, accoun
                         <Tooltip content={(p) => <McTip {...p} start={start} />} cursor={{ stroke: "var(--line2)" }} />
                         {fireN > 0 && !D.fiSloped && <ReferenceLine y={fireN} stroke="var(--amber)" strokeDasharray="3 3" label={{ value: "FI " + fmtBig(fireN), position: "insideTopRight", fill: "var(--amber)", fontSize: 9.5, fontFamily: "var(--mono)" }} />}
                         {fireN > 0 && D.fiSloped && <Line type="monotone" dataKey="fi" stroke="var(--amber)" strokeWidth={1.2} strokeDasharray="3 3" dot={false} isAnimationActive={false} />}
+                        {retires && <ReferenceLine x={D.retireWeek} stroke="var(--cyan)" strokeDasharray="2 3" strokeOpacity={0.7} label={{ value: "RETIRE", position: "top", fill: "var(--cyan)", fontSize: 9, fontFamily: "var(--mono)" }} />}
                         <Area dataKey="p10" stackId="mc" stroke="none" fill="transparent" isAnimationActive={false} />
                         <Area dataKey="p10to25" stackId="mc" stroke="none" fill="rgba(92,203,139,0.10)" isAnimationActive={false} />
                         <Area dataKey="p25to75" stackId="mc" stroke="none" fill="rgba(92,203,139,0.22)" isAnimationActive={false} />
@@ -88,9 +114,13 @@ export function InvestTab({ D, chart, scInv, scMC, fireN, settings, setS, accoun
                     <span className="lg"><span className="swatch" style={{ borderTopColor: "var(--green)", borderTopWidth: 3 }} />Median</span>
                     <span className="lg"><span className="dot" style={{ background: "rgba(92,203,139,0.5)" }} />Middle 50% / 80% of outcomes</span>
                   </div>
-                  <div className="assume">Same contributions as the chart above — only the returns are randomized, {D.mc.trials} times, as one blended portfolio at your accounts' balance-weighted expected return, after inflation ({(D.mcReturn * 100).toFixed(2)}% real). Higher volatility widens the shaded range without changing the median much; it's a measure of how much a real market could disagree with the average, not a prediction of which path you'll get.
+                  <div className="assume">Same contributions as the chart above until the retirement date, then they stop and withdrawals begin — only the returns are randomized, {D.mc.trials} times, as one blended portfolio at your accounts' balance-weighted expected return, after inflation ({(D.mcReturn * 100).toFixed(2)}% real).
                     <br /><br />
-                    The percentage checks your invested portfolio's own value against the FI number, same as this chart's line — a narrower question than the "Financial independence" date above, which also counts cash, savings, and paid-down debt. A lower number here doesn't contradict a nearer date up there; it means the rest of your net worth is doing some of that work too.</div>
+                    {retires
+                      ? <>This is the sequence-of-returns question, and it's the one the deterministic chart above can't answer: two portfolios with the same average return can end very differently depending on <i>when</i> the bad years land. A crash early in retirement is withdrawn from as well as fallen through, and it may never recover. That's why raising volatility cuts the survival number far more than it moves the median line — the median barely notices, and the plans that fail are the ones that met a bad decade first.</>
+                      : <>No retirement falls inside this horizon yet, so nothing is being withdrawn and the percentage above is the older question — whether the invested portfolio alone ever reaches the FI number. Set a retirement date, or reach independence inside 40 years, and this becomes a test of whether the money lasts.</>}
+                    <br /><br />
+                    Withdrawals are held constant in today's dollars, which is the assumption behind the 4% rule and the one your withdrawal rate already implies. It models no spending flexibility — a real retiree cuts back after a bad year, and that alone rescues many of the runs counted as failures here. Treat the number as a stress test, not a verdict.</div>
                 </div>
 
                 <div className="panel rise">
