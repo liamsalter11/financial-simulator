@@ -9,7 +9,7 @@ import { fmtMoney, fmtBig, fmtDate, fmtDur, n0 } from "../format.js";
 import { sampleRange } from "../useScope.js";
 
 export function DebtTab({
-  D, chart, scDebt, settings, setS, debts, debtPayments, payments,
+  D, chart, scDebt, settings, setS, ask, runBreakeven, debts, debtPayments, payments,
   hasPay, upDebtField, upDebtBal, rmDebt, addDebt,
   logLoan, setLogLoan, logAmt, setLogAmt, logDate, setLogDate, addPayment, rmPayment, nameOf,
 }) {
@@ -94,6 +94,42 @@ export function DebtTab({
                   <button className="btn btn-add" onClick={addDebt}><Plus size={15} />Add a loan</button>
                   <div className="assume">Describe a loan either way — type the minimum payment and it shows how long that takes, or switch to "by term" and the payment is worked out for you. Either way the minimum here only draws the "minimums only" comparison line; what you actually pay is set in Cash flow.{D.cards.length > 0 ? " Credit cards are managed in Cash flow — they still count against your net worth." : ""} For a loan in deferment, set "interest starts" to when it kicks in — subsidised loans don't accrue while you're enrolled, unsubsidised ones do, so leave those blank.</div>
                 </div>
+
+                {!noDebt && (
+                  <div className="panel rise">
+                    <div className="phead"><div className="ptitle">Next $200: debt or investing?</div>
+                      <button className="btn btn-ghost" onClick={() => runBreakeven(200)} disabled={ask.running}>
+                        {ask.running ? "Working…" : ask.breakeven ? "Re-run" : "Compare"}
+                      </button>
+                    </div>
+                    {ask.breakeven ? (() => {
+                      const b = ask.breakeven;
+                      const debtWins = b.debtNw >= b.investNw;
+                      const gap = Math.abs(b.debtNw - b.investNw);
+                      /* a fraction of a percent apart isn't a winner, it's a tie — saying
+                         otherwise turns rounding into advice */
+                      const wash = gap < Math.max(b.debtNw, b.investNw) * 0.01;
+                      const sooner = b.debtFreeWithDebt != null && b.debtFreeWithInvest != null
+                        ? b.debtFreeWithInvest - b.debtFreeWithDebt : 0;
+                      return (<>
+                        <div className="caphint">
+                          <b style={{ color: "var(--amber)" }}>{b.loanName} costs {b.loanApr.toFixed(2)}% </b>
+                          — {b.realApr.toFixed(2)}% after inflation — against <b style={{ color: "var(--green)" }}>{b.realReturn.toFixed(2)}%</b> real from investing. On rates alone, {b.realApr > b.realReturn ? "the debt wins" : "investing wins"}.
+                        </div>
+                        <div className="caphint" style={{ marginTop: 8 }}>
+                          Run both ways through the actual plan, {fmtMoney(b.amount)}/mo for the whole projection: paying the debt leaves <b>{fmtBig(b.debtNw)}</b>, investing leaves <b>{fmtBig(b.investNw)}</b> by {fmtDate(w2date(b.week))}.
+                          {" "}{wash
+                            ? <b>That's within a percent of each other — on this plan it's a wash, so pick on how you'd rather feel about it.</b>
+                            : <b style={{ color: debtWins ? "var(--amber)" : "var(--green)" }}>{debtWins ? "Paying the debt" : "Investing"} comes out {fmtMoney(gap)} ahead.</b>}
+                          {sooner > 1
+                            ? ` Paying the debt also clears it ${fmtDur(w2m(sooner))} sooner, which the net worth figure doesn't capture.`
+                            : ""}
+                        </div>
+                        <div className="assume">Rates are the argument; the two projections are the evidence, and they can disagree — freeing a payment early changes what the rest of the plan has to work with. Neither prices the part nobody can model: being rid of a payment is worth something on its own, and a guaranteed {b.loanApr.toFixed(2)}% return is certain in a way a market one isn't.</div>
+                      </>);
+                    })() : <div className="caphint">Compares sending the same {fmtMoney(200)}/mo to your highest-rate loan against investing it, by running the whole plan both ways. Two full projections, so it runs on demand.</div>}
+                  </div>
+                )}
 
                 {!noDebt && (
                   <div className="panel rise">

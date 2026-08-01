@@ -10,8 +10,8 @@ const {
   ResponsiveContainer,
   ReferenceLine
 } = Recharts;
-import { AlertTriangle } from "../icons.js";
-import { Stat, NumField, Donut, Tip, MultiTip } from "../components.js";
+import { AlertTriangle, Zap } from "../icons.js";
+import { Stat, NumField, Seg, Donut, Tip, MultiTip } from "../components.js";
 import { fmtMoney, fmtBig, fmtDate, fmtDur, n0 } from "../format.js";
 import { sampleRange } from "../useScope.js";
 function milestoneShift(label, weekWith, weekWithout) {
@@ -22,6 +22,25 @@ function milestoneShift(label, weekWith, weekWithout) {
   if (Math.abs(wks) < 1) return null;
   return `${label} ${fmtDur(Math.max(1, Math.round(Math.abs(wks) * 12 / 52.1775)))} ${wks > 0 ? "sooner" : "later"}`;
 }
+function SolveAnswer({
+  solve,
+  knob,
+  target,
+  fmtWeek
+}) {
+  if (!solve) return null;
+  const amount = React.createElement("b", {
+    style: {
+      color: "var(--amber)"
+    }
+  }, fmtMoney(solve.amount), "/mo");
+  const achieved = target.kind === "date" ? fmtWeek(solve.achieved) : `${Math.round(solve.achieved)}%`;
+  if (solve.reason === "already") return React.createElement(React.Fragment, null, "You're already there \u2014 this plan meets that without changing ", knob.label.toLowerCase(), " at all (", achieved, ").");
+  if (solve.reason === "noEffect") return React.createElement(React.Fragment, null, "Changing ", knob.label.toLowerCase(), " doesn't move that date at all: the money it frees isn't routed there. Add or grow the payment that would carry it.");
+  if (solve.reason === "unreachable") return React.createElement(React.Fragment, null, "No amount inside ", fmtMoney(knob.max), "/mo gets there \u2014 the best it manages is ", achieved, ". Try a later date, or a different lever.");
+  if (solve.reason === "anything") return React.createElement(React.Fragment, null, "Any amount up to ", fmtMoney(knob.max), "/mo still meets that.");
+  return React.createElement(React.Fragment, null, knob.direction === "min" ? React.createElement(React.Fragment, null, "You'd need ", amount) : React.createElement(React.Fragment, null, "You could go up to ", amount), " \u2014 that lands on ", achieved, ".");
+}
 export function OverviewTab({
   D,
   accounts,
@@ -31,7 +50,14 @@ export function OverviewTab({
   scBal,
   fireN,
   settings,
-  setS
+  setS,
+  ask,
+  setAsk,
+  runSolve,
+  runTornado,
+  knobs,
+  targets,
+  openScenarios
 }) {
   const {
     ranges,
@@ -42,6 +68,8 @@ export function OverviewTab({
     start,
     maxW
   } = chart;
+  const askKnob = knobs.find(k => k.v === ask.knob) || knobs[0];
+  const askTarget = targets.find(t => t.v === ask.target) || targets[0];
   const gap = D.hasHypo ? D.nwGapAt(scNW.hi) : 0;
   const shifts = D.hasHypo ? [milestoneShift("financial independence", D.simWith.fire, D.simWithout.fire), milestoneShift("debt-free", D.simWith.debtFree, D.simWithout.debtFree)].filter(Boolean) : [];
   return React.createElement(React.Fragment, null, React.createElement("div", {
@@ -126,7 +154,8 @@ export function OverviewTab({
       nw: s.nw,
       debt: s.debt,
       invest: s.invest,
-      fi: s.fi
+      fi: s.fi,
+      cmp: s.cmp
     })),
     margin: {
       top: 16,
@@ -227,6 +256,14 @@ export function OverviewTab({
     dataKey: "debt",
     stroke: "var(--red)",
     strokeWidth: 1.5,
+    dot: false,
+    isAnimationActive: false
+  }), D.compare && React.createElement(Line, {
+    type: "monotone",
+    dataKey: "cmp",
+    stroke: "var(--muted)",
+    strokeWidth: 1.6,
+    strokeDasharray: "5 4",
     dot: false,
     isAnimationActive: false
   })))), ZHINT, React.createElement("div", {
@@ -382,6 +419,178 @@ export function OverviewTab({
       borderTopStyle: "dashed"
     }
   }), l.name)))), React.createElement("div", {
+    className: "panel rise"
+  }, React.createElement("div", {
+    className: "phead"
+  }, React.createElement("div", {
+    className: "ptitle"
+  }, "What would it take?"), React.createElement("div", {
+    className: "psub"
+  }, "runs your plan, in reverse")), React.createElement("div", {
+    className: "askrow"
+  }, React.createElement(Seg, {
+    value: ask.target,
+    options: targets.map(t => ({
+      v: t.v,
+      label: t.label
+    })),
+    onChange: v => setAsk(a => ({
+      ...a,
+      target: v,
+      value: "",
+      solve: null
+    }))
+  })), React.createElement("div", {
+    className: "askrow",
+    style: {
+      marginTop: 10
+    }
+  }, askTarget.kind === "date" ? React.createElement("input", {
+    type: "date",
+    value: ask.value,
+    onChange: e => setAsk(a => ({
+      ...a,
+      value: e.target.value
+    })),
+    "aria-label": "Target date"
+  }) : React.createElement("div", {
+    className: "pctbox"
+  }, React.createElement("input", {
+    type: "number",
+    inputMode: "decimal",
+    value: ask.value,
+    onChange: e => setAsk(a => ({
+      ...a,
+      value: e.target.value
+    })),
+    "aria-label": "Target percentage",
+    placeholder: "90"
+  }), React.createElement("span", {
+    className: "u"
+  }, "%")), React.createElement("span", {
+    className: "cap"
+  }, "by changing"), React.createElement("select", {
+    value: ask.knob,
+    onChange: e => setAsk(a => ({
+      ...a,
+      knob: e.target.value,
+      solve: null
+    })),
+    "aria-label": "What to change",
+    style: {
+      minWidth: 150
+    }
+  }, knobs.map(k => React.createElement("option", {
+    key: k.v,
+    value: k.v
+  }, k.label))), React.createElement("button", {
+    className: "btn btn-amber",
+    onClick: runSolve,
+    disabled: !ask.value || ask.running
+  }, React.createElement(Zap, {
+    size: 14
+  }), ask.running ? "Solving…" : "Solve")), React.createElement("div", {
+    className: "caphint",
+    style: {
+      marginTop: 10
+    }
+  }, ask.error ? "That didn't come back with an answer — try a different target." : ask.solve ? React.createElement(SolveAnswer, {
+    solve: ask.solve,
+    knob: askKnob,
+    target: askTarget,
+    fmtWeek: w => fmtDate(w2date(w))
+  }) : React.createElement(React.Fragment, null, "Pick a date or a percentage, and this searches for the ", askKnob.label.toLowerCase(), " that meets it. It re-runs the whole projection twenty-odd times, so give it a moment.")), React.createElement("div", {
+    className: "phead",
+    style: {
+      marginTop: 18
+    }
+  }, React.createElement("div", {
+    className: "ptitle"
+  }, "What moves the date"), React.createElement("button", {
+    className: "btn btn-ghost",
+    onClick: runTornado,
+    disabled: ask.running
+  }, ask.running ? "Working…" : ask.tornado ? "Re-run" : "Run sensitivity")), ask.tornado ? (() => {
+    const rows = ask.tornado.rows;
+    const worst = Math.max(1, ...rows.map(r => Math.abs(r.months)));
+    return React.createElement(React.Fragment, null, React.createElement("div", {
+      className: "tornado"
+    }, rows.map(r => React.createElement("div", {
+      className: "tor-row",
+      key: r.v
+    }, React.createElement("span", {
+      className: "tor-label"
+    }, r.label), React.createElement("span", {
+      className: "tor-track"
+    }, React.createElement("span", {
+      className: "tor-bar",
+      style: {
+        width: Math.abs(r.months) / worst * 50 + "%",
+        marginLeft: r.months < 0 ? 50 - Math.abs(r.months) / worst * 50 + "%" : "50%",
+        background: r.months < 0 ? "var(--green)" : "var(--red)"
+      }
+    })), React.createElement("span", {
+      className: "tor-val mono"
+    }, r.months > 0 ? "+" : "", Math.round(r.months), " mo")))), React.createElement("div", {
+      className: "caphint"
+    }, "Each row is one change on its own, measured against your independence date \u2014 green pulls it in, red pushes it out. The ordering is the useful part: it's usually not the one you'd guess."));
+  })() : React.createElement("div", {
+    className: "caphint"
+  }, "Nudges each input on its own and reports how far your independence date moves. Seven full projections, so it runs on demand rather than as you type.")), D.timeline.length > 0 && React.createElement("div", {
+    className: "panel rise"
+  }, React.createElement("div", {
+    className: "phead"
+  }, React.createElement("div", {
+    className: "ptitle"
+  }, "What happens when"), React.createElement("div", {
+    className: "psub"
+  }, D.timeline.length, " milestones ahead")), React.createElement("div", {
+    className: "timeline"
+  }, D.timeline.map((m, i) => React.createElement("div", {
+    className: "tl-row tl-" + m.kind,
+    key: i
+  }, React.createElement("span", {
+    className: "tl-date mono"
+  }, fmtDate(m.date)), React.createElement("span", {
+    className: "tl-dot"
+  }), React.createElement("span", {
+    className: "tl-body"
+  }, React.createElement("b", null, m.label), m.detail ? React.createElement("span", {
+    className: "tl-detail"
+  }, " \u2014 ", m.detail) : null)))), React.createElement("div", {
+    className: "assume"
+  }, "Every date here comes from the same projection as the charts above, so they move together. Dates beyond the 40-year horizon aren't listed at all rather than guessed at.")), D.compare && React.createElement("div", {
+    className: "panel rise"
+  }, React.createElement("div", {
+    className: "phead"
+  }, React.createElement("div", {
+    className: "ptitle"
+  }, "Compared with \u201C", D.compare.name, "\u201D"), React.createElement("button", {
+    className: "btn btn-ghost",
+    onClick: openScenarios
+  }, "Change")), React.createElement("div", {
+    className: "caphint",
+    style: {
+      marginBottom: 10
+    }
+  }, "By ", fmtDate(w2date(D.maxW)), " this plan is ", React.createElement("b", {
+    style: {
+      color: D.compare.nwGap >= 0 ? "var(--green)" : "var(--red)"
+    }
+  }, fmtMoney(Math.abs(D.compare.nwGap)), " ", D.compare.nwGap >= 0 ? "ahead of" : "behind"), " it. The dashed line on the net worth chart is that plan."), React.createElement("div", {
+    className: "timeline"
+  }, D.compare.rows.map((r, i) => React.createElement("div", {
+    className: "tl-row",
+    key: i
+  }, React.createElement("span", {
+    className: "tl-date mono"
+  }, r.date ? fmtDate(r.date) : "—"), React.createElement("span", {
+    className: "tl-dot"
+  }), React.createElement("span", {
+    className: "tl-body"
+  }, React.createElement("b", null, r.label), React.createElement("span", {
+    className: "tl-detail"
+  }, r.deltaWeeks == null ? r.week == null ? ` — only “${D.compare.name}” gets there, ${fmtDate(r.otherDate)}` : " — only this plan gets there" : Math.abs(r.deltaWeeks) < 2 ? " — the same either way" : ` — ${fmtDur(Math.abs(Math.round(r.deltaMonths)))} ${r.deltaWeeks < 0 ? "sooner" : "later"} than “${D.compare.name}”`)))))), React.createElement("div", {
     className: "panel rise"
   }, React.createElement("div", {
     className: "phead"

@@ -20,6 +20,8 @@ export function DebtTab({
   scDebt,
   settings,
   setS,
+  ask,
+  runBreakeven,
   debts,
   debtPayments,
   payments,
@@ -254,6 +256,46 @@ export function DebtTab({
   }), "Add a loan"), React.createElement("div", {
     className: "assume"
   }, "Describe a loan either way \u2014 type the minimum payment and it shows how long that takes, or switch to \"by term\" and the payment is worked out for you. Either way the minimum here only draws the \"minimums only\" comparison line; what you actually pay is set in Cash flow.", D.cards.length > 0 ? " Credit cards are managed in Cash flow — they still count against your net worth." : "", " For a loan in deferment, set \"interest starts\" to when it kicks in \u2014 subsidised loans don't accrue while you're enrolled, unsubsidised ones do, so leave those blank.")), !noDebt && React.createElement("div", {
+    className: "panel rise"
+  }, React.createElement("div", {
+    className: "phead"
+  }, React.createElement("div", {
+    className: "ptitle"
+  }, "Next $200: debt or investing?"), React.createElement("button", {
+    className: "btn btn-ghost",
+    onClick: () => runBreakeven(200),
+    disabled: ask.running
+  }, ask.running ? "Working…" : ask.breakeven ? "Re-run" : "Compare")), ask.breakeven ? (() => {
+    const b = ask.breakeven;
+    const debtWins = b.debtNw >= b.investNw;
+    const gap = Math.abs(b.debtNw - b.investNw);
+    const wash = gap < Math.max(b.debtNw, b.investNw) * 0.01;
+    const sooner = b.debtFreeWithDebt != null && b.debtFreeWithInvest != null ? b.debtFreeWithInvest - b.debtFreeWithDebt : 0;
+    return React.createElement(React.Fragment, null, React.createElement("div", {
+      className: "caphint"
+    }, React.createElement("b", {
+      style: {
+        color: "var(--amber)"
+      }
+    }, b.loanName, " costs ", b.loanApr.toFixed(2), "% "), "\u2014 ", b.realApr.toFixed(2), "% after inflation \u2014 against ", React.createElement("b", {
+      style: {
+        color: "var(--green)"
+      }
+    }, b.realReturn.toFixed(2), "%"), " real from investing. On rates alone, ", b.realApr > b.realReturn ? "the debt wins" : "investing wins", "."), React.createElement("div", {
+      className: "caphint",
+      style: {
+        marginTop: 8
+      }
+    }, "Run both ways through the actual plan, ", fmtMoney(b.amount), "/mo for the whole projection: paying the debt leaves ", React.createElement("b", null, fmtBig(b.debtNw)), ", investing leaves ", React.createElement("b", null, fmtBig(b.investNw)), " by ", fmtDate(w2date(b.week)), ".", " ", wash ? React.createElement("b", null, "That's within a percent of each other \u2014 on this plan it's a wash, so pick on how you'd rather feel about it.") : React.createElement("b", {
+      style: {
+        color: debtWins ? "var(--amber)" : "var(--green)"
+      }
+    }, debtWins ? "Paying the debt" : "Investing", " comes out ", fmtMoney(gap), " ahead."), sooner > 1 ? ` Paying the debt also clears it ${fmtDur(w2m(sooner))} sooner, which the net worth figure doesn't capture.` : ""), React.createElement("div", {
+      className: "assume"
+    }, "Rates are the argument; the two projections are the evidence, and they can disagree \u2014 freeing a payment early changes what the rest of the plan has to work with. Neither prices the part nobody can model: being rid of a payment is worth something on its own, and a guaranteed ", b.loanApr.toFixed(2), "% return is certain in a way a market one isn't."));
+  })() : React.createElement("div", {
+    className: "caphint"
+  }, "Compares sending the same ", fmtMoney(200), "/mo to your highest-rate loan against investing it, by running the whole plan both ways. Two full projections, so it runs on demand.")), !noDebt && React.createElement("div", {
     className: "panel rise"
   }, React.createElement("div", {
     className: "phead"
