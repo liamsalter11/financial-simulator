@@ -4,9 +4,9 @@ const {
   ComposedChart, Area, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine, Cell,
 } = Recharts;
-import { Plus, Trash2, ArrowRight } from "../icons.js";
+import { Plus, Trash2, ArrowRight, Upload } from "../icons.js";
 import { Stat, NumField, Seg, EndDate, Tip } from "../components.js";
-import { fmtMoney, fmtDate, n0, num, OPY, parseDate, RECUR, recurLabel } from "../format.js";
+import { fmtMoney, fmtDate, n0, num, OPY, parseDate, RECUR, recurLabel, CATEGORIES, catLabel } from "../format.js";
 import { payrollOf, bonusOf, perCheck, effectiveTaxRate, isDerived, taxBreakdown } from "../payroll.js";
 import { FILING, TAX_YEAR } from "../tax.js";
 import { isCard } from "../seeds.js";
@@ -17,7 +17,7 @@ export function CashFlowTab({
   upInc, rmInc, addInc, addGuaranteed, addSplit, upSplit, rmSplit, addPreTax, upPreTax, rmPreTax,
   setMatch, upMatch, setBonus, upBonus, addChange, upChange, rmChange,
   upExp, rmExp, addExp, upDebtField, upDebtBal, rmDebt, addCardWithPayment,
-  upDp, rmDp, addDp, upTr, rmTr, addTr,
+  upDp, rmDp, addDp, upTr, rmTr, addTr, openCsv, itemised, setItemised,
 }) {
   const { ranges, ZHINT, axisProps, yProps, start, maxW } = chart;
             const dp = Math.max(0, D.mDp), iv = Math.max(0, D.mTr), lo = Math.max(0, D.leftover);
@@ -74,13 +74,26 @@ export function CashFlowTab({
                 </div>
 
                 <div className="panel rise">
-                  <div className="phead"><div className="ptitle">Spending by category</div><div className="psub">{fmtMoney(D.mExp)}/mo</div></div>
-                  {D.spend.length === 0 ? <div className="empty">No expenses yet.</div> : D.spend.map((e) => (
-                    <div className="catrow" key={e.id}>
-                      <div className="cattop"><span className="cn">{e.category}<span className="cp">{recurLabel(e.recur).toLowerCase()}</span></span><span className="cv">{fmtMoney(e.monthly)}/mo</span></div>
-                      <div className="catbar"><div className="catfill" style={{ width: (D.mExp > 0 ? e.monthly / D.mExp * 100 : 0) + "%", background: e.color }} /></div>
-                    </div>
-                  ))}
+                  <div className="phead">
+                    <div className="ptitle">Spending by category</div>
+                    <Seg value={itemised ? "items" : "cats"} onChange={(v) => setItemised(v === "items")}
+                      options={[{ v: "cats", label: "Grouped" }, { v: "items", label: "Itemised" }]} />
+                  </div>
+                  <div className="psub" style={{ marginBottom: 10 }}>{fmtMoney(D.mExp)}/mo</div>
+                  {D.spend.length === 0 ? <div className="empty">No expenses yet.</div>
+                    : itemised
+                      ? D.spend.map((e) => (
+                        <div className="catrow" key={e.id}>
+                          <div className="cattop"><span className="cn">{e.label}<span className="cp">{recurLabel(e.recur).toLowerCase()} · {catLabel(e.category)}</span></span><span className="cv">{fmtMoney(e.monthly)}/mo</span></div>
+                          <div className="catbar"><div className="catfill" style={{ width: (D.mExp > 0 ? e.monthly / D.mExp * 100 : 0) + "%", background: e.color }} /></div>
+                        </div>
+                      ))
+                      : D.spendCat.map((c) => (
+                        <div className="catrow" key={c.v}>
+                          <div className="cattop"><span className="cn">{c.name}<span className="cp">{c.count} {c.count === 1 ? "expense" : "expenses"}</span></span><span className="cv">{fmtMoney(c.monthly)}/mo</span></div>
+                          <div className="catbar"><div className="catfill" style={{ width: (D.mExp > 0 ? c.monthly / D.mExp * 100 : 0) + "%", background: c.color }} /></div>
+                        </div>
+                      ))}
                 </div>
 
                 <div className="panel rise">
@@ -317,11 +330,14 @@ export function CashFlowTab({
                 </div>
 
                 <div className="panel rise">
-                  <div className="phead"><div className="ptitle">Expenses</div><div className="psub">dated · drawn from an account</div></div>
+                  <div className="phead">
+                    <div className="ptitle">Expenses</div>
+                    <button className="tbtn" onClick={openCsv}><Upload size={13} />Import from a statement</button>
+                  </div>
                   {expenses.map((ex) => (
                     <div className="card" key={ex.id}>
                       <div className="card-r1">
-                        <input className="rname" value={ex.category} onChange={(e) => upExp(ex.id, "category", e.target.value)} aria-label="Category" />
+                        <input className="rname" value={ex.label} onChange={(e) => upExp(ex.id, "label", e.target.value)} aria-label="Expense name" />
                         <div className="num-box sm"><span className="pfx">$</span><input className="num-input" type="number" inputMode="decimal" value={ex.amount} onChange={(e) => upExp(ex.id, "amount", e.target.value)} aria-label="Amount" style={{ color: "var(--red)" }} /></div>
                         <button className="icon-btn" onClick={() => rmExp(ex.id)} aria-label="Remove"><Trash2 size={16} /></button>
                       </div>
@@ -333,11 +349,16 @@ export function CashFlowTab({
                           <optgroup label="Accounts">{accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</optgroup>
                           {D.cards.length > 0 && <optgroup label="Credit cards">{D.cards.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>}
                         </select>
+                        <span className="cap">counts as</span>
+                        <select value={ex.category || "other"} onChange={(e) => upExp(ex.id, "category", e.target.value)} aria-label="Category">
+                          {CATEGORIES.map((c) => <option key={c.v} value={c.v}>{c.label}</option>)}
+                        </select>
                         {ex.recur !== "once" && <EndDate value={ex.end} onChange={(v) => upExp(ex.id, "end", v)} />}
                       </div>
                     </div>
                   ))}
                   <button className="btn btn-add" onClick={addExp}><Plus size={15} />Add expense</button>
+                  <div className="assume">The name is yours to write; the category is a fixed list so spending can be totted up across differently-named rows.</div>
                 </div>
 
                 <div className="panel rise">
