@@ -30,6 +30,12 @@ export function salaryAt(inc, at) {
   return { amount, gross, anchor, label };
 }
 
+/* the same income list with every planned promotion removed, for projecting the "if
+   nothing improves" baseline alongside the real one. Everything else about each income
+   — salary today, raise, bonus, deductions, splits — is left exactly as it is. */
+export const hasPromotions = (income) => (income || []).some((x) => (x.changes || []).length > 0);
+export const withoutPromotions = (income) => (income || []).map((x) => ((x.changes || []).length ? { ...x, changes: [] } : x));
+
 /* one place that resolves a paycheck's deductions, so the engine and the UI can't disagree */
 export function payrollOf(inc, grossOverride) {
   const gross = grossOverride != null ? grossOverride : grossPerCheck(inc);

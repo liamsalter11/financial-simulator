@@ -12,8 +12,16 @@ const {
 } = Recharts;
 import { AlertTriangle } from "../icons.js";
 import { Stat, Donut, Tip, MultiTip } from "../components.js";
-import { fmtMoney, fmtBig, fmtDate } from "../format.js";
+import { fmtMoney, fmtBig, fmtDate, fmtDur } from "../format.js";
 import { sampleRange } from "../useScope.js";
+function milestoneShift(label, weekWith, weekWithout) {
+  if (weekWith == null && weekWithout == null) return null;
+  if (weekWith != null && weekWithout == null) return `brings ${label} inside 40 years`;
+  if (weekWith == null && weekWithout != null) return `pushes ${label} beyond 40 years`;
+  const wks = weekWithout - weekWith;
+  if (Math.abs(wks) < 1) return null;
+  return `${label} ${fmtDur(Math.max(1, Math.round(Math.abs(wks) * 12 / 52.1775)))} ${wks > 0 ? "sooner" : "later"}`;
+}
 export function OverviewTab({
   D,
   accounts,
@@ -21,7 +29,9 @@ export function OverviewTab({
   chart,
   scNW,
   scBal,
-  fireN
+  fireN,
+  settings,
+  setS
 }) {
   const {
     ranges,
@@ -32,6 +42,8 @@ export function OverviewTab({
     start,
     maxW
   } = chart;
+  const gap = D.hasHypo ? D.nwGapAt(scNW.hi) : 0;
+  const shifts = D.hasHypo ? [milestoneShift("financial independence", D.simWith.fire, D.simWithout.fire), milestoneShift("debt-free", D.simWith.debtFree, D.simWithout.debtFree)].filter(Boolean) : [];
   return React.createElement(React.Fragment, null, React.createElement("div", {
     className: "sgrid rise",
     style: {
@@ -192,6 +204,34 @@ export function OverviewTab({
     dot: false,
     isAnimationActive: false
   })))), ZHINT, React.createElement("div", {
+    className: "hypo"
+  }, React.createElement("label", {
+    className: "switch"
+  }, React.createElement("input", {
+    type: "checkbox",
+    checked: settings.hypotheticals !== false,
+    onChange: e => setS("hypotheticals", e.target.checked)
+  }), React.createElement("span", {
+    className: "swtrack"
+  }, React.createElement("span", {
+    className: "swknob"
+  })), React.createElement("span", {
+    className: "sw-label"
+  }, "Include future promotions")), D.hasHypo ? React.createElement("div", {
+    className: "caphint",
+    style: {
+      marginTop: 8
+    }
+  }, gap >= 0 ? "Your planned promotions add " : "Your planned salary changes cost ", React.createElement("b", {
+    style: {
+      color: gap >= 0 ? "var(--green)" : "var(--red)"
+    }
+  }, fmtMoney(Math.abs(gap))), " of net worth by ", fmtDate(w2date(scNW.hi)), shifts.length > 0 ? ` · ${shifts.join(" · ")}` : "", ".", " ", settings.hypotheticals !== false ? "Switch them off to see the same plan on today's salary." : "Currently projecting on today's salary, with them excluded.", " ", "Every chart and date on every tab follows this toggle.") : React.createElement("div", {
+    className: "caphint",
+    style: {
+      marginTop: 8
+    }
+  }, "No promotions planned yet. Add one under Cash flow \u2192 Income \u2192 \u201CPromotions & salary changes\u201D, and this will show what it's worth.")), React.createElement("div", {
     className: "assume"
   }, "Today's dollars \xB7 returns and rates held constant \xB7 a projection, not a guarantee or financial advice.")), React.createElement("div", {
     className: "panel rise"

@@ -12,7 +12,7 @@ import {
   isInvest, isSav, isCash, BUCKET_COLOR, PAL, acctColor, debtColor,
 } from "./format.js";
 import { firesInWeek } from "./recurrence.js";
-import { payrollOf, bonusOf, effectiveTaxRate } from "./payroll.js";
+import { payrollOf, bonusOf, effectiveTaxRate, hasPromotions, withoutPromotions } from "./payroll.js";
 import { simulateWeekly, projectMinWeekly, WEEKS } from "./engine.js";
 import { runMonteCarlo } from "./montecarlo.js";
 import {
@@ -244,7 +244,20 @@ export function FinancialSimulator() {
     const leftover = surplus - mTr - mDp;
     const monthlyInterest = loans.reduce((s, l) => s + n0(l.balance) * n0(l.apr) / 1200, 0);
 
-    const sim = simulateWeekly({ accounts, debts, income, expenses, transfers, debtPayments, settings, start, weeks: WEEKS });
+    /* two projections: one with planned promotions, one without. Whichever the toggle
+       selects drives every chart and stat; both are kept so the Overview can always say
+       what the promotions are actually worth, in either direction. */
+    const simCfg = { accounts, debts, expenses, transfers, debtPayments, settings, start, weeks: WEEKS };
+    const hasHypo = hasPromotions(income);
+    const simWith = simulateWeekly({ ...simCfg, income });
+    const simWithout = hasHypo ? simulateWeekly({ ...simCfg, income: withoutPromotions(income) }) : simWith;
+    const hypoOn = settings.hypotheticals !== false;
+    const sim = hypoOn ? simWith : simWithout;
+    /* net-worth gap at a given week — the Overview reads this at the chart's zoom edge */
+    const nwGapAt = (w) => {
+      const i = Math.max(0, Math.min(Math.round(w), simWith.series.length - 1, simWithout.series.length - 1));
+      return simWith.series[i].nw - simWithout.series[i].nw;
+    };
     const minW = projectMinWeekly(debts, start, WEEKS);
     const maxW = Math.min(WEEKS, Math.max(sim.fire || 520, (sim.debtFree || 260) + 130, 260) + 60);
     const interestSaved = Math.max(0, minW.interest - sim.interest);
@@ -326,7 +339,7 @@ export function FinancialSimulator() {
     let negAcct = null;
     for (let w = 0; w < Math.min(sim.series.length, 312) && !negAcct; w++) { const m = sim.series[w].acct; for (const a of accounts) if (m[a.id] < -1) { negAcct = a.name; break; } }
 
-    return { totalAssets, totalDebt, totalLoans, netWorth, loans, cards, mInc, mExp, mTr, mDp, mPreTax, mBonusNet, surplus, savingsRate, leftover, monthlyInterest, sim, minW, maxW, mc, mcReturn, interestSaved, wksSaved, acctColors, debtColors, names, cf, debtCurve, alloc, spend, bInv, negAcct, nextCardPay, loansNoPayment, chargedTo, worstMonthOut, avgSweep, capped };
+    return { totalAssets, totalDebt, totalLoans, netWorth, loans, cards, mInc, mExp, mTr, mDp, mPreTax, mBonusNet, surplus, savingsRate, leftover, monthlyInterest, sim, simWith, simWithout, hasHypo, hypoOn, nwGapAt, minW, maxW, mc, mcReturn, interestSaved, wksSaved, acctColors, debtColors, names, cf, debtCurve, alloc, spend, bInv, negAcct, nextCardPay, loansNoPayment, chargedTo, worstMonthOut, avgSweep, capped };
   }, [accounts, debts, income, expenses, transfers, debtPayments, settings, start]);
 
   const maxW = D ? D.maxW : 520;
@@ -444,7 +457,7 @@ export function FinancialSimulator() {
 
           {/* ============================ OVERVIEW ============================ */}
           {tab === "overview" && (
-            <OverviewTab D={D} accounts={accounts} debts={debts} chart={chartProps} scNW={scNW} scBal={scBal} fireN={fireN} />
+            <OverviewTab D={D} accounts={accounts} debts={debts} chart={chartProps} scNW={scNW} scBal={scBal} fireN={fireN} settings={settings} setS={setS} />
           )}
 
           {/* ============================ ACCOUNTS ============================ */}
