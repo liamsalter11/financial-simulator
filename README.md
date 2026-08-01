@@ -23,12 +23,14 @@ needed to read them) are both the source and the shipped file.
 | `src/tabs/*.jsx` | One file per tab (`OverviewTab`, `AccountsTab`, `CashFlowTab`, `DebtTab`, `InvestTab`), each just the rendering for that tab. |
 | `src/engine.js` | The simulation engine (`simulateWeekly`, `projectMinWeekly`) — pure logic, no React. |
 | `src/montecarlo.js` | Monte Carlo projection for the invested portfolio (`runMonteCarlo`) — pure logic, no React. |
+| `src/loan.js` | Amortization: payment ↔ term ↔ months-to-payoff. |
 | `src/payroll.js` | Per-paycheck salary/401k-match/bonus math. |
 | `src/recurrence.js` | Expands a recurring event into concrete dates and counts firings per week. |
 | `src/format.js` | Money/date formatting, recurrence labels, shared constants. |
 | `src/seeds.js` | Example data shown on first load, and normalization for older saved/imported data. |
 | `src/store.js` | `localStorage` wrapper. |
-| `src/useScope.js` | The pinch-zoom/pan chart-windowing hook, plus the series downsampler. |
+| `src/useScope.js` | The pinch-zoom/pan chart-windowing hook. Reads the global `React`, so it only loads in a browser; it re-exports `sampleRange` for the tabs' convenience. |
+| `src/sample.js` | `sampleRange`, the chart series downsampler — pure, and kept separate from `useScope.js` so it's importable in Node tests. |
 | `src/icons.jsx`, `src/components.jsx` | Inline icon set, and small shared UI pieces (`Stat`, `NumField`, `Modal`, `Donut`, `LoanCard`, ...). |
 | `src/help-content.js` | The per-tab Help panel copy. |
 | `src/styles.js` | The app's CSS, as a template string injected via a `<style>` tag. |
@@ -72,7 +74,8 @@ the script loads.
 
 ```bash
 npm install
-npm test              # sync + engine tests — fast, no browser
+npm test              # every pure-logic test + the .jsx/.js sync guard — fast, no browser
+npm run test:cov      # the same suite with a coverage report
 npx playwright install --with-deps chromium   # once, before the first e2e run
 npm run test:e2e       # browser tests (loads the real page in Chromium)
 npm run test:all       # everything
@@ -83,23 +86,35 @@ npm run test:all       # everything
   `node --check` syntax check on each. Catches "edited a `.jsx` file, forgot
   to rebuild."
 - **`tests/engine.test.mjs`** — unit tests for the simulation engine
-  (`simulateWeekly` from `src/engine.js`, `payrollOf`/`bonusOf` from
-  `src/payroll.js`) against small, deterministic scenarios. These are plain
-  ES modules with no React dependency, so the tests `import` them directly —
-  no browser, no stubbing. Covers the employer-match formula, bonus
-  withholding, card-interest-only-on-a-carried-balance, the highest-APR-first
-  debt rollover, and a regression test for the account-cap sweep respecting
-  the "redirect into investing" setting.
+  (`simulateWeekly` and `projectMinWeekly` from `src/engine.js`) against small,
+  deterministic scenarios. These are plain ES modules with no React dependency,
+  so the tests `import` them directly — no browser, no stubbing. Covers the
+  employer-match formula, card interest (charges, the grace period, partial
+  payments), the debt rollover under both payoff strategies, account-cap sweeps
+  and as-of dates, the real-terms inflation conversion (and that it's the
+  identity at 0%), and the annual pre-tax contribution limit.
+- **`tests/loan.test.mjs`** — `src/loan.js`: the amortizing payment against a
+  textbook figure, payment ↔ term round-trips, and the case where a payment
+  never covers the interest.
+- **`tests/payroll.test.mjs`**, **`tests/recurrence.test.mjs`**,
+  **`tests/seeds.test.mjs`**, **`tests/montecarlo.test.mjs`**,
+  **`tests/sample.test.mjs`** — the remaining pure-logic modules: paycheck and
+  promotion math, recurrence expansion, seed/normalization of older saved data,
+  the Monte Carlo bands, and the chart downsampler.
 - **`tests/e2e.test.mjs`** — Playwright tests against the actual served page:
-  the front-page link, the help panel (closed by default, follows the active
-  tab), `localStorage` persistence across a reload, the one-time warning toast
-  when storage writes fail, the redirect toggle, and a regression test that
-  edits income and triggers every tab's chart tooltip (a past module-split
-  bug — a missing import in a shared component — only surfaced once a
-  Tooltip actually rendered, which static page-load checks don't trigger).
+  the front-page link (skipped unless run inside a site checkout), the help
+  panel (closed by default, follows the active tab), `localStorage` persistence
+  across a reload, the one-time warning toast when storage writes fail, the
+  redirect toggle, export → reset → import round-tripping, the inflation and
+  payoff-strategy controls, and a regression test that edits income and triggers
+  every tab's chart tooltip (a past module-split bug — a missing import in a
+  shared component — only surfaced once a Tooltip actually rendered, which
+  static page-load checks don't trigger).
 
-CI (`.github/workflows/financial-simulator-ci.yml`) runs all of this on every
-push or pull request that touches `financial-simulator/`.
+CI (`.github/workflows/test.yml`) runs the unit suite and the browser tests on
+every pull request and every push to `main`. The deploy workflow
+(`.github/workflows/sync-to-site.yml`) gates on it, so a failing suite blocks
+the sync to the live site.
 
 ## Design notes
 
@@ -121,6 +136,23 @@ Everything stays on your device — there is no server, no account, and no
 analytics. Use Export to save a portable JSON backup, and Import to restore it
 or move it to another device. Clearing site data will erase your entries.
 
+**Everything runs in today's dollars.** Every rate entered is nominal — returns, debt
+APRs, annual raises, a promotion's future salary — and each is converted to a real rate
+(`(1+r)/(1+i) − 1`) before it compounds, so 7% growth against 2.5% inflation compounds at
+4.39%. Spending holds its value in the same terms. The deliberate exception is
+nominally-fixed commitments: a loan payment stays the number on the contract while
+everything around it gets dearer, so it's deflated week by week and quietly buys less. The
+"show future dollars" switch is display only — it re-labels the charts in the money of the
+day and moves no dates, because the independence target inflates at exactly the same rate
+the balances do. At 0% inflation every conversion is the identity, which is what the older
+engine tests assert.
+
+**Debt payoff order is a choice.** Surplus from a payment rolls either to the highest-rate
+loan (avalanche, the cheapest) or to the smallest balance (snowball, which clears
+individual loans soonest). The Debt tab runs the strategy you didn't pick as a second full
+projection and prices the difference both ways, because the cheaper plan isn't always the
+one someone sticks to.
+
 **Monte Carlo reuses the deterministic contribution schedule.** The Invest
 tab's "range of outcomes" chart takes the same week-by-week contributions the
 deterministic engine already computed (`simulateWeekly`'s `basis` series) and
@@ -135,10 +167,16 @@ cheaper to recompute on every keystroke.
 
 ## Caveats
 
-The deterministic projection holds returns, rates and spending constant,
-works in today's dollars, and models no inflation, tax on gains, volatility,
-or sequence-of-returns risk. It's a directional tool for comparing decisions
-against each other, not a forecast — and not financial advice.
+The deterministic projection holds returns, rates and spending constant in real
+terms and works in today's dollars. Inflation is modelled only as a single
+constant rate applied to every return, APR and raise; there is no tax on gains,
+no volatility, and no sequence-of-returns risk. It's a directional tool for
+comparing decisions against each other, not a forecast — and not financial advice.
+
+The annual pre-tax contribution limit counts from today rather than from January,
+so a mid-year start doesn't know what has already gone in this calendar year, and
+it's applied per income source rather than per person — model two jobs for one
+person and each gets its own allowance, which the IRS would not.
 
 The Monte Carlo chart relaxes the volatility assumption only, and only for
 the invested portion of your net worth — cash, savings, and debt payoff still

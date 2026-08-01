@@ -80,12 +80,13 @@ export function InvestTab({
     p50: b.p50,
     p75: b.p75,
     p90: b.p90,
+    fi: fireN * D.nomAt(b.w),
     p10to25: Math.max(0, b.p25 - b.p10),
     p25to75: Math.max(0, b.p75 - b.p25),
     p75to90: Math.max(0, b.p90 - b.p75)
   }));
   const mcEnd = D.mc.bands[D.mc.bands.length - 1];
-  const last = D.sim.series[Math.min(maxW, D.sim.series.length - 1)];
+  const last = D.viewSeries[Math.min(maxW, D.viewSeries.length - 1)];
   const endVal = last.invest,
     endBasis = last.basis,
     growth = Math.max(0, endVal - endBasis);
@@ -123,10 +124,11 @@ export function InvestTab({
     width: "100%",
     height: 286
   }, React.createElement(ComposedChart, {
-    data: sampleRange(D.sim.series, scInv.lo, scInv.hi, 320).map(s => ({
+    data: sampleRange(D.viewSeries, scInv.lo, scInv.hi, 320).map(s => ({
       w: s.w,
       value: s.invest,
-      basis: s.basis
+      basis: s.basis,
+      fi: s.fi
     })),
     margin: {
       top: 16,
@@ -167,7 +169,7 @@ export function InvestTab({
     cursor: {
       stroke: "var(--line2)"
     }
-  }), fireN > 0 && D.sim.fire != null && React.createElement(ReferenceLine, {
+  }), fireN > 0 && D.sim.fire != null && !D.showNom && React.createElement(ReferenceLine, {
     y: fireN,
     stroke: "var(--amber)",
     strokeDasharray: "3 3",
@@ -178,6 +180,14 @@ export function InvestTab({
       fontSize: 9.5,
       fontFamily: "var(--mono)"
     }
+  }), fireN > 0 && D.showNom && React.createElement(Line, {
+    type: "monotone",
+    dataKey: "fi",
+    stroke: "var(--amber)",
+    strokeWidth: 1.2,
+    strokeDasharray: "3 3",
+    dot: false,
+    isAnimationActive: false
   }), React.createElement(Area, {
     type: "monotone",
     dataKey: "value",
@@ -258,7 +268,7 @@ export function InvestTab({
     cursor: {
       stroke: "var(--line2)"
     }
-  }), fireN > 0 && React.createElement(ReferenceLine, {
+  }), fireN > 0 && !D.showNom && React.createElement(ReferenceLine, {
     y: fireN,
     stroke: "var(--amber)",
     strokeDasharray: "3 3",
@@ -269,6 +279,14 @@ export function InvestTab({
       fontSize: 9.5,
       fontFamily: "var(--mono)"
     }
+  }), fireN > 0 && D.showNom && React.createElement(Line, {
+    type: "monotone",
+    dataKey: "fi",
+    stroke: "var(--amber)",
+    strokeWidth: 1.2,
+    strokeDasharray: "3 3",
+    dot: false,
+    isAnimationActive: false
   }), React.createElement(Area, {
     dataKey: "p10",
     stackId: "mc",
@@ -322,7 +340,7 @@ export function InvestTab({
     }
   }), "Middle 50% / 80% of outcomes")), React.createElement("div", {
     className: "assume"
-  }, "Same contributions as the chart above \u2014 only the returns are randomized, ", D.mc.trials, " times, as one blended portfolio at your accounts' balance-weighted expected return. Higher volatility widens the shaded range without changing the median much; it's a measure of how much a real market could disagree with the average, not a prediction of which path you'll get.", React.createElement("br", null), React.createElement("br", null), "The percentage checks your invested portfolio's own value against the FI number, same as this chart's line \u2014 a narrower question than the \"Financial independence\" date above, which also counts cash, savings, and paid-down debt. A lower number here doesn't contradict a nearer date up there; it means the rest of your net worth is doing some of that work too.")), React.createElement("div", {
+  }, "Same contributions as the chart above \u2014 only the returns are randomized, ", D.mc.trials, " times, as one blended portfolio at your accounts' balance-weighted expected return, after inflation (", (D.mcReturn * 100).toFixed(2), "% real). Higher volatility widens the shaded range without changing the median much; it's a measure of how much a real market could disagree with the average, not a prediction of which path you'll get.", React.createElement("br", null), React.createElement("br", null), "The percentage checks your invested portfolio's own value against the FI number, same as this chart's line \u2014 a narrower question than the \"Financial independence\" date above, which also counts cash, savings, and paid-down debt. A lower number here doesn't contradict a nearer date up there; it means the rest of your net worth is doing some of that work too.")), React.createElement("div", {
     className: "panel rise"
   }, React.createElement("div", {
     className: "phead"
@@ -339,7 +357,7 @@ export function InvestTab({
     value: settings.withdrawalRate,
     onChange: v => setS("withdrawalRate", n0(v))
   }), React.createElement(NumField, {
-    label: "FI target",
+    label: "FI target (today's dollars)",
     prefix: "$",
     value: Math.round(fireN),
     readOnly: true

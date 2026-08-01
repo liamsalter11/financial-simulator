@@ -1,6 +1,6 @@
 // Per-paycheck gross/net math: salary at a point in time (accounting for raises and
 // promotions), 401k/employer-match resolution, and bonus withholding.
-import { n0, num, OPY, parseDate } from "./format.js";
+import { n0, num, OPY, parseDate, inflFactor, DAY } from "./format.js";
 
 /* people know their annual salary, not their per-paycheck gross — accept either */
 export const perCheck = (gross, mode, recur) => {
@@ -14,14 +14,22 @@ export const grossPerCheck = (inc) => perCheck(inc.gross, inc.grossMode, inc.rec
 /* a promotion is a step change: new salary from a date, with the annual raise
    compounding from there rather than from the original start date. Take-home is derived
    from the new gross and a tax rate rather than typed by hand — nobody knows their new
-   take-home the moment they're told a new salary. */
-export function salaryAt(inc, at) {
+   take-home the moment they're told a new salary.
+
+   `opts.inflation` (with `opts.start` as today) deflates a promotion's salary back into
+   today's dollars: "the next level pays $140k" is a figure quoted in the money of the year
+   it happens, and the projection runs in today's money. Omit both and nothing is deflated,
+   which is what every caller outside the engine wants. */
+export function salaryAt(inc, at, opts) {
+  const infl = num(opts && opts.inflation);
+  const start = opts && opts.start;
   let amount = n0(inc.amount), gross = grossPerCheck(inc), anchor = parseDate(inc.date), label = null;
   const list = (inc.changes || []).slice().sort((a, b) => parseDate(a.date) - parseDate(b.date));
   for (const ch of list) {
     const d = parseDate(ch.date);
     if (isNaN(d) || d > at) continue;
     gross = perCheck(ch.gross, ch.grossMode || inc.grossMode, inc.recur);
+    if (infl && start) gross /= inflFactor(infl, Math.max(0, (d - start) / DAY / 7));
     const employee = payrollOf(inc, gross).employee;
     const rate = ch.taxRate != null ? num(ch.taxRate) : effectiveTaxRate(inc);
     amount = Math.max(0, gross * (1 - rate / 100) - employee);
