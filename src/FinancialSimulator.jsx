@@ -3,7 +3,7 @@
 const { useState, useEffect, useMemo, useRef, useDeferredValue } = React;
 import {
   HelpCircle, Upload, Download, RotateCcw, Zap, AlertTriangle, Check, X,
-  LayoutGrid, Wallet, Receipt, TrendingDown, InvestIcon,
+  LayoutGrid, Wallet, Receipt, TrendingDown, InvestIcon, Trash2,
 } from "./icons.js";
 import { Modal } from "./components.js";
 import {
@@ -14,7 +14,9 @@ import {
 import { firesInWeek } from "./recurrence.js";
 import { payrollOf, bonusOf, effectiveTaxRate, isDerived, takeHomeOf } from "./payroll.js";
 import { WEEKS } from "./engine.js";
-import { projectAll } from "./project.js";
+import { projectAll, payoffVsInvest } from "./project.js";
+import { goalSeek, tornado, KNOBS, TARGETS, knobOf, targetOf } from "./solve.js";
+import { milestones, milestoneDiff } from "./milestones.js";
 import {
   SEED_ACCOUNTS, SEED_DEBTS, normDebts, normIncome, normAccounts, isCard, pickIds,
   seedIncome, seedExpenses, seedTransfers, seedDebtPays, seedSettings,
@@ -61,15 +63,23 @@ export function FinancialSimulator() {
       showToast("Your browser is blocking saved data — changes here won't be kept once you leave this page", true, 6000);
     });
   };
+  const [scenarios, setScenarios] = useState([]);
+  const [compareId, setCompareId] = useState("");
+  const [scenarioName, setScenarioName] = useState("");
   const [logLoan, setLogLoan] = useState(""); const [logAmt, setLogAmt] = useState(""); const [logDate, setLogDate] = useState(todayISO());
 
   const start = useMemo(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }, []);
 
   useEffect(() => {
     (async () => {
-      const K = ["fin3:accounts", "fin3:debts", "fin3:income", "fin3:expenses", "fin3:transfers", "fin3:debtPayments", "fin3:payments", "fin3:settings", "fin3:seedNote"];
+      const K = ["fin3:accounts", "fin3:debts", "fin3:income", "fin3:expenses", "fin3:transfers", "fin3:debtPayments", "fin3:payments", "fin3:settings", "fin3:seedNote", "fin3:scenarios", "fin3:compareWith"];
       const O = ["fin2:accounts", "fin2:debts", "fin2:income", "fin2:expenses", "fin2:contributions", "fin2:payments", "fin2:settings"];
-      const [a3, d3, i3, e3, t3, dp3, p3, s3, note, a2, d2, i2, e2, c2, p2, s2] = await Promise.all([...K, ...O].map((k) => store.get(k)));
+      const [a3, d3, i3, e3, t3, dp3, p3, s3, note, scen, cmp, a2, d2, i2, e2, c2, p2, s2] = await Promise.all([...K, ...O].map((k) => store.get(k)));
+      const savedScenarios = parse(scen, []);
+      setScenarios(Array.isArray(savedScenarios) ? savedScenarios : []);
+      /* the comparison lives in its own key, not in settings — settings are part of a saved
+         plan, so putting it there would nest a scenario inside a scenario */
+      if (cmp) setCompareId(cmp);
       const accts = a3 ? parse(a3, SEED_ACCOUNTS()) : (a2 ? parse(a2, SEED_ACCOUNTS()) : SEED_ACCOUNTS());
       const dbts = d3 ? parse(d3, SEED_DEBTS()) : (d2 ? parse(d2, SEED_DEBTS()) : SEED_DEBTS());
       const id = pickIds(accts, dbts);
@@ -102,6 +112,8 @@ export function FinancialSimulator() {
   useEffect(() => { if (ready) persist("fin3:debtPayments", JSON.stringify(debtPayments)); }, [debtPayments, ready]);
   useEffect(() => { if (ready) persist("fin3:payments", JSON.stringify(payments)); }, [payments, ready]);
   useEffect(() => { if (ready) persist("fin3:settings", JSON.stringify(settings)); }, [settings, ready]);
+  useEffect(() => { if (ready) persist("fin3:scenarios", JSON.stringify(scenarios)); }, [scenarios, ready]);
+  useEffect(() => { if (ready) persist("fin3:compareWith", compareId); }, [compareId, ready]);
 
   /* setters */
   const setS = (k, v) => setSettings((p) => ({ ...p, [k]: v }));
@@ -173,7 +185,50 @@ export function FinancialSimulator() {
     setSeedNote(true); store.set("fin3:seedNote", "1");
   };
 
-  const buildDump = () => JSON.stringify({ app: "fin-sim", version: 6, exportedAt: new Date().toISOString(), accounts, debts, income, expenses, transfers, debtPayments, payments, settings }, null, 2);
+  /* ================================================================== */
+  /*  Named scenarios                                                    */
+  /* ================================================================== */
+  /* A scenario is exactly what Export writes, minus the file metadata — one shape for
+     saving, exporting and importing, so they can't drift apart. */
+  const planNow = () => ({ accounts, debts, income, expenses, transfers, debtPayments, payments, settings });
+  const applyPlan = (p) => {
+    if (!p) return;
+    if (Array.isArray(p.accounts)) setAccounts(normAccounts(p.accounts));
+    if (Array.isArray(p.debts)) setDebts(normDebts(p.debts));
+    const id = pickIds(p.accounts || accounts, p.debts || debts);
+    if (Array.isArray(p.income)) setIncome(normIncome(p.income, id.chk, id.ret));
+    if (Array.isArray(p.expenses)) setExpenses(p.expenses);
+    if (Array.isArray(p.transfers)) setTransfers(p.transfers);
+    if (Array.isArray(p.debtPayments)) setDebtPayments(p.debtPayments);
+    if (Array.isArray(p.payments)) setPayments(p.payments);
+    if (p.settings && typeof p.settings === "object") setSettings({ ...seedSettings(), ...p.settings });
+  };
+  const saveScenario = (name) => {
+    const trimmed = (name || "").trim();
+    if (!trimmed) return;
+    setScenarios((p) => {
+      const existing = p.find((s) => s.name.toLowerCase() === trimmed.toLowerCase());
+      const entry = { id: existing ? existing.id : uid(), name: trimmed, savedAt: new Date().toISOString(), plan: planNow() };
+      return existing ? p.map((s) => (s.id === existing.id ? entry : s)) : [...p, entry];
+    });
+    showToast(`Saved "${trimmed}"`);
+  };
+  const loadScenario = (id) => {
+    const s = scenarios.find((x) => x.id === id);
+    if (!s) return;
+    if (!window.confirm(`Replace what's here with "${s.name}"? Save the current plan first if you want to keep it.`)) return;
+    applyPlan(s.plan);
+    setModal(null);
+    showToast(`Loaded "${s.name}"`);
+  };
+  const renameScenario = (id, name) => setScenarios((p) => p.map((s) => (s.id === id ? { ...s, name } : s)));
+  const rmScenario = (id) => {
+    setScenarios((p) => p.filter((s) => s.id !== id));
+    setCompareId((c) => (c === id ? "" : c));
+  };
+  const compareScenario = scenarios.find((s) => s.id === compareId) || null;
+
+  const buildDump = () => JSON.stringify({ app: "fin-sim", version: 7, exportedAt: new Date().toISOString(), ...planNow(), scenarios }, null, 2);
   const openExport = () => { setImportText(buildDump()); setModal("export"); };
   const copyText = async (text) => {
     try { if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); return true; } } catch { }
@@ -228,6 +283,7 @@ export function FinancialSimulator() {
     if (Array.isArray(data.debtPayments)) setDebtPayments(data.debtPayments);
     if (Array.isArray(data.payments)) setPayments(data.payments);
     if (data.settings && typeof data.settings === "object") setSettings({ ...seedSettings(), ...data.settings });
+    if (Array.isArray(data.scenarios)) setScenarios(data.scenarios);
     setModal(null); setSeedNote(false); store.set("fin3:seedNote", "0");
   };
   const onJsonFile = (e) => { const f = e.target.files && e.target.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => setImportText(String(rd.result || "")); rd.readAsText(f); e.target.value = ""; };
@@ -242,7 +298,11 @@ export function FinancialSimulator() {
   const [busy, setBusy] = useState(true);
   const workerRef = useRef(null);
   const reqRef = useRef(0);
+  const askRef = useRef(0);
   const inputRef = useRef(null);
+  /* the what-if panel's state: which question is being asked, and the last answer to it */
+  const [ask, setAsk] = useState({ knob: "extraDebt", target: "debtFree", value: "", running: false, solve: null, tornado: null, breakeven: null, error: false });
+  const setAskField = (k, v) => setAsk((a) => ({ ...a, [k]: v, solve: k === "solve" ? v : a.solve }));
   /* a worker that fails — blocked, wrong MIME type, thrown — must never leave the page
      staring at stale charts, so every failure path recomputes here instead */
   const fallback = () => {
@@ -256,13 +316,21 @@ export function FinancialSimulator() {
     let w = null;
     try { w = new Worker(new URL("./worker.js", import.meta.url), { type: "module" }); } catch { return undefined; }
     w.onmessage = (e) => {
-      const { id, stage, result } = e.data || {};
+      const { id, kind = "project", stage, result } = e.data || {};
+      if (kind === "solve" || kind === "tornado" || kind === "breakeven") {
+        /* user-initiated and seconds long, so they have their own request counter — a
+           keystroke landing mid-solve must not throw the answer away */
+        if (id !== askRef.current) return;
+        if (stage === "error") { setAsk((a) => ({ ...a, running: false, error: true })); return; }
+        setAsk((a) => ({ ...a, running: false, error: false, [kind]: result }));
+        return;
+      }
       if (id !== reqRef.current) return; /* a reply to a keystroke that's already stale */
       if (stage === "error") { w.terminate(); fallback(); return; }
       /* merge rather than replace, so the comparison panels keep their last numbers for the
          moment between a primary result and the extras that follow it */
       setP((prev) => ({ ...(prev || {}), ...result }));
-      if (stage !== "primary") setBusy(false);
+      if (stage === "extras") setBusy(false);
     };
     w.onerror = () => { w.terminate(); fallback(); };
     workerRef.current = w;
@@ -272,8 +340,12 @@ export function FinancialSimulator() {
   /* what the projection actually depends on — deferred, so a burst of typing queues one
      run rather than one per character */
   const projectionInput = useMemo(
-    () => ({ accounts, debts, income, expenses, transfers, debtPayments, settings, start, weeks: WEEKS }),
-    [accounts, debts, income, expenses, transfers, debtPayments, settings, start],
+    () => ({
+      accounts, debts, income, expenses, transfers, debtPayments, settings, start, weeks: WEEKS,
+      /* a saved scenario to draw alongside, if one is picked */
+      compare: compareScenario ? { ...compareScenario.plan, settings: { ...seedSettings(), ...compareScenario.plan.settings } } : null,
+    }),
+    [accounts, debts, income, expenses, transfers, debtPayments, settings, start, compareScenario],
   );
   const deferredInput = useDeferredValue(projectionInput);
 
@@ -286,11 +358,35 @@ export function FinancialSimulator() {
     const id = ++reqRef.current;
     setBusy(true);
     const w = workerRef.current;
-    if (w) { w.postMessage({ id, input: deferredInput }); return; }
+    if (w) { w.postMessage({ id, kind: "project", payload: deferredInput }); return; }
     /* no worker (or it failed): same code, same results, just on this thread */
     setP(projectAll(deferredInput));
     setBusy(false);
   }, [deferredInput, ready]);
+
+  /* Goal seek and the sensitivity sweep: seconds of work, asked for explicitly rather than
+     recomputed on every edit. Same worker, same fallback, its own request counter. */
+  const runAsk = (kind, extra) => {
+    const id = ++askRef.current;
+    setAsk((a) => ({ ...a, running: true, error: false, [kind]: null }));
+    /* the solver reruns the plan many times over; a comparison scenario isn't part of that */
+    const payload = { input: { ...deferredInput, compare: null }, ...extra };
+    const w = workerRef.current;
+    if (w) { w.postMessage({ id, kind, payload }); return; }
+    /* no worker: this blocks for a second or two, which is the honest trade. The timeout
+       lets the "solving" state paint before the main thread stops answering. */
+    setTimeout(() => {
+      try {
+        const result = kind === "solve" ? goalSeek(payload)
+          : kind === "breakeven" ? payoffVsInvest(payload.input, payload.amount)
+            : tornado(payload);
+        if (id === askRef.current) setAsk((a) => ({ ...a, running: false, [kind]: result }));
+      } catch { if (id === askRef.current) setAsk((a) => ({ ...a, running: false, error: true })); }
+    }, 30);
+  };
+  const runSolve = () => { if (ask.value) runAsk("solve", { knob: ask.knob, target: ask.target, value: ask.value }); };
+  const runTornado = () => runAsk("tornado", {});
+  const runBreakeven = (amount) => runAsk("breakeven", { amount: n0(amount) || 200 });
 
   /* derived */
   const D = useMemo(() => {
@@ -392,7 +488,11 @@ export function FinancialSimulator() {
       const dbt = {}; for (const k in s.dbt) dbt[k] = r2(s.dbt[k] * f);
       return { ...s, nw: r2(s.nw * f), debt: r2(s.debt * f), loanDebt: r2(s.loanDebt * f), invest: r2(s.invest * f), basis: r2(s.basis * f), spendable: r2(s.spendable * f), reach: r2(s.reach * f), fi: r2(s.fi * f), acct, dbt };
     };
-    const viewSeries = showNom ? sim.series.map(scaleSnap) : sim.series;
+    /* the saved scenario's own net worth, carried on the same rows so the chart can draw it
+       as a ghost line without a second data pass */
+    const cmpSeries = P.compare && P.compare.sim ? P.compare.sim.series : null;
+    const withCmp = (s) => (cmpSeries && cmpSeries[s.w] ? { ...s, cmp: r2(cmpSeries[s.w].nw * nomAt(s.w)) } : s);
+    const viewSeries = (showNom ? sim.series.map(scaleSnap) : sim.series).map(withCmp);
 
     const cf = [];
     const cfMax = Math.min(sim.series.length - 1, 312);
@@ -434,8 +534,21 @@ export function FinancialSimulator() {
        date that income starts. Either way the charts draw a line rather than a level. */
     const fiSloped = showNom || sim.guaranteedAnnual > 0;
 
-    return { totalAssets, totalDebt, totalLoans, netWorth, loans, cards, mInc, mExp, mTr, mDp, mPreTax, mBonusNet, surplus, savingsRate, leftover, monthlyInterest, sim, simWith, simWithout, hasHypo, hypoOn, nwGapAt, minW, maxW, mc: mcView, mcReturn, interestSaved, wksSaved, acctColors, debtColors, names, cf, debtCurve, alloc, spend, bInv, negAcct, nextCardPay, loansNoPayment, chargedTo, worstMonthOut, avgSweep, capped, infl, showNom, nomAt, viewSeries, strategy, liquid, runway, deferralNotes, fiSloped, bridge: sim.bridge, retireWeek, horizonWeeks, busy };
-  }, [accounts, debts, income, expenses, transfers, debtPayments, settings, start, P, busy]);
+    /* the dates this plan reaches, and how a saved scenario compares — both are reads over
+       projections already computed, so neither costs a simulation */
+    const timeline = milestones(P, { start, debts, income, settings });
+    const cmpPlan = compareScenario ? compareScenario.plan : null;
+    const cmpTimeline = P.compare && cmpPlan
+      ? milestones({ sim: P.compare.sim, retireWeek: P.compare.retireWeek }, { start, debts: cmpPlan.debts || [], income: cmpPlan.income || [], settings: cmpPlan.settings || {} })
+      : null;
+    const compare = cmpTimeline ? {
+      name: compareScenario.name,
+      rows: milestoneDiff(timeline, cmpTimeline),
+      nwGap: sim.series[Math.min(maxW, sim.series.length - 1)].nw - P.compare.sim.series[Math.min(maxW, P.compare.sim.series.length - 1)].nw,
+    } : null;
+
+    return { totalAssets, totalDebt, totalLoans, netWorth, loans, cards, mInc, mExp, mTr, mDp, mPreTax, mBonusNet, surplus, savingsRate, leftover, monthlyInterest, sim, simWith, simWithout, hasHypo, hypoOn, nwGapAt, minW, maxW, mc: mcView, mcReturn, interestSaved, wksSaved, acctColors, debtColors, names, cf, debtCurve, alloc, spend, bInv, negAcct, nextCardPay, loansNoPayment, chargedTo, worstMonthOut, avgSweep, capped, infl, showNom, nomAt, viewSeries, strategy, liquid, runway, deferralNotes, fiSloped, bridge: sim.bridge, retireWeek, horizonWeeks, busy, timeline, compare };
+  }, [accounts, debts, income, expenses, transfers, debtPayments, settings, start, P, busy, compareScenario]);
 
   const maxW = D ? D.maxW : 520;
   const scNW = useScope(maxW, 260);
@@ -492,6 +605,8 @@ export function FinancialSimulator() {
             <div className="toolbar">
               <button className={"tbtn" + (showHelp ? " on" : "")} onClick={() => setShowHelp((v) => !v)}
                 aria-expanded={showHelp} aria-controls="help-panel"><HelpCircle size={13} />Help</button>
+              <button className={"tbtn" + (compareScenario ? " on" : "")} onClick={() => { setScenarioName(""); setModal("scenarios"); }}
+                title={compareScenario ? `Comparing against "${compareScenario.name}"` : "Save and compare plans"}><LayoutGrid size={13} />Scenarios{scenarios.length ? ` (${scenarios.length})` : ""}</button>
               <button className="tbtn" onClick={() => { setImportText(""); setModal("import"); }}><Upload size={13} />Import</button>
               <button className="tbtn" onClick={openExport}><Download size={13} />Export</button>
               <button className="tbtn" onClick={resetAll}><RotateCcw size={13} />Reset</button>
@@ -539,6 +654,36 @@ export function FinancialSimulator() {
                 <button className="btn btn-ghost" onClick={doCopy}>Copy to clipboard</button></div>
             </Modal>
           )}
+          {modal === "scenarios" && (
+            <Modal title="Scenarios" onClose={() => setModal(null)}>
+              <div className="mnote">Save the whole plan under a name, then pick one to compare against — its net worth appears as a second line on the Overview, with a table of how far apart the two put each milestone. Saving doesn't change anything you're working on.</div>
+              <div className="modal-row">
+                <input type="text" value={scenarioName} onChange={(e) => setScenarioName(e.target.value)} placeholder="Name this plan, e.g. “current”"
+                  aria-label="Scenario name" style={{ flex: 1, minWidth: 160 }} onKeyDown={(e) => { if (e.key === "Enter") { saveScenario(scenarioName); setScenarioName(""); } }} />
+                <button className="btn btn-amber" onClick={() => { saveScenario(scenarioName); setScenarioName(""); }}><Check size={15} />Save current plan</button>
+              </div>
+              {scenarios.length === 0
+                ? <div className="empty" style={{ marginTop: 14 }}>No saved scenarios yet.<br />Save this plan, change something, and save it again under another name.</div>
+                : <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+                  {scenarios.map((s) => (
+                    <div key={s.id} className="card" style={{ background: "var(--bg)" }}>
+                      <div className="card-r2">
+                        <input type="text" value={s.name} onChange={(e) => renameScenario(s.id, e.target.value)} aria-label="Scenario name" style={{ flex: 1, minWidth: 110 }} />
+                        <span className="cap">{String(s.savedAt || "").slice(0, 10)}</span>
+                        <button className="icon-btn" onClick={() => rmScenario(s.id)} aria-label={`Delete ${s.name}`}><Trash2 size={15} /></button>
+                      </div>
+                      <div className="card-r2" style={{ marginTop: 8 }}>
+                        <button className="btn btn-ghost" onClick={() => loadScenario(s.id)}>Load into the editor</button>
+                        <label className="chk">
+                          <input type="checkbox" checked={compareId === s.id} onChange={(e) => setCompareId(e.target.checked ? s.id : "")} />
+                          compare against this
+                        </label>
+                      </div>
+                    </div>
+                  ))}
+                </div>}
+            </Modal>
+          )}
           {modal === "import" && (
             <Modal title="Load saved data" onClose={() => setModal(null)}>
               <div className="mnote">Load a file you exported earlier. This replaces what's currently here.</div>
@@ -553,7 +698,8 @@ export function FinancialSimulator() {
 
           {/* ============================ OVERVIEW ============================ */}
           {tab === "overview" && (
-            <OverviewTab D={D} accounts={accounts} debts={debts} chart={chartProps} scNW={scNW} scBal={scBal} fireN={fireN} settings={settings} setS={setS} />
+            <OverviewTab D={D} accounts={accounts} debts={debts} chart={chartProps} scNW={scNW} scBal={scBal} fireN={fireN} settings={settings} setS={setS}
+              ask={ask} setAsk={setAsk} runSolve={runSolve} runTornado={runTornado} knobs={KNOBS} targets={TARGETS} openScenarios={() => { setScenarioName(""); setModal("scenarios"); }} />
           )}
 
           {/* ============================ ACCOUNTS ============================ */}
@@ -578,6 +724,7 @@ export function FinancialSimulator() {
           {/* ============================ DEBT ============================ */}
           {tab === "debt" && (
             <DebtTab D={D} chart={chartProps} scDebt={scDebt} settings={settings} setS={setS}
+              ask={ask} runBreakeven={runBreakeven}
               debts={debts} debtPayments={debtPayments} payments={payments}
               hasPay={hasPay} upDebtField={upDebtField} upDebtBal={upDebtBal} rmDebt={rmDebt} addDebt={addDebt}
               logLoan={logLoan} setLogLoan={setLogLoan} logAmt={logAmt} setLogAmt={setLogAmt}

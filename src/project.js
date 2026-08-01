@@ -92,6 +92,8 @@ export function project(input) {
     retireWeek,
     annualSpend: sim.annualExpNet * investShare,
     horizonWeeks,
+    /* the goal seeker searches at reduced trials and confirms the winner at full fidelity */
+    ...(n0(settings.mcTrials) > 0 ? { trials: n0(settings.mcTrials) } : {}),
   });
   mc.investShare = investShare;
 
@@ -137,8 +139,46 @@ export function projectComparisons(input, sim) {
   return { simWith, simWithout, strategy };
 }
 
+/**
+ * The oldest question in personal finance, answered with the plan rather than a rule of
+ * thumb: send the same monthly amount to debt, or to investing, and see which balance sheet
+ * is bigger at the end. Two extra projections, so it runs on the Debt tab's own request.
+ */
+export function payoffVsInvest(input, amount = 200) {
+  const start = input.start instanceof Date ? input.start : new Date(input.start);
+  const base = project(input);
+  const at = (r) => r.sim.series[Math.min(base.maxW, r.sim.series.length - 1)];
+  const from = (input.accounts || []).find((a) => a.type === "checking") || (input.accounts || [])[0] || {};
+  const loan = (input.debts || []).filter((d) => d.kind !== "card" && n0(d.balance) > 0)
+    .sort((a, b) => n0(b.apr) - n0(a.apr))[0];
+  const invested = (input.accounts || []).find((a) => isInvest(a.type));
+  if (!loan || !invested) return null;
+
+  const iso = new Date(start.getTime()).toISOString().slice(0, 10);
+  const toDebt = project({
+    ...input,
+    debtPayments: [...(input.debtPayments || []), { id: "cmp-debt", name: "Comparison extra", amount, date: iso, recur: "monthly", fromAcct: from.id, toDebt: loan.id }],
+  });
+  const toInvest = project({
+    ...input,
+    transfers: [...(input.transfers || []), { id: "cmp-inv", name: "Comparison investing", amount, date: iso, recur: "monthly", fromAcct: from.id, toAcct: invested.id }],
+  });
+  return {
+    amount, week: base.maxW,
+    loanName: loan.name, loanApr: n0(loan.apr), realApr: toReal(n0(loan.apr), input.settings.inflation),
+    realReturn: blendedReturn(input.accounts, input.settings.inflation) * 100,
+    debtNw: at(toDebt).nw, investNw: at(toInvest).nw,
+    debtFreeWithDebt: toDebt.sim.debtFree, debtFreeWithInvest: toInvest.sim.debtFree,
+  };
+}
+
 /* everything at once — the synchronous path, used when Workers aren't available */
 export function projectAll(input) {
   const primary = project(input);
-  return { ...primary, ...projectComparisons(input, primary.sim) };
+  const out = { ...primary, ...projectComparisons(input, primary.sim) };
+  if (input.compare) {
+    const cmp = project({ ...input.compare, start: input.start, weeks: input.weeks });
+    out.compare = { sim: cmp.sim, maxW: cmp.maxW, retireWeek: cmp.retireWeek };
+  }
+  return out;
 }

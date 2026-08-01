@@ -3,8 +3,8 @@ const {
   ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine,
 } = Recharts;
-import { AlertTriangle } from "../icons.js";
-import { Stat, NumField, Donut, Tip, MultiTip } from "../components.js";
+import { AlertTriangle, Zap } from "../icons.js";
+import { Stat, NumField, Seg, Donut, Tip, MultiTip } from "../components.js";
 import { fmtMoney, fmtBig, fmtDate, fmtDur, n0 } from "../format.js";
 import { sampleRange } from "../useScope.js";
 
@@ -19,8 +19,22 @@ function milestoneShift(label, weekWith, weekWithout) {
   return `${label} ${fmtDur(Math.max(1, Math.round(Math.abs(wks) * 12 / 52.1775)))} ${wks > 0 ? "sooner" : "later"}`;
 }
 
-export function OverviewTab({ D, accounts, debts, chart, scNW, scBal, fireN, settings, setS }) {
+/* the goal-seek answer, in a sentence — the number alone doesn't say whether it worked */
+function SolveAnswer({ solve, knob, target, fmtWeek }) {
+  if (!solve) return null;
+  const amount = <b style={{ color: "var(--amber)" }}>{fmtMoney(solve.amount)}/mo</b>;
+  const achieved = target.kind === "date" ? fmtWeek(solve.achieved) : `${Math.round(solve.achieved)}%`;
+  if (solve.reason === "already") return <>You're already there — this plan meets that without changing {knob.label.toLowerCase()} at all ({achieved}).</>;
+  if (solve.reason === "noEffect") return <>Changing {knob.label.toLowerCase()} doesn't move that date at all: the money it frees isn't routed there. Add or grow the payment that would carry it.</>;
+  if (solve.reason === "unreachable") return <>No amount inside {fmtMoney(knob.max)}/mo gets there — the best it manages is {achieved}. Try a later date, or a different lever.</>;
+  if (solve.reason === "anything") return <>Any amount up to {fmtMoney(knob.max)}/mo still meets that.</>;
+  return <>{knob.direction === "min" ? <>You'd need {amount}</> : <>You could go up to {amount}</>} — that lands on {achieved}.</>;
+}
+
+export function OverviewTab({ D, accounts, debts, chart, scNW, scBal, fireN, settings, setS, ask, setAsk, runSolve, runTornado, knobs, targets, openScenarios }) {
   const { ranges, ZHINT, axisProps, yProps, w2date, start, maxW } = chart;
+  const askKnob = knobs.find((k) => k.v === ask.knob) || knobs[0];
+  const askTarget = targets.find((t) => t.v === ask.target) || targets[0];
   const gap = D.hasHypo ? D.nwGapAt(scNW.hi) : 0;
   const shifts = D.hasHypo ? [
     milestoneShift("financial independence", D.simWith.fire, D.simWithout.fire),
@@ -53,7 +67,7 @@ export function OverviewTab({ D, accounts, debts, chart, scNW, scBal, fireN, set
                 <div className="phead"><div className="ptitle">Net worth projection</div>{ranges(scNW, maxW)}</div>
                 <div className="scope-wrap" ref={scNW.ref} {...scNW.handlers}>
                   <ResponsiveContainer width="100%" height={286}>
-                    <ComposedChart data={sampleRange(D.viewSeries, scNW.lo, scNW.hi, 320).map((s) => ({ w: s.w, nw: s.nw, debt: s.debt, invest: s.invest, fi: s.fi }))} margin={{ top: 16, right: 12, bottom: 0, left: 6 }}>
+                    <ComposedChart data={sampleRange(D.viewSeries, scNW.lo, scNW.hi, 320).map((s) => ({ w: s.w, nw: s.nw, debt: s.debt, invest: s.invest, fi: s.fi, cmp: s.cmp }))} margin={{ top: 16, right: 12, bottom: 0, left: 6 }}>
                       <defs><linearGradient id="nwFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#F5A623" stopOpacity={0.26} /><stop offset="100%" stopColor="#F5A623" stopOpacity={0} /></linearGradient></defs>
                       <CartesianGrid stroke="var(--line)" strokeDasharray="2 4" />
                       <XAxis {...axisProps(scNW)} />
@@ -66,6 +80,7 @@ export function OverviewTab({ D, accounts, debts, chart, scNW, scBal, fireN, set
                       <Area type="monotone" dataKey="nw" stroke="var(--amber)" strokeWidth={2.6} fill="url(#nwFill)" dot={false} activeDot={{ r: 4, fill: "var(--amber)", stroke: "none" }} isAnimationActive={false} />
                       <Line type="monotone" dataKey="invest" stroke="var(--green)" strokeWidth={1.5} dot={false} isAnimationActive={false} />
                       <Line type="monotone" dataKey="debt" stroke="var(--red)" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+                      {D.compare && <Line type="monotone" dataKey="cmp" stroke="var(--muted)" strokeWidth={1.6} strokeDasharray="5 4" dot={false} isAnimationActive={false} />}
                     </ComposedChart>
                   </ResponsiveContainer>
                 </div>
@@ -130,6 +145,101 @@ export function OverviewTab({ D, accounts, debts, chart, scNW, scBal, fireN, set
                   {debts.map((l) => <span className="lg" key={l.id}><span className="swatch" style={{ borderTopColor: D.debtColors[l.id], borderTopStyle: "dashed" }} />{l.name}</span>)}
                 </div>
               </div>
+
+              <div className="panel rise">
+                <div className="phead"><div className="ptitle">What would it take?</div><div className="psub">runs your plan, in reverse</div></div>
+                <div className="askrow">
+                  <Seg value={ask.target} options={targets.map((t) => ({ v: t.v, label: t.label }))} onChange={(v) => setAsk((a) => ({ ...a, target: v, value: "", solve: null }))} />
+                </div>
+                <div className="askrow" style={{ marginTop: 10 }}>
+                  {askTarget.kind === "date"
+                    ? <input type="date" value={ask.value} onChange={(e) => setAsk((a) => ({ ...a, value: e.target.value }))} aria-label="Target date" />
+                    : <div className="pctbox"><input type="number" inputMode="decimal" value={ask.value} onChange={(e) => setAsk((a) => ({ ...a, value: e.target.value }))} aria-label="Target percentage" placeholder="90" /><span className="u">%</span></div>}
+                  <span className="cap">by changing</span>
+                  <select value={ask.knob} onChange={(e) => setAsk((a) => ({ ...a, knob: e.target.value, solve: null }))} aria-label="What to change" style={{ minWidth: 150 }}>
+                    {knobs.map((k) => <option key={k.v} value={k.v}>{k.label}</option>)}
+                  </select>
+                  <button className="btn btn-amber" onClick={runSolve} disabled={!ask.value || ask.running}>
+                    <Zap size={14} />{ask.running ? "Solving…" : "Solve"}
+                  </button>
+                </div>
+                <div className="caphint" style={{ marginTop: 10 }}>
+                  {ask.error
+                    ? "That didn't come back with an answer — try a different target."
+                    : ask.solve
+                      ? <SolveAnswer solve={ask.solve} knob={askKnob} target={askTarget} fmtWeek={(w) => fmtDate(w2date(w))} />
+                      : <>Pick a date or a percentage, and this searches for the {askKnob.label.toLowerCase()} that meets it. It re-runs the whole projection twenty-odd times, so give it a moment.</>}
+                </div>
+
+                <div className="phead" style={{ marginTop: 18 }}><div className="ptitle">What moves the date</div>
+                  <button className="btn btn-ghost" onClick={runTornado} disabled={ask.running}>{ask.running ? "Working…" : ask.tornado ? "Re-run" : "Run sensitivity"}</button>
+                </div>
+                {ask.tornado ? (() => {
+                  const rows = ask.tornado.rows;
+                  const worst = Math.max(1, ...rows.map((r) => Math.abs(r.months)));
+                  return (<>
+                    <div className="tornado">
+                      {rows.map((r) => (
+                        <div className="tor-row" key={r.v}>
+                          <span className="tor-label">{r.label}</span>
+                          <span className="tor-track">
+                            <span className="tor-bar" style={{
+                              width: (Math.abs(r.months) / worst * 50) + "%",
+                              marginLeft: r.months < 0 ? (50 - Math.abs(r.months) / worst * 50) + "%" : "50%",
+                              background: r.months < 0 ? "var(--green)" : "var(--red)",
+                            }} />
+                          </span>
+                          <span className="tor-val mono">{r.months > 0 ? "+" : ""}{Math.round(r.months)} mo</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="caphint">Each row is one change on its own, measured against your independence date — green pulls it in, red pushes it out. The ordering is the useful part: it's usually not the one you'd guess.</div>
+                  </>);
+                })() : <div className="caphint">Nudges each input on its own and reports how far your independence date moves. Seven full projections, so it runs on demand rather than as you type.</div>}
+              </div>
+
+              {D.timeline.length > 0 && (
+                <div className="panel rise">
+                  <div className="phead"><div className="ptitle">What happens when</div><div className="psub">{D.timeline.length} milestones ahead</div></div>
+                  <div className="timeline">
+                    {D.timeline.map((m, i) => (
+                      <div className={"tl-row tl-" + m.kind} key={i}>
+                        <span className="tl-date mono">{fmtDate(m.date)}</span>
+                        <span className="tl-dot" />
+                        <span className="tl-body"><b>{m.label}</b>{m.detail ? <span className="tl-detail"> — {m.detail}</span> : null}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="assume">Every date here comes from the same projection as the charts above, so they move together. Dates beyond the 40-year horizon aren't listed at all rather than guessed at.</div>
+                </div>
+              )}
+
+              {D.compare && (
+                <div className="panel rise">
+                  <div className="phead"><div className="ptitle">Compared with “{D.compare.name}”</div>
+                    <button className="btn btn-ghost" onClick={openScenarios}>Change</button>
+                  </div>
+                  <div className="caphint" style={{ marginBottom: 10 }}>
+                    By {fmtDate(w2date(D.maxW))} this plan is <b style={{ color: D.compare.nwGap >= 0 ? "var(--green)" : "var(--red)" }}>{fmtMoney(Math.abs(D.compare.nwGap))} {D.compare.nwGap >= 0 ? "ahead of" : "behind"}</b> it. The dashed line on the net worth chart is that plan.
+                  </div>
+                  <div className="timeline">
+                    {D.compare.rows.map((r, i) => (
+                      <div className="tl-row" key={i}>
+                        <span className="tl-date mono">{r.date ? fmtDate(r.date) : "—"}</span>
+                        <span className="tl-dot" />
+                        <span className="tl-body"><b>{r.label}</b>
+                          <span className="tl-detail">
+                            {r.deltaWeeks == null
+                              ? (r.week == null ? ` — only “${D.compare.name}” gets there, ${fmtDate(r.otherDate)}` : " — only this plan gets there")
+                              : Math.abs(r.deltaWeeks) < 2 ? " — the same either way"
+                                : ` — ${fmtDur(Math.abs(Math.round(r.deltaMonths)))} ${r.deltaWeeks < 0 ? "sooner" : "later"} than “${D.compare.name}”`}
+                          </span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="panel rise">
                 <div className="phead"><div className="ptitle">Asset mix today</div></div>
