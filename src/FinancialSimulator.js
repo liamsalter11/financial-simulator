@@ -2,15 +2,16 @@ const {
   useState,
   useEffect,
   useMemo,
-  useRef
+  useRef,
+  useDeferredValue
 } = React;
 import { HelpCircle, Upload, Download, RotateCcw, Zap, AlertTriangle, Check, X, LayoutGrid, Wallet, Receipt, TrendingDown, InvestIcon } from "./icons.js";
 import { Modal } from "./components.js";
-import { n0, num, uid, todayISO, nextFirstISO, firstOfYear, isoDate, addMonths, parseDate, addDays, fmtMoney, fmtBig, fmtC, weekTick, r2, parse, OPY, ACCT_TYPES, isInvest, isSav, isCash, BUCKET_COLOR, PAL, acctColor, debtColor, toReal, inflFactor } from "./format.js";
+import { n0, num, uid, todayISO, nextFirstISO, firstOfYear, isoDate, addMonths, parseDate, addDays, fmtMoney, fmtBig, fmtC, weekTick, r2, parse, OPY, ACCT_TYPES, isInvest, isSav, isCash, BUCKET_COLOR, PAL, acctColor, debtColor, inflFactor } from "./format.js";
 import { firesInWeek } from "./recurrence.js";
-import { payrollOf, bonusOf, effectiveTaxRate, hasPromotions, withoutPromotions, isDerived, takeHomeOf } from "./payroll.js";
-import { simulateWeekly, projectMinWeekly, WEEKS } from "./engine.js";
-import { runMonteCarlo } from "./montecarlo.js";
+import { payrollOf, bonusOf, effectiveTaxRate, isDerived, takeHomeOf } from "./payroll.js";
+import { WEEKS } from "./engine.js";
+import { projectAll } from "./project.js";
 import { SEED_ACCOUNTS, SEED_DEBTS, normDebts, normIncome, normAccounts, isCard, pickIds, seedIncome, seedExpenses, seedTransfers, seedDebtPays, seedSettings } from "./seeds.js";
 import { store } from "./store.js";
 import { useScope } from "./useScope.js";
@@ -572,8 +573,84 @@ export function FinancialSimulator() {
     rd.readAsText(f);
     e.target.value = "";
   };
+  const [P, setP] = useState(null);
+  const [busy, setBusy] = useState(true);
+  const workerRef = useRef(null);
+  const reqRef = useRef(0);
+  const inputRef = useRef(null);
+  const fallback = () => {
+    workerRef.current = null;
+    if (inputRef.current) setP(projectAll(inputRef.current));
+    setBusy(false);
+  };
+  useEffect(() => {
+    if (typeof Worker === "undefined") return undefined;
+    let w = null;
+    try {
+      w = new Worker(new URL("./worker.js", import.meta.url), {
+        type: "module"
+      });
+    } catch {
+      return undefined;
+    }
+    w.onmessage = e => {
+      const {
+        id,
+        stage,
+        result
+      } = e.data || {};
+      if (id !== reqRef.current) return;
+      if (stage === "error") {
+        w.terminate();
+        fallback();
+        return;
+      }
+      setP(prev => ({
+        ...(prev || {}),
+        ...result
+      }));
+      if (stage !== "primary") setBusy(false);
+    };
+    w.onerror = () => {
+      w.terminate();
+      fallback();
+    };
+    workerRef.current = w;
+    return () => {
+      w.terminate();
+      workerRef.current = null;
+    };
+  }, []);
+  const projectionInput = useMemo(() => ({
+    accounts,
+    debts,
+    income,
+    expenses,
+    transfers,
+    debtPayments,
+    settings,
+    start,
+    weeks: WEEKS
+  }), [accounts, debts, income, expenses, transfers, debtPayments, settings, start]);
+  const deferredInput = useDeferredValue(projectionInput);
+  useEffect(() => {
+    if (!ready || !deferredInput.accounts) return;
+    inputRef.current = deferredInput;
+    const id = ++reqRef.current;
+    setBusy(true);
+    const w = workerRef.current;
+    if (w) {
+      w.postMessage({
+        id,
+        input: deferredInput
+      });
+      return;
+    }
+    setP(projectAll(deferredInput));
+    setBusy(false);
+  }, [deferredInput, ready]);
   const D = useMemo(() => {
-    if (!accounts) return null;
+    if (!accounts || !P || !P.sim) return null;
     const per = (list, key) => list.reduce((s, x) => s + n0(x[key || "amount"]) * OPY[x.recur] / 12, 0);
     const flowing = x => {
       const d = parseDate(x.date);
@@ -613,67 +690,26 @@ export function FinancialSimulator() {
     const savingsRate = mInc + mPreTax > 0 ? (surplus + mPreTax) / (mInc + mPreTax) * 100 : 0;
     const leftover = surplus - mTr - mDp;
     const monthlyInterest = loans.reduce((s, l) => s + n0(l.balance) * n0(l.apr) / 1200, 0);
-    const simCfg = {
-      accounts,
-      debts,
-      expenses,
-      transfers,
-      debtPayments,
-      settings,
-      start,
-      weeks: WEEKS
-    };
-    const hasHypo = hasPromotions(income);
-    const simWith = simulateWeekly({
-      ...simCfg,
-      income
-    });
-    const simWithout = hasHypo ? simulateWeekly({
-      ...simCfg,
-      income: withoutPromotions(income)
-    }) : simWith;
-    const hypoOn = settings.hypotheticals !== false;
-    const sim = hypoOn ? simWith : simWithout;
+    const {
+      sim,
+      minW,
+      mc,
+      mcReturn,
+      maxW,
+      hypoOn,
+      interestSaved,
+      wksSaved,
+      retireWeek,
+      horizonWeeks
+    } = P;
+    const hasHypo = P.hasHypo;
+    const simWith = P.simWith || sim;
+    const simWithout = P.simWithout || sim;
+    const strategy = P.strategy || null;
     const nwGapAt = w => {
       const i = Math.max(0, Math.min(Math.round(w), simWith.series.length - 1, simWithout.series.length - 1));
       return simWith.series[i].nw - simWithout.series[i].nw;
     };
-    const minW = projectMinWeekly(debts, start, WEEKS, settings.inflation);
-    const maxW = Math.min(WEEKS, Math.max(sim.fire || 520, (sim.debtFree || 260) + 130, 260) + 60);
-    const interestSaved = Math.max(0, minW.interest - sim.interest);
-    const wksSaved = Math.max(0, (minW.clearedWeek == null ? WEEKS : minW.clearedWeek) - (sim.debtFree == null ? WEEKS : sim.debtFree));
-    const otherOrder = settings.payoffOrder === "snowball" ? "avalanche" : "snowball";
-    const canCompare = loans.filter(l => n0(l.balance) > 0).length > 1;
-    const simAlt = canCompare ? simulateWeekly({
-      ...simCfg,
-      income: hypoOn ? income : withoutPromotions(income),
-      settings: {
-        ...settings,
-        payoffOrder: otherOrder
-      }
-    }) : null;
-    const firstClear = s => {
-      const ws = Object.values(s.payoffWeek).filter(w => w != null);
-      return ws.length ? Math.min(...ws) : null;
-    };
-    const strategy = simAlt ? {
-      order: settings.payoffOrder,
-      other: otherOrder,
-      interestDelta: simAlt.interest - sim.interest,
-      freeDelta: (simAlt.debtFree == null ? WEEKS : simAlt.debtFree) - (sim.debtFree == null ? WEEKS : sim.debtFree),
-      firstDelta: (firstClear(simAlt) == null ? WEEKS : firstClear(simAlt)) - (firstClear(sim) == null ? WEEKS : firstClear(sim))
-    } : null;
-    const investAccts = accounts.filter(a => isInvest(a.type));
-    const investBalTotal = investAccts.reduce((s, a) => s + n0(a.balance), 0);
-    const mcNominal = investBalTotal > 0 ? investAccts.reduce((s, a) => s + n0(a.rate) * n0(a.balance), 0) / investBalTotal : 7;
-    const mcReturn = toReal(mcNominal, settings.inflation) / 100;
-    const mc = runMonteCarlo({
-      series: sim.series,
-      weeks: maxW,
-      annualReturn: mcReturn,
-      annualVolatility: n0(settings.mcVolatility) / 100,
-      fireNumber: sim.fireNumber
-    });
     const nextCardPay = {};
     for (const c of cards) {
       const pays = debtPayments.filter(p => p.toDebt === c.id);
@@ -884,9 +920,12 @@ export function FinancialSimulator() {
       runway,
       deferralNotes,
       fiSloped,
-      bridge: sim.bridge
+      bridge: sim.bridge,
+      retireWeek,
+      horizonWeeks,
+      busy
     };
-  }, [accounts, debts, income, expenses, transfers, debtPayments, settings, start]);
+  }, [accounts, debts, income, expenses, transfers, debtPayments, settings, start, P, busy]);
   const maxW = D ? D.maxW : 520;
   const scNW = useScope(maxW, 260);
   const scBal = useScope(maxW, 260);
@@ -995,7 +1034,9 @@ export function FinancialSimulator() {
     }
   }, fmtMoney(D.netWorth)), React.createElement("div", {
     className: "nwsub"
-  }, "assets ", React.createElement("b", null, fmtBig(D.totalAssets)), " \xB7 debts ", React.createElement("b", null, fmtBig(D.totalDebt)), " \xB7 surplus ", React.createElement("b", null, fmtMoney(D.surplus)), "/mo")), React.createElement("div", {
+  }, "assets ", React.createElement("b", null, fmtBig(D.totalAssets)), " \xB7 debts ", React.createElement("b", null, fmtBig(D.totalDebt)), " \xB7 surplus ", React.createElement("b", null, fmtMoney(D.surplus)), "/mo", D.busy && React.createElement("span", {
+    className: "recalc"
+  }, " \xB7 recalculating"))), React.createElement("div", {
     className: "toolbar"
   }, React.createElement("button", {
     className: "tbtn" + (showHelp ? " on" : ""),

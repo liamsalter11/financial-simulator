@@ -23,6 +23,8 @@ needed to read them) are both the source and the shipped file.
 | `src/tabs/*.jsx` | One file per tab (`OverviewTab`, `AccountsTab`, `CashFlowTab`, `DebtTab`, `InvestTab`), each just the rendering for that tab. |
 | `src/engine.js` | The simulation engine (`simulateWeekly`, `projectMinWeekly`) — pure logic, no React. |
 | `src/montecarlo.js` | Monte Carlo projection for the invested portfolio (`runMonteCarlo`) — pure logic, no React. |
+| `src/project.js` | The whole expensive projection behind one pure entry point. |
+| `src/worker.js` | The module Web Worker that runs it off the main thread. |
 | `src/loan.js` | Amortization: payment ↔ term ↔ months-to-payoff. |
 | `src/tax.js` | Federal brackets, the standard deduction and FICA, plus `estimateTax`. |
 | `src/payroll.js` | Per-paycheck salary/401k-match/bonus math. |
@@ -101,13 +103,19 @@ npm run test:all       # everything
   **`tests/seeds.test.mjs`**, **`tests/montecarlo.test.mjs`**,
   **`tests/sample.test.mjs`** — the remaining pure-logic modules: paycheck and
   promotion math, recurrence expansion, seed/normalization of older saved data,
-  the Monte Carlo bands, and the chart downsampler.
+  the Monte Carlo (accumulation and drawdown, including that volatility alone
+  sinks plans the average return sustains), and the chart downsampler.
+- **`tests/project.test.mjs`** — `src/project.js`, the seam the worker runs
+  behind: that it changes nothing the page used to compute inline, and that
+  splitting the comparison runs out of the primary result leaves it identical.
 - **`tests/e2e.test.mjs`** — Playwright tests against the actual served page:
   the front-page link (skipped unless run inside a site checkout), the help
   panel (closed by default, follows the active tab), `localStorage` persistence
   across a reload, the one-time warning toast when storage writes fail, the
   redirect toggle, export → reset → import round-tripping, the inflation and
-  payoff-strategy controls, and a regression test that edits income and triggers
+  payoff-strategy controls, the Monte Carlo's survival figure, that the
+  projection really runs in a Web Worker *and* that the page produces the same
+  numbers with `Worker` deleted, and a regression test that edits income and triggers
   every tab's chart tooltip (a past module-split bug — a missing import in a
   shared component — only surfaced once a Tooltip actually rendered, which
   static page-load checks don't trigger).
@@ -147,6 +155,23 @@ everything around it gets dearer, so it's deflated week by week and quietly buys
 day and moves no dates, because the independence target inflates at exactly the same rate
 the balances do. At 0% inflation every conversion is the identity, which is what the older
 engine tests assert.
+
+**The projection runs off the main thread.** Three 40-year simulations plus a Monte Carlo
+is roughly 180ms of work, and it reruns on every keystroke. `src/project.js` puts all of it
+behind one pure function, `src/worker.js` is a module worker around that — it `import`s the
+same modules the page does, so there's still no bundler — and the page keeps rendering the
+previous result while the next is in flight. Measured across eight edits in Chromium: 0ms
+of main-thread blocking with the worker, ~1000ms without. If a worker can't start, the same
+function runs inline instead and produces identical numbers.
+
+**The Monte Carlo spends the portfolio down, not just up.** Past the retirement date
+contributions stop and withdrawals begin, held constant in today's dollars — the assumption
+behind the 4% rule. The headline figure is the share of runs where the money never ran out,
+which is the sequence-of-returns question the deterministic chart cannot answer: two
+portfolios with the same average return end very differently depending on *when* the bad
+years land. Raising volatility barely moves the median line and cuts survival sharply,
+which is the whole point. Withdrawals are charged only the share of spending the invested
+pot represents — cash, savings and cleared debt fund the rest.
 
 **Tax is opt-in, then it's everywhere.** An income keeps the take-home figure you typed
 unless you switch it to derive one from `src/tax.js` — federal brackets, the standard
@@ -200,6 +225,12 @@ The annual pre-tax contribution limit counts from today rather than from January
 so a mid-year start doesn't know what has already gone in this calendar year, and
 it's applied per income source rather than per person — model two jobs for one
 person and each gets its own allowance, which the IRS would not.
+
+The retirement test models no spending flexibility: a real retiree cuts back after a
+bad year, and that alone rescues many of the runs counted here as failures. It also
+holds the withdrawal constant in real terms for the whole horizon, ignores fees, and
+uses one blended return for the whole portfolio rather than an asset mix that shifts
+as you age. Treat the survival percentage as a stress test, not a verdict.
 
 The tax model is an estimate, not a return. Bracket tables are for the year named
 in `src/tax.js` and go stale every January; state tax is a single flat rate rather

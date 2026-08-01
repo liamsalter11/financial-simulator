@@ -38,6 +38,9 @@ export const CSS = `
 .fin .psub{font-family:var(--mono);font-size:11px;color:var(--faint);}
 .fin .sgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}
 @media(min-width:680px){.fin .sgrid{grid-template-columns:repeat(4,1fr);}}
+.fin .recalc{color:var(--faint);opacity:.85;animation:pulse 1.1s ease-in-out infinite;}
+@keyframes pulse{0%,100%{opacity:.35;}50%{opacity:.9;}}
+@media(prefers-reduced-motion:reduce){.fin .recalc{animation:none;}}
 @media(min-width:680px){.fin .sgrid.wide5{grid-template-columns:repeat(3,1fr);}}
 @media(min-width:900px){.fin .sgrid.wide5{grid-template-columns:repeat(5,1fr);}}
 .fin .stat{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:13px 15px;}
