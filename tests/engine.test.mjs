@@ -770,3 +770,129 @@ test("hitting the cap early costs the match that rides on later paychecks", () =
   // Once contributions stop, so does a per-paycheck match of 100% up to 3% of $10,000.
   assert.ok(sim.capInfo.inc.lostMatch > 10000, `front-loading should forfeit most of the year's match, got ${sim.capInfo.inc.lostMatch.toFixed(2)}`);
 });
+
+/* ================================================================== */
+/*  Account tax treatment, and what a balance is worth to spend        */
+/* ================================================================== */
+
+/* Expenses are funded by matching income, so the portfolio compounds instead of being
+   drawn down: what's under test is the independence target, not the cash flow. */
+const fiScenario = (account, settings) => simulateWeekly({
+  accounts: [
+    { id: "chk", type: "checking", balance: 0, rate: 0, taxTreatment: "taxable" },
+    { id: "inv", type: "retirement", balance: 200000, rate: 5, ...account },
+  ],
+  debts: [], transfers: [], debtPayments: [],
+  income: [{ id: "pay", name: "pay", amount: 1000, gross: 1000, grossMode: "paycheck", date: "2026-01-01", recur: "monthly", raise: 0, weekdayAdj: false, dist: [{ acctId: "chk" }] }],
+  expenses: [{ id: "e", amount: 1000, date: "2026-01-01", recur: "monthly", fromAcct: "chk" }],
+  settings: { withdrawalRate: 4, ...settings }, start: START, weeks: 1560,
+});
+
+test("a tax-deferred balance is worth less than the same balance in a Roth", () => {
+  // $12k/yr of spending is a $300k target. A Roth $200k compounding at 5% reaches it in
+  // about eight years; the same balance taxed at 20% on the way out has to reach $375k
+  // of face value first, which takes about thirteen.
+  const traditional = fiScenario({ taxTreatment: "traditional" }, { retireTaxRate: 20 });
+  const roth = fiScenario({ taxTreatment: "roth" }, { retireTaxRate: 20 });
+
+  assert.equal(roth.series[0].spendable, roth.series[0].nw, "a Roth dollar is worth a dollar");
+  assert.ok(traditional.series[0].spendable < traditional.series[0].nw, "a traditional dollar isn't");
+  assert.ok(Math.abs(traditional.series[0].spendable - (traditional.series[0].nw - 200000 * 0.2)) < 1);
+  assert.ok(traditional.fire != null && roth.fire != null, "both should reach independence inside the run");
+  assert.ok(traditional.fire > roth.fire, "so independence arrives later on tax-deferred money");
+});
+
+test("tax drag slows a taxable investment account and leaves the others alone", () => {
+  const run = (taxTreatment) => simulateWeekly({
+    accounts: [{ id: "inv", type: "brokerage", balance: 100000, rate: 7, taxTreatment }],
+    debts: [], income: [], expenses: [], transfers: [], debtPayments: [],
+    settings: { withdrawalRate: 4, taxDrag: 1 }, start: START, weeks: 520,
+  });
+  const taxable = run("taxable");
+  const roth = run("roth");
+  assert.ok(taxable.series[520].invest < roth.series[520].invest, "drag should cost the taxable account growth");
+  assert.ok(roth.series[520].invest / taxable.series[520].invest > 1.05, "and over ten years it should be visible");
+});
+
+test("with no tax settings, treatment defaults leave a projection untouched", () => {
+  const cfg = {
+    accounts: [{ id: "chk", type: "checking", balance: 5000, rate: 0 }, { id: "brk", type: "brokerage", balance: 20000, rate: 6 }],
+    debts: [], income: [], expenses: [{ id: "e", amount: 900, date: "2026-01-01", recur: "monthly", fromAcct: "chk" }],
+    transfers: [], debtPayments: [], start: START, weeks: 260,
+  };
+  const bare = simulateWeekly({ ...cfg, settings: { withdrawalRate: 4 } });
+  const explicit = simulateWeekly({ ...cfg, settings: { withdrawalRate: 4, taxDrag: 0, retireTaxRate: 0, filing: "single", stateRate: 0 } });
+  assert.deepEqual(explicit.series, bare.series, "saved data with no tax fields must project exactly as before");
+  assert.equal(bare.series[0].spendable, bare.series[0].nw, "with nothing tax-deferred, spendable is just net worth");
+});
+
+/* ================================================================== */
+/*  Guaranteed retirement income and the sloping target                */
+/* ================================================================== */
+
+test("guaranteed income lowers the independence target and slopes it toward its start date", () => {
+  const pay = { id: "pay", name: "pay", amount: 4000, gross: 4000, grossMode: "paycheck", date: "2026-01-01", recur: "monthly", raise: 0, weekdayAdj: false, dist: [{ acctId: "chk" }] };
+  const base = {
+    accounts: [
+      { id: "chk", type: "checking", balance: 0, rate: 0, taxTreatment: "taxable" },
+      { id: "brk", type: "brokerage", balance: 300000, rate: 5, taxTreatment: "taxable" },
+    ],
+    debts: [], transfers: [], debtPayments: [],
+    expenses: [{ id: "e", amount: 4000, date: "2026-01-01", recur: "monthly", fromAcct: "chk" }],
+    settings: { withdrawalRate: 4 }, start: START, weeks: 1560,
+  };
+  const without = simulateWeekly({ ...base, income: [pay] });
+  const withSS = simulateWeekly({
+    ...base,
+    income: [pay, { id: "ss", name: "Social Security", amount: 2000, recur: "monthly", date: "2046-01-01", raise: 0, weekdayAdj: false, guaranteed: true, dist: [{ acctId: "brk" }] }],
+  });
+
+  assert.equal(without.series[0].fi, without.fireNumber, "with no guaranteed income the target is a flat 25×");
+  assert.equal(without.series[520].fi, without.series[0].fi, "and it doesn't move");
+
+  assert.ok(withSS.series[0].fi > withSS.series[1040].fi, "with income ahead of you the target falls as it approaches");
+  assert.ok(withSS.series[1040].fi < without.series[1040].fi, "and settles below the ignore-it figure");
+  // $24k/yr covered at a 4% rate is $600k less portfolio needed in the steady state
+  assert.ok(Math.abs(withSS.annualExpNet - (48000 - 24000)) < 1, "the steady-state need is expenses minus guaranteed income");
+  assert.ok(withSS.fire != null && (without.fire == null || withSS.fire < without.fire), "so independence arrives sooner");
+});
+
+test("the FI target curve falls monotonically until the income starts, then holds", () => {
+  const sim = simulateWeekly({
+    accounts: [{ id: "brk", type: "brokerage", balance: 1000, rate: 0, taxTreatment: "taxable" }],
+    debts: [], income: [{ id: "p", name: "Pension", amount: 1000, recur: "monthly", date: "2036-01-01", raise: 0, weekdayAdj: false, guaranteed: true, dist: [{ acctId: "brk" }] }],
+    expenses: [{ id: "e", amount: 3000, date: "2026-01-01", recur: "monthly", fromAcct: "brk" }],
+    transfers: [], debtPayments: [], settings: { withdrawalRate: 4 }, start: START, weeks: 780,
+  });
+  for (let w = 1; w < 520; w++) {
+    assert.ok(sim.series[w].fi <= sim.series[w - 1].fi + 0.01, `target should never rise (week ${w})`);
+  }
+  const afterStart = sim.series[600].fi;
+  assert.ok(Math.abs(sim.series[780].fi - afterStart) < 0.01, "once the income has started the target is flat again");
+});
+
+/* ================================================================== */
+/*  The 59½ bridge                                                     */
+/* ================================================================== */
+
+test("money locked in retirement accounts is reported as a bridge gap, not silently counted", () => {
+  const cfg = (birthYear) => simulateWeekly({
+    accounts: [
+      { id: "ret", type: "retirement", balance: 900000, rate: 4, taxTreatment: "roth" },
+      { id: "chk", type: "checking", balance: 20000, rate: 0, taxTreatment: "taxable" },
+    ],
+    debts: [], income: [], transfers: [], debtPayments: [],
+    expenses: [{ id: "e", amount: 2000, date: "2026-01-01", recur: "monthly", fromAcct: "chk" }],
+    settings: { withdrawalRate: 4, birthYear }, start: START, weeks: 520,
+  });
+
+  const noAge = cfg("");
+  assert.equal(noAge.bridge, null, "with no birth year the app makes no claim about age");
+  assert.equal(noAge.series[0].reach, 920000, "and treats every account as reachable");
+
+  const young = cfg(1990); // 59½ lands around 2050, long after this plan reaches its target
+  assert.ok(young.fire != null, "the plan still reaches independence");
+  assert.equal(young.series[0].reach, 20000, "but only the taxable account is reachable now");
+  assert.ok(young.bridge && young.bridge.gap > 0, "so the bridge to 59½ is short");
+  assert.ok(young.bridge.need > young.bridge.reachable);
+});

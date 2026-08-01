@@ -15,7 +15,8 @@ const {
 import { Plus, Trash2, ArrowRight } from "../icons.js";
 import { Stat, NumField, Seg, EndDate, Tip } from "../components.js";
 import { fmtMoney, fmtDate, n0, num, OPY, parseDate, RECUR, recurLabel } from "../format.js";
-import { payrollOf, bonusOf, perCheck, effectiveTaxRate } from "../payroll.js";
+import { payrollOf, bonusOf, perCheck, effectiveTaxRate, isDerived, taxBreakdown } from "../payroll.js";
+import { FILING, TAX_YEAR } from "../tax.js";
 import { isCard } from "../seeds.js";
 import { sampleRange } from "../useScope.js";
 export function CashFlowTab({
@@ -33,6 +34,7 @@ export function CashFlowTab({
   upInc,
   rmInc,
   addInc,
+  addGuaranteed,
   addSplit,
   upSplit,
   rmSplit,
@@ -295,7 +297,13 @@ export function CashFlowTab({
   }, "Income"), React.createElement("div", {
     className: "psub"
   }, "dated \xB7 split across accounts")), income.map(inc => {
-    const amt = n0(inc.amount);
+    const taxOpts = {
+      filing: settings.filing,
+      stateRate: settings.stateRate
+    };
+    const derived = isDerived(inc);
+    const brk = taxBreakdown(inc, taxOpts);
+    const amt = derived ? brk ? brk.netPerCheck : 0 : n0(inc.amount);
     const dist = inc.dist || [];
     let used = 0;
     for (let i = 1; i < dist.length; i++) {
@@ -315,14 +323,16 @@ export function CashFlowTab({
       onChange: e => upInc(inc.id, "name", e.target.value),
       "aria-label": "Income name"
     }), React.createElement("div", {
-      className: "num-box sm"
+      className: "num-box sm",
+      title: derived ? "Derived from your gross salary and the tax brackets" : ""
     }, React.createElement("span", {
       className: "pfx"
     }, "$"), React.createElement("input", {
       className: "num-input",
       type: "number",
       inputMode: "decimal",
-      value: inc.amount,
+      value: derived ? Math.round(amt) : inc.amount,
+      readOnly: derived,
       onChange: e => upInc(inc.id, "amount", e.target.value),
       "aria-label": "Amount",
       style: {
@@ -383,7 +393,21 @@ export function CashFlowTab({
       type: "checkbox",
       checked: !!inc.weekdayAdj,
       onChange: e => upInc(inc.id, "weekdayAdj", e.target.checked)
-    }), "If payday lands on a weekend, pay the weekday before"), React.createElement("div", {
+    }), "If payday lands on a weekend, pay the weekday before"), React.createElement("label", {
+      className: "chk",
+      title: "Social Security, a pension \u2014 income you'll have in retirement regardless of the portfolio"
+    }, React.createElement("input", {
+      type: "checkbox",
+      checked: !!inc.guaranteed,
+      onChange: e => upInc(inc.id, "guaranteed", e.target.checked)
+    }), "Guaranteed retirement income \u2014 lowers the independence target"), inc.guaranteed && (() => {
+      const annual = n0(inc.amount) * (OPY[inc.recur] || 0);
+      const covered = Math.min(annual, D.sim.annualExp);
+      const mult = n0(settings.withdrawalRate) > 0 ? 100 / n0(settings.withdrawalRate) : 0;
+      return React.createElement("div", {
+        className: "caphint"
+      }, fmtMoney(annual), "/yr from ", inc.date, ". Spending it covers doesn't need a portfolio behind it, so it takes ", fmtMoney(covered * mult), " off the target", annual > D.sim.annualExp ? ` — capped by your ${fmtMoney(D.sim.annualExp)}/yr of long-run spending, which this more than covers on its own` : "", ". That only applies from its start date, so until then the target also carries the capital to bridge the gap yourself.");
+    })(), React.createElement("div", {
       className: "dist"
     }, React.createElement("div", {
       className: "dist-lbl"
@@ -444,6 +468,55 @@ export function CashFlowTab({
       return React.createElement(React.Fragment, null, React.createElement("div", {
         className: "dist-lbl"
       }, React.createElement("span", null, "Payroll deductions (not in take-home)"), React.createElement("span", null, fmtMoney(pay.total), " / paycheck")), React.createElement("div", {
+        className: "dist-row"
+      }, React.createElement("span", {
+        className: "cap",
+        style: {
+          flex: 1,
+          minWidth: 80
+        }
+      }, "Take-home is"), React.createElement(Seg, {
+        value: derived ? "derived" : "typed",
+        options: [{
+          v: "typed",
+          label: "typed by me"
+        }, {
+          v: "derived",
+          label: "from brackets"
+        }],
+        onChange: v => upInc(inc.id, "taxMode", v)
+      })), derived && React.createElement("div", {
+        className: "dist-row"
+      }, React.createElement("select", {
+        value: settings.filing || "single",
+        onChange: e => setS("filing", e.target.value),
+        "aria-label": "Filing status",
+        style: {
+          flex: 1,
+          minWidth: 140
+        }
+      }, FILING.map(f => React.createElement("option", {
+        key: f.v,
+        value: f.v
+      }, f.label))), React.createElement("span", {
+        className: "cap"
+      }, "state tax"), React.createElement("div", {
+        className: "pctbox"
+      }, React.createElement("input", {
+        type: "number",
+        inputMode: "decimal",
+        value: settings.stateRate,
+        onChange: e => setS("stateRate", n0(e.target.value)),
+        "aria-label": "State tax rate"
+      }), React.createElement("span", {
+        className: "u"
+      }, "%"))), brk && React.createElement("div", {
+        className: "caphint" + (derived ? "" : " ")
+      }, derived ? React.createElement(React.Fragment, null, "Brackets say ", fmtMoney(brk.gross), "/yr gross \u2212 ", fmtMoney(brk.federal), " federal \u2212 ", fmtMoney(brk.fica), " FICA", brk.state > 0 ? ` − ${fmtMoney(brk.state)} state` : "", " \u2212 ", fmtMoney(brk.preTax), " deductions = ", React.createElement("b", {
+        style: {
+          color: "var(--green)"
+        }
+      }, fmtMoney(brk.netPerCheck)), " per paycheck. Effective ", brk.effectiveRate.toFixed(1), "%, marginal ", brk.marginalRate.toFixed(0), "% \xB7 ", TAX_YEAR, " tables.") : React.createElement(React.Fragment, null, "For comparison, ", TAX_YEAR, " brackets on this gross would give ", fmtMoney(brk.netPerCheck), " per paycheck (", brk.effectiveRate.toFixed(1), "% effective) against the ", fmtMoney(n0(inc.amount)), " you've typed. Switch above to use the derived figure instead.")), React.createElement("div", {
         className: "dist-row"
       }, React.createElement("span", {
         className: "cap",
@@ -834,7 +907,12 @@ export function CashFlowTab({
     onClick: addInc
   }, React.createElement(Plus, {
     size: 15
-  }), "Add income source"), React.createElement("div", {
+  }), "Add income source"), React.createElement("button", {
+    className: "btn btn-add",
+    onClick: addGuaranteed
+  }, React.createElement(Plus, {
+    size: 15
+  }), "Add Social Security or a pension"), React.createElement("div", {
     className: "assume"
   }, "The top account is the remainder \u2014 it receives whatever the others don't take.")), React.createElement("div", {
     className: "panel rise"
