@@ -38,6 +38,8 @@ export const Zap = (p) => (<IconBase {...p}><path d="M15.914 4a1.5 1.5 0 00-2.47
 export const Upload = (p) => (<IconBase {...p}><path d="M12 3v12" /><path d="m17 8-5-5-5 5" /><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /></IconBase>);
 export const Download = (p) => (<IconBase {...p}><path d="M12 15V3" /><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><path d="m7 10 5 5 5-5" /></IconBase>);
 export const X = (p) => (<IconBase {...p}><path d="M18 6 6 18" /><path d="m6 6 12 12" /></IconBase>);
+export const Link2 = (p) => (<IconBase {...p}>
+  <path d="M9 17H7A5 5 0 0 1 7 7h2" /><path d="M15 7h2a5 5 0 1 1 0 10h-2" /><path d="M8 12h8" /></IconBase>);
 export const ArrowRight = (p) => (<IconBase {...p}><path d="M5 12h14" /><path d="m12 5 7 7-7 7" /></IconBase>);
 export const HelpCircle = (p) => (<IconBase {...p}>
   <circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><path d="M12 17h.01" /></IconBase>);

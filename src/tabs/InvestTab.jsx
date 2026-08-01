@@ -130,7 +130,7 @@ export function InvestTab({ D, chart, scInv, scMC, fireN, settings, setS, accoun
                     <NumField label="FI target (today's dollars)" prefix="$" value={Math.round(fireN)} readOnly />
                   </div>
                   <div className="assume">Based on {fmtMoney(D.sim.annualExp / 12)}/mo of long-run living expenses — {fmtBig(D.sim.annualExp)} a year. Only expenses count here, not transfers or debt payments.
-                    {D.sim.endingSoon.length > 0 && <> Excluded because they end before then: {D.sim.endingSoon.map((e) => e.category).join(", ")} — worth {fmtBig((D.sim.annualExpNow - D.sim.annualExp) * (100 / (n0(settings.withdrawalRate) || 4)))} off the target.</>}
+                    {D.sim.endingSoon.length > 0 && <> Excluded because they end before then: {D.sim.endingSoon.map((e) => e.label || e.category).join(", ")} — worth {fmtBig((D.sim.annualExpNow - D.sim.annualExp) * (100 / (n0(settings.withdrawalRate) || 4)))} off the target.</>}
                     {D.sim.guaranteedAnnual > 0 && <> Your guaranteed retirement income covers {fmtBig(D.sim.guaranteedAnnual)} of that a year, leaving {fmtBig(D.sim.annualExpNet)} for the portfolio — which is why the target line slopes: until that income starts, the target also carries the capital to cover the gap yourself.</>}
                   </div>
 

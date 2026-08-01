@@ -3,13 +3,13 @@
 const { useState, useEffect, useMemo, useRef, useDeferredValue } = React;
 import {
   HelpCircle, Upload, Download, RotateCcw, Zap, AlertTriangle, Check, X,
-  LayoutGrid, Wallet, Receipt, TrendingDown, InvestIcon, Trash2, RotateCw,
+  LayoutGrid, Wallet, Receipt, TrendingDown, InvestIcon, Trash2, RotateCw, Link2,
 } from "./icons.js";
 import { Modal } from "./components.js";
 import {
   n0, num, uid, todayISO, nextFirstISO, firstOfYear, isoDate, addMonths, parseDate, addDays,
-  fmtMoney, fmtBig, fmtC, weekTick, r2, parse, OPY, ACCT_TYPES,
-  isInvest, isSav, isCash, BUCKET_COLOR, PAL, acctColor, debtColor, inflFactor,
+  fmtMoney, fmtBig, fmtC, weekTick, r2, parse, OPY, RECUR, ACCT_TYPES,
+  isInvest, isSav, isCash, BUCKET_COLOR, PAL, CATEGORIES, acctColor, debtColor, inflFactor,
 } from "./format.js";
 import { firesInWeek } from "./recurrence.js";
 import { payrollOf, bonusOf, effectiveTaxRate, isDerived, takeHomeOf } from "./payroll.js";
@@ -18,8 +18,10 @@ import { projectAll, payoffVsInvest } from "./project.js";
 import { goalSeek, tornado, KNOBS, TARGETS, knobOf, targetOf } from "./solve.js";
 import { milestones, milestoneDiff } from "./milestones.js";
 import { pushUndo, dailySnapshots, previousSnapshot, actualSeries } from "./history.js";
+import { encodePlan, decodePlan, readHash, stripHash, shareUrl } from "./share.js";
+import { suggestExpenses, toExpense } from "./csv.js";
 import {
-  SEED_ACCOUNTS, SEED_DEBTS, normDebts, normIncome, normAccounts, isCard, pickIds,
+  SEED_ACCOUNTS, SEED_DEBTS, normDebts, normIncome, normAccounts, normExpenses, isCard, pickIds,
   seedIncome, seedExpenses, seedTransfers, seedDebtPays, seedSettings,
 } from "./seeds.js";
 import { store } from "./store.js";
@@ -74,6 +76,14 @@ export function FinancialSimulator() {
   const applyingRef = useRef(false);
   const [histTick, setHistTick] = useState(0);
   const [compareId, setCompareId] = useState("");
+  /* a plan offered by a #plan= link, held here until the user says yes — nothing is written
+     to localStorage while it sits in this state */
+  const [offered, setOffered] = useState(null);
+  const [spendItemised, setSpendItemised] = useState(false);
+  const [csvText, setCsvText] = useState("");
+  const [csvInfo, setCsvInfo] = useState(null);
+  const [csvRows, setCsvRows] = useState([]);
+  const [csvAcct, setCsvAcct] = useState("");
   const [scenarioName, setScenarioName] = useState("");
   const [logLoan, setLogLoan] = useState(""); const [logAmt, setLogAmt] = useState(""); const [logDate, setLogDate] = useState(todayISO());
 
@@ -97,7 +107,7 @@ export function FinancialSimulator() {
       setAccounts(normAccounts(accts)); setDebts(normDebts(dbts));
       const rawInc = i3 ? parse(i3, null) : (i2 ? parse(i2, null) : null);
       setIncome(rawInc ? normIncome(rawInc, id.chk, id.ret) : seedIncome(id));
-      setExpenses(e3 ? parse(e3, seedExpenses(id)) : (e2 ? parse(e2, seedExpenses(id)) : seedExpenses(id)));
+      setExpenses(normExpenses(e3 ? parse(e3, seedExpenses(id)) : (e2 ? parse(e2, seedExpenses(id)) : seedExpenses(id))));
       setTransfers(t3 ? parse(t3, seedTransfers(id)) : (c2 ? parse(c2, seedTransfers(id)) : seedTransfers(id)));
       const oldS = parse(s2, {});
       if (dp3) setDebtPayments(parse(dp3, []));
@@ -178,7 +188,7 @@ export function FinancialSimulator() {
   const upChange = (iid, cid, k, v) => setIncome((p) => p.map((x) => x.id === iid ? { ...x, changes: (x.changes || []).map((c) => c.id === cid ? { ...c, [k]: v } : c) } : x));
   const rmChange = (iid, cid) => setIncome((p) => p.map((x) => x.id === iid ? { ...x, changes: (x.changes || []).filter((c) => c.id !== cid) } : x));
   const upExp = (id, k, v) => setExpenses((p) => p.map((x) => x.id === id ? { ...x, [k]: v } : x));
-  const addExp = () => setExpenses((p) => [...p, { id: uid(), category: "New expense", amount: 0, date: todayISO(), recur: "monthly", fromAcct: pickIds(accounts, debts).chk }]);
+  const addExp = () => setExpenses((p) => [...p, { id: uid(), label: "New expense", category: "other", amount: 0, date: todayISO(), recur: "monthly", fromAcct: pickIds(accounts, debts).chk }]);
   const rmExp = (id) => setExpenses((p) => p.filter((x) => x.id !== id));
   const upTr = (id, k, v) => setTransfers((p) => p.map((x) => x.id === id ? { ...x, [k]: v } : x));
   const addTr = () => { const id = pickIds(accounts, debts); setTransfers((p) => [...p, { id: uid(), name: "New transfer", amount: 0, date: todayISO(), recur: "monthly", fromAcct: id.chk, toAcct: id.brk }]); };
@@ -209,7 +219,7 @@ export function FinancialSimulator() {
     if (Array.isArray(p.debts)) setDebts(normDebts(p.debts));
     const id = pickIds(p.accounts || accounts, p.debts || debts);
     if (Array.isArray(p.income)) setIncome(normIncome(p.income, id.chk, id.ret));
-    if (Array.isArray(p.expenses)) setExpenses(p.expenses);
+    if (Array.isArray(p.expenses)) setExpenses(normExpenses(p.expenses));
     if (Array.isArray(p.transfers)) setTransfers(p.transfers);
     if (Array.isArray(p.debtPayments)) setDebtPayments(p.debtPayments);
     if (Array.isArray(p.payments)) setPayments(p.payments);
@@ -352,7 +362,7 @@ export function FinancialSimulator() {
     if (Array.isArray(data.accounts)) setAccounts(normAccounts(data.accounts));
     if (Array.isArray(data.debts)) setDebts(normDebts(data.debts));
     if (Array.isArray(data.income)) setIncome(normIncome(data.income, id.chk, id.ret));
-    if (Array.isArray(data.expenses)) setExpenses(data.expenses);
+    if (Array.isArray(data.expenses)) setExpenses(normExpenses(data.expenses));
     if (Array.isArray(data.transfers)) setTransfers(data.transfers);
     else if (Array.isArray(data.contributions)) setTransfers(data.contributions);
     if (Array.isArray(data.debtPayments)) setDebtPayments(data.debtPayments);
@@ -362,6 +372,75 @@ export function FinancialSimulator() {
     setModal(null); setSeedNote(false); store.set("fin3:seedNote", "0");
   };
   const onJsonFile = (e) => { const f = e.target.files && e.target.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => setImportText(String(rd.result || "")); rd.readAsText(f); e.target.value = ""; };
+
+  /* ================================================================== */
+  /*  A plan in a link                                                   */
+  /* ================================================================== */
+  /* The fragment never wins on its own. A `#plan=` link is decoded and *offered* — what's
+     already saved here loads exactly as it does on the bare URL, and stays put unless the
+     visitor picks the link's plan. Anything else would let a link quietly replace someone's
+     own data with one click. */
+  /* `hashchange` as well as mount: pasting a share link into the address bar of a tab that
+     already has the app open changes only the fragment, and the browser doesn't reload. */
+  useEffect(() => {
+    let live = true;
+    const offer = () => {
+      const payload = readHash(window.location.hash);
+      if (!payload) return;
+      decodePlan(payload).then((p) => {
+        if (!live) return;
+        if (p) setOffered(p);
+        else showToast("That shared link couldn't be read — it may have been truncated", true, 5000);
+        clearHash();
+      });
+    };
+    offer();
+    window.addEventListener("hashchange", offer);
+    return () => { live = false; window.removeEventListener("hashchange", offer); };
+  }, []);
+  const clearHash = () => {
+    try { window.history.replaceState(null, "", window.location.pathname + window.location.search + stripHash(window.location.hash)); } catch { }
+  };
+  const acceptOffered = () => {
+    if (!offered) return;
+    applyPlan(offered);           /* not marked as "applying", so loading a link is undoable */
+    setOffered(null);
+    setSeedNote(false); store.set("fin3:seedNote", "0");
+    showToast("Loaded the shared plan — ⌘Z puts yours back");
+  };
+  const shareLink = async () => {
+    const url = shareUrl(window.location.href, await encodePlan(planNow()));
+    if (url.length > 30000) { showToast("This plan is too large to fit in a link — use Export instead", true, 5000); return; }
+    const ok = await copyText(url);
+    showToast(ok ? `Link copied — ${(url.length / 1024).toFixed(1)} KB, the whole plan is in the URL` : "Couldn't copy the link", !ok);
+  };
+
+  /* ================================================================== */
+  /*  Importing a bank statement                                         */
+  /* ================================================================== */
+  /* Detection is a guess about someone's real statement, so nothing is created from it
+     unsighted: the file becomes a review table, and only ticked rows become expenses. */
+  const readCsv = (text) => {
+    setCsvText(text);
+    const r = suggestExpenses(text);
+    setCsvInfo(r);
+    setCsvRows(r.rows);
+  };
+  const openCsv = () => {
+    setCsvText(""); setCsvInfo(null); setCsvRows([]);
+    setCsvAcct(pickIds(accounts, debts).chk);
+    setModal("csv");
+  };
+  const upCsvRow = (key, k, v) => setCsvRows((p) => p.map((r) => (r.key === key ? { ...r, [k]: v } : r)));
+  const applyCsv = () => {
+    const picked = csvRows.filter((r) => r.pick);
+    if (!picked.length) { setModal(null); return; }
+    const acct = csvAcct || pickIds(accounts, debts).chk;
+    setExpenses((p) => [...p, ...picked.map((r) => toExpense({ ...r, amount: n0(r.amount) }, acct, todayISO(), uid()))]);
+    setModal(null);
+    showToast(`Added ${picked.length} ${picked.length === 1 ? "expense" : "expenses"} — ⌘Z undoes it`);
+  };
+  const onCsvFile = (e) => { const f = e.target.files && e.target.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => readCsv(String(rd.result || "")); rd.readAsText(f); e.target.value = ""; };
 
   /* ================================================================== */
   /*  The projection, off the main thread                                */
@@ -592,6 +671,12 @@ export function FinancialSimulator() {
       { name: "Cash", value: bCash, color: BUCKET_COLOR.Cash },
     ].filter((x) => x.value > 0);
     const spend = expenses.map((e) => ({ ...e, monthly: n0(e.amount) * OPY[e.recur] / 12 })).filter((e) => e.monthly > 0).sort((a, b) => b.monthly - a.monthly).map((e, i) => ({ ...e, color: PAL[i % PAL.length] }));
+    /* the same spending rolled up, which is the whole point of categories being a fixed
+       list — "Rent" and "Mortgage" are one housing cost, however they were named */
+    const spendCat = CATEGORIES.map((c) => {
+      const rows = spend.filter((e) => (e.category || "other") === c.v);
+      return { v: c.v, name: c.label, color: c.color, monthly: rows.reduce((s, e) => s + e.monthly, 0), count: rows.length };
+    }).filter((c) => c.monthly > 0).sort((a, b) => b.monthly - a.monthly);
 
     let negAcct = null;
     for (let w = 0; w < Math.min(sim.series.length, 312) && !negAcct; w++) { const m = sim.series[w].acct; for (const a of accounts) if (m[a.id] < -1) { negAcct = a.name; break; } }
@@ -637,7 +722,7 @@ export function FinancialSimulator() {
       nwGap: sim.series[Math.min(maxW, sim.series.length - 1)].nw - P.compare.sim.series[Math.min(maxW, P.compare.sim.series.length - 1)].nw,
     } : null;
 
-    return { totalAssets, totalDebt, totalLoans, netWorth, loans, cards, mInc, mExp, mTr, mDp, mPreTax, mBonusNet, surplus, savingsRate, leftover, monthlyInterest, sim, simWith, simWithout, hasHypo, hypoOn, nwGapAt, minW, maxW, mc: mcView, mcReturn, interestSaved, wksSaved, acctColors, debtColors, names, cf, debtCurve, alloc, spend, bInv, negAcct, nextCardPay, loansNoPayment, chargedTo, worstMonthOut, avgSweep, capped, infl, showNom, nomAt, viewSeries, strategy, liquid, runway, deferralNotes, fiSloped, bridge: sim.bridge, retireWeek, horizonWeeks, busy, timeline, compare, actuals, drift };
+    return { totalAssets, totalDebt, totalLoans, netWorth, loans, cards, mInc, mExp, mTr, mDp, mPreTax, mBonusNet, surplus, savingsRate, leftover, monthlyInterest, sim, simWith, simWithout, hasHypo, hypoOn, nwGapAt, minW, maxW, mc: mcView, mcReturn, interestSaved, wksSaved, acctColors, debtColors, names, cf, debtCurve, alloc, spend, spendCat, bInv, negAcct, nextCardPay, loansNoPayment, chargedTo, worstMonthOut, avgSweep, capped, infl, showNom, nomAt, viewSeries, strategy, liquid, runway, deferralNotes, fiSloped, bridge: sim.bridge, retireWeek, horizonWeeks, busy, timeline, compare, actuals, drift };
   }, [accounts, debts, income, expenses, transfers, debtPayments, settings, start, P, busy, compareScenario, snapshots]);
 
   const maxW = D ? D.maxW : 520;
@@ -719,6 +804,7 @@ export function FinancialSimulator() {
               <button className={"tbtn" + (compareScenario ? " on" : "")} onClick={() => { setScenarioName(""); setModal("scenarios"); }}
                 title={compareScenario ? `Comparing against "${compareScenario.name}"` : "Save and compare plans"}><LayoutGrid size={13} />Scenarios{scenarios.length ? ` (${scenarios.length})` : ""}</button>
               <button className="tbtn" onClick={() => { setImportText(""); setModal("import"); }}><Upload size={13} />Import</button>
+              <button className="tbtn" onClick={shareLink} title="Copy a link with this whole plan in it"><Link2 size={13} />Share</button>
               <button className="tbtn" onClick={openExport}><Download size={13} />Export</button>
               <button className="tbtn" onClick={resetAll}><RotateCcw size={13} />Reset</button>
             </div>
@@ -748,6 +834,14 @@ export function FinancialSimulator() {
               </div>
             );
           })()}
+
+          {offered && (
+            <div className="notice rise offer" data-testid="share-offer"><Link2 size={14} color="var(--cyan)" />
+              <span>This link carries a plan — {offered.accounts.length} accounts, {(offered.expenses || []).length} expenses. Your own plan is still here and untouched.</span>
+              <button className="btn btn-amber" onClick={acceptOffered}>Load the shared plan</button>
+              <button className="btn btn-ghost" onClick={() => setOffered(null)}>Keep mine</button>
+            </div>
+          )}
 
           {seedNote && (
             <div className="notice rise"><Zap size={14} color="var(--amber)" />
@@ -820,6 +914,59 @@ export function FinancialSimulator() {
                 <button className="btn btn-ghost" onClick={() => setModal(null)}>Cancel</button></div>
             </Modal>
           )}
+          {modal === "csv" && (
+            <Modal title="Import spending from a statement" onClose={() => setModal(null)}>
+              <div className="mnote">Export a few months of transactions from your bank as CSV and drop them in. Nothing leaves this page — the file is read in your browser. Charges are grouped by merchant and a frequency is inferred from the spacing of the dates; every guess is shown here before anything is created.</div>
+              <div className="modal-row">
+                <label className="filebtn"><Upload size={15} />Choose a .csv file<input type="file" accept=".csv,text/csv" hidden onChange={onCsvFile} data-testid="csv-file" /></label>
+                <span className="cap">paid with</span>
+                <select value={csvAcct} onChange={(e) => setCsvAcct(e.target.value)} aria-label="Paid with">
+                  <optgroup label="Accounts">{accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</optgroup>
+                  {D.cards.length > 0 && <optgroup label="Credit cards">{D.cards.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>}
+                </select>
+              </div>
+              <div className="mnote" style={{ marginTop: 12 }}>…or paste the rows here:</div>
+              <textarea className="jsonbox" value={csvText} onChange={(e) => readCsv(e.target.value)} data-testid="csv-paste"
+                placeholder={"Date,Description,Amount\n2026-01-01,RENT PAYMENT,-1500.00"} />
+              {csvInfo && !csvInfo.ok && <div className="mnote" style={{ color: "var(--red)" }}>Couldn't find a date, description and amount in that. Most banks offer a "CSV" or "spreadsheet" download that has all three.</div>}
+              {csvInfo && csvInfo.ok && (
+                <>
+                  <div className="mnote" style={{ marginTop: 12 }}>
+                    {csvInfo.txns} charges, {csvRows.length} merchants. Confidence is how tightly the dates hold to the frequency — a low one usually means a merchant you visit rather than a bill you're charged.
+                  </div>
+                  <div className="csvlist" data-testid="csv-rows">
+                    {csvRows.map((r) => (
+                      <div className={"csvrow" + (r.pick ? " on" : "")} key={r.key}>
+                        <label className="chk">
+                          <input type="checkbox" checked={!!r.pick} onChange={(e) => upCsvRow(r.key, "pick", e.target.checked)} aria-label={`Include ${r.label}`} />
+                          <span className="csvname">{r.label}</span>
+                        </label>
+                        <span className={"badge lvl-" + r.level} title={`${r.count} charges between ${r.first} and ${r.last}`}>
+                          {r.recur === "once" ? "one-off" : `${r.level} confidence`}
+                        </span>
+                        <div className="num-box sm"><span className="pfx">$</span>
+                          <input className="num-input" type="number" inputMode="decimal" value={r.amount}
+                            onChange={(e) => upCsvRow(r.key, "amount", e.target.value)} aria-label={`Amount for ${r.label}`} /></div>
+                        <select value={r.recur} onChange={(e) => upCsvRow(r.key, "recur", e.target.value)} aria-label={`Frequency for ${r.label}`}>
+                          {RECUR.map((x) => <option key={x.v} value={x.v}>{x.label}</option>)}
+                        </select>
+                        <select value={r.category} onChange={(e) => upCsvRow(r.key, "category", e.target.value)} aria-label={`Category for ${r.label}`}>
+                          {CATEGORIES.map((c) => <option key={c.v} value={c.v}>{c.label}</option>)}
+                        </select>
+                        {r.varies && <span className="cap" title="The charges swing a lot — this is the median">amount varies</span>}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+              <div className="modal-row">
+                <button className="btn btn-amber" onClick={applyCsv} disabled={!csvRows.some((r) => r.pick)}>
+                  <Check size={15} />Add {csvRows.filter((r) => r.pick).length || ""} {csvRows.filter((r) => r.pick).length === 1 ? "expense" : "expenses"}
+                </button>
+                <button className="btn btn-ghost" onClick={() => setModal(null)}>Cancel</button>
+              </div>
+            </Modal>
+          )}
 
 
           {/* ============================ OVERVIEW ============================ */}
@@ -844,7 +991,8 @@ export function FinancialSimulator() {
               addChange={addChange} upChange={upChange} rmChange={rmChange}
               upExp={upExp} rmExp={rmExp} addExp={addExp}
               upDebtField={upDebtField} upDebtBal={upDebtBal} rmDebt={rmDebt} addCardWithPayment={addCardWithPayment}
-              upDp={upDp} rmDp={rmDp} addDp={addDp} upTr={upTr} rmTr={rmTr} addTr={addTr} />
+              upDp={upDp} rmDp={rmDp} addDp={addDp} upTr={upTr} rmTr={rmTr} addTr={addTr}
+              openCsv={openCsv} itemised={spendItemised} setItemised={setSpendItemised} />
           )}
 
           {/* ============================ DEBT ============================ */}
