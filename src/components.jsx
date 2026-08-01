@@ -5,10 +5,12 @@ import { fmtBig, fmtMoney, fmtDate, fmtDur, n0, parseDate, addMonths, addDays } 
 import { minPaymentOf, monthsToPayoff } from "./loan.js";
 
 export const Stat = ({ k, v, accent }) => (<div className="stat"><div className="k" dangerouslySetInnerHTML={{ __html: k }} /><div className={"v mono " + (accent || "")}>{v}</div></div>);
+/* the <label> sits beside the input rather than wrapping it, so it names nothing on its
+   own — aria-label is what actually gives each of these fields an accessible name */
 export function NumField({ label, value, onChange, prefix, suffix, cls, readOnly }) {
   return (<div className={"field " + (cls || "")}><label>{label}</label>
     <div className="inp">{prefix && <span className="u">{prefix}</span>}
-      <input type="number" inputMode="decimal" value={value} readOnly={readOnly} onChange={(e) => onChange && onChange(e.target.value)} />
+      <input type="number" inputMode="decimal" value={value} readOnly={readOnly} aria-label={label} onChange={(e) => onChange && onChange(e.target.value)} />
       {suffix && <span className="u">{suffix}</span>}</div></div>);
 }
 export const Seg = ({ value, options, onChange, cls }) => (

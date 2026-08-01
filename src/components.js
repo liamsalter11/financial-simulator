@@ -41,6 +41,7 @@ export function NumField({
     inputMode: "decimal",
     value: value,
     readOnly: readOnly,
+    "aria-label": label,
     onChange: e => onChange && onChange(e.target.value)
   }), suffix && React.createElement("span", {
     className: "u"
