@@ -8,10 +8,10 @@ import { HelpCircle, Upload, Download, RotateCcw, Zap, AlertTriangle, Check, X, 
 import { Modal } from "./components.js";
 import { n0, num, uid, todayISO, nextFirstISO, firstOfYear, isoDate, addMonths, parseDate, addDays, fmtMoney, fmtBig, fmtC, weekTick, r2, parse, OPY, ACCT_TYPES, isInvest, isSav, isCash, BUCKET_COLOR, PAL, acctColor, debtColor, toReal, inflFactor } from "./format.js";
 import { firesInWeek } from "./recurrence.js";
-import { payrollOf, bonusOf, effectiveTaxRate, hasPromotions, withoutPromotions } from "./payroll.js";
+import { payrollOf, bonusOf, effectiveTaxRate, hasPromotions, withoutPromotions, isDerived, takeHomeOf } from "./payroll.js";
 import { simulateWeekly, projectMinWeekly, WEEKS } from "./engine.js";
 import { runMonteCarlo } from "./montecarlo.js";
-import { SEED_ACCOUNTS, SEED_DEBTS, normDebts, normIncome, isCard, pickIds, seedIncome, seedExpenses, seedTransfers, seedDebtPays, seedSettings } from "./seeds.js";
+import { SEED_ACCOUNTS, SEED_DEBTS, normDebts, normIncome, normAccounts, isCard, pickIds, seedIncome, seedExpenses, seedTransfers, seedDebtPays, seedSettings } from "./seeds.js";
 import { store } from "./store.js";
 import { useScope } from "./useScope.js";
 import { HELP } from "./help-content.js";
@@ -72,7 +72,7 @@ export function FinancialSimulator() {
       const accts = a3 ? parse(a3, SEED_ACCOUNTS()) : a2 ? parse(a2, SEED_ACCOUNTS()) : SEED_ACCOUNTS();
       const dbts = d3 ? parse(d3, SEED_DEBTS()) : d2 ? parse(d2, SEED_DEBTS()) : SEED_DEBTS();
       const id = pickIds(accts, dbts);
-      setAccounts(accts);
+      setAccounts(normAccounts(accts));
       setDebts(normDebts(dbts));
       const rawInc = i3 ? parse(i3, null) : i2 ? parse(i2, null) : null;
       setIncome(rawInc ? normIncome(rawInc, id.chk, id.ret) : seedIncome(id));
@@ -154,7 +154,8 @@ export function FinancialSimulator() {
     name: "New account",
     type: "checking",
     balance: 0,
-    rate: 0
+    rate: 0,
+    taxTreatment: "taxable"
   }]);
   const rmAcct = id => setAccounts(p => p.filter(a => a.id !== id));
   const upDebtField = (id, k, v) => setDebts(p => p.map(l => l.id === id ? {
@@ -237,6 +238,26 @@ export function FinancialSimulator() {
     }]
   }]);
   const rmInc = id => setIncome(p => p.filter(x => x.id !== id));
+  const addGuaranteed = () => {
+    const by = n0(settings.birthYear);
+    const startDate = by > 0 ? isoDate(new Date(by + 67, 0, 1)) : isoDate(addMonths(new Date(), 240));
+    setIncome(p => [...p, {
+      id: uid(),
+      name: "Social Security",
+      amount: 0,
+      gross: 0,
+      grossMode: "year",
+      date: startDate,
+      recur: "monthly",
+      raise: 0,
+      weekdayAdj: false,
+      guaranteed: true,
+      taxMode: "typed",
+      dist: [{
+        acctId: pickIds(accounts, debts).chk
+      }]
+    }]);
+  };
   const addSplit = iid => setIncome(p => p.map(x => x.id === iid ? {
     ...x,
     dist: [...(x.dist || []), {
@@ -418,7 +439,7 @@ export function FinancialSimulator() {
     const accts = SEED_ACCOUNTS(),
       dbts = SEED_DEBTS(),
       id = pickIds(accts, dbts);
-    setAccounts(accts);
+    setAccounts(normAccounts(accts));
     setDebts(normDebts(dbts));
     setIncome(seedIncome(id));
     setExpenses(seedExpenses(id));
@@ -528,7 +549,7 @@ export function FinancialSimulator() {
     const accts = Array.isArray(data.accounts) ? data.accounts : accounts;
     const dbts = Array.isArray(data.debts) ? data.debts : debts;
     const id = pickIds(accts, dbts);
-    if (Array.isArray(data.accounts)) setAccounts(data.accounts);
+    if (Array.isArray(data.accounts)) setAccounts(normAccounts(data.accounts));
     if (Array.isArray(data.debts)) setDebts(normDebts(data.debts));
     if (Array.isArray(data.income)) setIncome(normIncome(data.income, id.chk, id.ret));
     if (Array.isArray(data.expenses)) setExpenses(data.expenses);
@@ -554,6 +575,16 @@ export function FinancialSimulator() {
   const D = useMemo(() => {
     if (!accounts) return null;
     const per = (list, key) => list.reduce((s, x) => s + n0(x[key || "amount"]) * OPY[x.recur] / 12, 0);
+    const flowing = x => {
+      const d = parseDate(x.date);
+      if (!isNaN(d) && d > start) return false;
+      if (x.end) {
+        const e = parseDate(x.end);
+        if (!isNaN(e) && e < start) return false;
+      }
+      return true;
+    };
+    const incomeNow = income.filter(flowing);
     const loans = debts.filter(x => !isCard(x));
     const cards = debts.filter(x => isCard(x));
     const totalAssets = accounts.reduce((s, a) => s + n0(a.balance), 0);
@@ -562,16 +593,19 @@ export function FinancialSimulator() {
     const netWorth = totalAssets - totalDebt;
     const mExp = per(expenses),
       mTr = per(transfers);
-    const mBonusNet = income.reduce((s, i) => {
+    const mBonusNet = incomeNow.reduce((s, i) => {
       const b = bonusOf(i, 1);
       return s + (b ? b.net / 12 : 0);
     }, 0);
-    const mBonusPre = income.reduce((s, i) => {
+    const mBonusPre = incomeNow.reduce((s, i) => {
       const b = bonusOf(i, 1);
       return s + (b ? (b.deferral + b.match) / 12 : 0);
     }, 0);
-    const mPreTax = income.reduce((s, i) => s + payrollOf(i).total * OPY[i.recur] / 12, 0) + mBonusPre;
-    const mInc = per(income) + mBonusNet;
+    const mPreTax = incomeNow.reduce((s, i) => s + payrollOf(i).total * OPY[i.recur] / 12, 0) + mBonusPre;
+    const mInc = incomeNow.reduce((s, i) => s + (isDerived(i) ? takeHomeOf(i, {
+      filing: settings.filing,
+      stateRate: settings.stateRate
+    }) : n0(i.amount)) * OPY[i.recur] / 12, 0) + mBonusNet;
     const cardIds = new Set(cards.map(c => c.id));
     const chargedTo = cid => expenses.filter(e => e.fromAcct === cid).reduce((s, e) => s + n0(e.amount) * OPY[e.recur] / 12, 0);
     const mDp = debtPayments.reduce((s, p) => s + (p.payFull && cardIds.has(p.toDebt) ? chargedTo(p.toDebt) : n0(p.amount) * OPY[p.recur] / 12), 0);
@@ -703,15 +737,14 @@ export function FinancialSimulator() {
         loanDebt: r2(s.loanDebt * f),
         invest: r2(s.invest * f),
         basis: r2(s.basis * f),
+        spendable: r2(s.spendable * f),
+        reach: r2(s.reach * f),
+        fi: r2(s.fi * f),
         acct,
-        dbt,
-        fi: r2(sim.fireNumber * f)
+        dbt
       };
     };
-    const viewSeries = showNom ? sim.series.map(scaleSnap) : sim.series.map(s => ({
-      ...s,
-      fi: sim.fireNumber
-    }));
+    const viewSeries = showNom ? sim.series.map(scaleSnap) : sim.series;
     const cf = [];
     const cfMax = Math.min(sim.series.length - 1, 312);
     for (let w = 0; w <= cfMax; w++) {
@@ -797,6 +830,7 @@ export function FinancialSimulator() {
         };
       })
     } : mc;
+    const fiSloped = showNom || sim.guaranteedAnnual > 0;
     return {
       totalAssets,
       totalDebt,
@@ -848,7 +882,9 @@ export function FinancialSimulator() {
       strategy,
       liquid,
       runway,
-      deferralNotes
+      deferralNotes,
+      fiSloped,
+      bridge: sim.bridge
     };
   }, [accounts, debts, income, expenses, transfers, debtPayments, settings, start]);
   const maxW = D ? D.maxW : 520;
@@ -1133,6 +1169,7 @@ export function FinancialSimulator() {
     upInc: upInc,
     rmInc: rmInc,
     addInc: addInc,
+    addGuaranteed: addGuaranteed,
     addSplit: addSplit,
     upSplit: upSplit,
     rmSplit: rmSplit,

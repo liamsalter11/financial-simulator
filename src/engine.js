@@ -3,7 +3,7 @@
 // imports directly.
 import { n0, num, r2, addDays, parseDate, DAY, isInvest, OPY, toReal, inflFactor, WPY } from "./format.js";
 import { firesInWeek } from "./recurrence.js";
-import { salaryAt, bonusOf } from "./payroll.js";
+import { salaryAt, bonusOf, isDerived, takeHomeOf } from "./payroll.js";
 import { minPaymentOf } from "./loan.js";
 
 export const WEEKS = 2080; // ~40 years — the simulation horizon
@@ -57,11 +57,21 @@ export function simulateWeekly(cfg) {
   const infl = num(settings.inflation);
   const nextLoan = payoffSort(settings.payoffOrder);
   const dLimit = n0(settings.deferralLimit); /* annual pre-tax deferral cap; 0 = no cap */
+  /* what salaryAt needs to place a paycheck in today's dollars and, for an income set to
+     derive its take-home, to run it through the brackets */
+  const taxOpts = { inflation: infl, start, filing: settings.filing, stateRate: settings.stateRate };
+  /* An account's tax treatment costs it in two places: a taxable investment loses `taxDrag`
+     of its return to tax on distributions every year, and a traditional balance is worth
+     `retireTaxRate` less than its face value because the withdrawal is taxed. */
+  const drag = n0(settings.taxDrag);
+  const retireTax = n0(settings.retireTaxRate) / 100;
   const A = accounts.map((a) => {
     let asOf = start;
     if (a.asOf) { const d2 = parseDate(a.asOf); if (!isNaN(d2)) asOf = d2; }
+    const treat = a.taxTreatment === "traditional" || a.taxTreatment === "roth" ? a.taxTreatment : "taxable";
+    const dragged = treat === "taxable" && isInvest(a.type) ? drag : 0;
     return {
-      id: a.id, type: a.type, bal: n0(a.balance), wr: Math.pow(1 + toReal(num(a.rate), infl) / 100, 1 / WPY) - 1,
+      id: a.id, type: a.type, treat, bal: n0(a.balance), wr: Math.pow(1 + (toReal(num(a.rate), infl) - dragged) / 100, 1 / WPY) - 1,
       cap: (a.cap === "" || a.cap == null) ? null : n0(a.cap),
       spillTo: a.spillTo || "", spillEvery: a.spillEvery === "weekly" ? "weekly" : "monthly",
       asOf,
@@ -85,7 +95,33 @@ export function simulateWeekly(cfg) {
     if (e.end) { const ed = parseDate(e.end); if (!isNaN(ed) && ed < longRunAt) return s; }
     return s + n0(e.amount) * OPY[e.recur];
   }, 0);
-  const fireNumber = n0(settings.withdrawalRate) > 0 ? annualExp * (100 / n0(settings.withdrawalRate)) : 0;
+  /* Guaranteed retirement income — Social Security, a pension — doesn't remove the need for
+     a portfolio, it shrinks it: forever after it starts, only the gap between spending and
+     that income has to be funded. Before it starts, the portfolio covers everything, so the
+     target carries an extra `guaranteed × years until it arrives` of bridge capital, which
+     falls away as the start date approaches. With no guaranteed income both terms collapse
+     and the target is the flat 25×-expenses figure it has always been. */
+  const guaranteed = income.filter((i) => i.guaranteed);
+  const guaranteedAnnual = guaranteed.reduce((s, i) => s + n0(i.amount) * OPY[i.recur], 0);
+  const guaranteedStartWeek = guaranteed.length
+    ? Math.min(...guaranteed.map((i) => { const d = parseDate(i.date); return isNaN(d) ? 0 : (d - start) / DAY / 7; }))
+    : 0;
+  const multiple = n0(settings.withdrawalRate) > 0 ? 100 / n0(settings.withdrawalRate) : 0;
+  const annualExpNet = Math.max(0, annualExp - guaranteedAnnual);
+  const targetAt = (w) => {
+    if (multiple <= 0) return 0;
+    const bridgeYears = Math.max(0, (guaranteedStartWeek - w) / WPY);
+    return annualExpNet * multiple + guaranteedAnnual * bridgeYears;
+  };
+  const fireNumber = targetAt(0);
+  /* 59½ is when a retirement wrapper opens up without a penalty. With no birth year on
+     file the app makes no assumption about age and treats every account as reachable. */
+  const birthYear = n0(settings.birthYear);
+  /* Only a birth year is asked for, so the exact 59½ date is unknowable: someone born in
+     year Y reaches it between July of Y+59 and June of Y+60. The start of Y+60 is the
+     midpoint of that window and the best single guess. */
+  const penaltyFreeFrom = birthYear > 0 ? new Date(birthYear + 60, 0, 1) : null;
+  const retireeAt = (ws) => !penaltyFreeFrom || ws >= penaltyFreeFrom;
 
   let basis = A.filter((a) => isInvest(a.type)).reduce((s, a) => s + a.bal, 0);
   const series = []; const payoffWeek = {};
@@ -97,7 +133,7 @@ export function simulateWeekly(cfg) {
     if (ci.year === year) ci.lostMatch += Math.max(0, lostMatch);
   };
   let debtFree = null, fire = null, interest = 0, cardInterest = 0;
-  if (!A.length) return { series: [{ w: 0, nw: 0, debt: 0, loanDebt: 0, invest: 0, basis: 0, acct: {}, dbt: {}, inflow: 0, outflow: 0, charged: 0, pretax: 0 }], debtFree: null, fire: null, fireNumber, annualExp, annualExpNow, endingSoon, payoffWeek, interest: 0, cardInterest: 0, capInfo };
+  if (!A.length) return { series: [{ w: 0, nw: 0, debt: 0, loanDebt: 0, invest: 0, basis: 0, spendable: 0, reach: 0, fi: r2(fireNumber), acct: {}, dbt: {}, inflow: 0, outflow: 0, charged: 0, pretax: 0 }], debtFree: null, fire: null, fireNumber, annualExp, annualExpNow, annualExpNet, guaranteedAnnual, guaranteedStartWeek, endingSoon, payoffWeek, interest: 0, cardInterest: 0, capInfo, bridge: null };
 
   /* an account balance dated in the past gets caught up to today first: this pre-roll
      re-runs ordinary cash flow from the earliest as-of date up to today, but only for
@@ -133,10 +169,17 @@ export function simulateWeekly(cfg) {
       for (const x of d) if (x.kind !== "card" && x.bal <= 0.005 && payoffWeek[x.id] == null) payoffWeek[x.id] = w - preWeeks;
       const invest = A.filter((a) => isInvest(a.type)).reduce((s, a) => s + a.bal, 0);
       const nw = A.reduce((s, a) => s + a.bal, 0) - debtTotal;
-      snap = { w: w - preWeeks, nw: r2(nw), debt: r2(debtTotal), loanDebt: r2(loanTotal), invest: r2(invest), basis: r2(basis), acct, dbt, inflow: 0, outflow: 0, charged: 0, swept: 0, pretax: 0 };
+      /* what the balance sheet is actually worth to spend: a traditional dollar is taxed on
+         the way out, so it doesn't buy a dollar of retirement */
+      const traditional = A.reduce((s, a) => s + (a.treat === "traditional" ? Math.max(0, a.bal) : 0), 0);
+      const spendable = nw - traditional * retireTax;
+      /* and what could be reached today without an early-withdrawal penalty */
+      const reach = A.reduce((s, a) => s + (a.treat === "taxable" || retireeAt(ws) ? Math.max(0, a.bal) : 0), 0);
+      const target = targetAt(w - preWeeks);
+      snap = { w: w - preWeeks, nw: r2(nw), debt: r2(debtTotal), loanDebt: r2(loanTotal), invest: r2(invest), basis: r2(basis), spendable: r2(spendable), reach: r2(reach), fi: r2(target), acct, dbt, inflow: 0, outflow: 0, charged: 0, swept: 0, pretax: 0 };
       series.push(snap);
       if (debtFree === null && hasLoans && loanTotal <= 0.5) debtFree = w - preWeeks;
-      if (fire === null && fireNumber > 0 && nw >= fireNumber) fire = w - preWeeks;
+      if (fire === null && target > 0 && spendable >= target) fire = w - preWeeks;
     }
     if (w === preWeeks + weeks) break;
 
@@ -169,7 +212,7 @@ export function simulateWeekly(cfg) {
 
     let inflow = 0, outflow = 0, charged = 0, pretax = 0;
     for (const inc of income) {
-      const sal = salaryAt(inc, ws, { inflation: infl, start });
+      const sal = salaryAt(inc, ws, taxOpts);
       const yrs = Math.max(0, Math.floor((ws - sal.anchor) / (365.25 * DAY)));
       const growth = Math.pow(1 + toReal(num(inc.raise), infl) / 100, yrs);
       const payTo = (dist, total) => {
@@ -188,7 +231,11 @@ export function simulateWeekly(cfg) {
       };
       const n = firesInWeek(inc, ws, we);
       if (n) {
-        const amt = sal.amount * growth * n;
+        /* a raise is a raise in *gross*: under the bracket model the take-home it produces
+           has to be recomputed, since part of the increase can land in a higher band —
+           scaling last year's net by the raise would quietly under-tax it */
+        const netPerCheck = isDerived(inc) ? takeHomeOf(inc, taxOpts, sal.gross * growth) : sal.amount * growth;
+        const amt = netPerCheck * n;
         const list = (inc.dist && inc.dist.length) ? inc.dist : [{ acctId: fallback.id }];
         let used = 0, applied = 0;
         for (let i = 1; i < list.length; i++) {
@@ -338,6 +385,19 @@ export function simulateWeekly(cfg) {
     }
     if (snap) { snap.inflow = r2(inflow); snap.outflow = r2(outflow); snap.charged = r2(charged); snap.swept = r2(swept); snap.pretax = r2(pretax); }
   }
-  return { series, debtFree, fire, fireNumber, annualExp, annualExpNow, endingSoon, payoffWeek, interest, cardInterest, capInfo };
+  /* the bridge: at the moment the plan says you're independent, is enough of it reachable
+     to live on until the retirement wrappers open? A positive gap is money you'd have to
+     get to before 59½ and can't. */
+  let bridge = null;
+  if (penaltyFreeFrom && fire != null) {
+    const fireDate = addDays(start, fire * 7);
+    const years = Math.max(0, (penaltyFreeFrom - fireDate) / DAY / 365.25);
+    if (years > 0) {
+      const snapAtFire = series[fire];
+      const need = Math.max(0, annualExp - guaranteedAnnual) * years;
+      bridge = { years, need, reachable: snapAtFire ? snapAtFire.reach : 0, gap: Math.max(0, need - (snapAtFire ? snapAtFire.reach : 0)) };
+    }
+  }
+  return { series, debtFree, fire, fireNumber, annualExp, annualExpNow, annualExpNet, guaranteedAnnual, guaranteedStartWeek, endingSoon, payoffWeek, interest, cardInterest, capInfo, bridge };
 }
 

@@ -1,6 +1,7 @@
 // Per-paycheck gross/net math: salary at a point in time (accounting for raises and
 // promotions), 401k/employer-match resolution, and bonus withholding.
 import { n0, num, OPY, parseDate, inflFactor, DAY } from "./format.js";
+import { estimateTax } from "./tax.js";
 
 /* people know their annual salary, not their per-paycheck gross — accept either */
 export const perCheck = (gross, mode, recur) => {
@@ -10,6 +11,34 @@ export const perCheck = (gross, mode, recur) => {
   return per > 0 ? g / per : g;
 };
 export const grossPerCheck = (inc) => perCheck(inc.gross, inc.grossMode, inc.recur);
+
+/* An income either carries a take-home figure the user typed, or derives one from its
+   gross through the bracket tables. Typed stays the default so no saved projection moves
+   on its own; `isDerived` is the single place that decision is read. */
+export const isDerived = (inc) => !!inc && inc.taxMode === "derived";
+
+/* The full annual picture behind one paycheck, for the engine and the income card alike.
+   Pre-tax deductions are resolved first (they cut income tax but not payroll tax), then
+   the whole thing is annualised, taxed, and divided back down to a per-paycheck figure. */
+export function taxBreakdown(inc, opts, grossOverride) {
+  const per = OPY[inc.recur] || 0;
+  const gpc = grossOverride != null ? n0(grossOverride) : grossPerCheck(inc);
+  if (!(per > 0) || gpc <= 0) return null;
+  const employee = payrollOf(inc, gpc).employee;
+  const est = estimateTax({
+    grossAnnual: gpc * per,
+    filing: (opts && opts.filing) || "single",
+    preTaxAnnual: employee * per,
+    stateRatePct: num(opts && opts.stateRate),
+  });
+  return { ...est, per, grossPerCheck: gpc, netPerCheck: est.net / per, employeePerCheck: employee };
+}
+
+/* take-home per paycheck under the bracket model — 0 when there's nothing to compute */
+export function takeHomeOf(inc, opts, grossOverride) {
+  const b = taxBreakdown(inc, opts, grossOverride);
+  return b ? b.netPerCheck : 0;
+}
 
 /* a promotion is a step change: new salary from a date, with the annual raise
    compounding from there rather than from the original start date. Take-home is derived
@@ -23,16 +52,24 @@ export const grossPerCheck = (inc) => perCheck(inc.gross, inc.grossMode, inc.rec
 export function salaryAt(inc, at, opts) {
   const infl = num(opts && opts.inflation);
   const start = opts && opts.start;
-  let amount = n0(inc.amount), gross = grossPerCheck(inc), anchor = parseDate(inc.date), label = null;
+  const derived = isDerived(inc);
+  let amount = derived ? takeHomeOf(inc, opts) : n0(inc.amount);
+  let gross = grossPerCheck(inc), anchor = parseDate(inc.date), label = null;
   const list = (inc.changes || []).slice().sort((a, b) => parseDate(a.date) - parseDate(b.date));
   for (const ch of list) {
     const d = parseDate(ch.date);
     if (isNaN(d) || d > at) continue;
     gross = perCheck(ch.gross, ch.grossMode || inc.grossMode, inc.recur);
     if (infl && start) gross /= inflFactor(infl, Math.max(0, (d - start) / DAY / 7));
-    const employee = payrollOf(inc, gross).employee;
-    const rate = ch.taxRate != null ? num(ch.taxRate) : effectiveTaxRate(inc);
-    amount = Math.max(0, gross * (1 - rate / 100) - employee);
+    if (derived) {
+      /* a promoted salary needs no tax rate of its own — the brackets already know what
+         a bigger gross costs, including the part of it that lands in a higher band */
+      amount = takeHomeOf(inc, opts, gross);
+    } else {
+      const employee = payrollOf(inc, gross).employee;
+      const rate = ch.taxRate != null ? num(ch.taxRate) : effectiveTaxRate(inc);
+      amount = Math.max(0, gross * (1 - rate / 100) - employee);
+    }
     anchor = d; label = ch.label || "Promotion";
   }
   return { amount, gross, anchor, label };
