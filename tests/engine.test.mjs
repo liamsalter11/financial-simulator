@@ -605,3 +605,168 @@ test("a projection with no accounts returns a single empty snapshot rather than 
   assert.equal(r.debtFree, null);
   assert.equal(r.fire, null);
 });
+
+/* ================================================================== */
+/*  Inflation — the projection runs in today's dollars                 */
+/* ================================================================== */
+
+test("inflation is a no-op at zero, so every projection without it is unchanged", () => {
+  const accounts = [{ id: "chk", type: "checking", balance: 1000, rate: 1 }, { id: "inv", type: "brokerage", balance: 5000, rate: 7 }];
+  const debts = [{ id: "ln", apr: 6, balance: 3000, kind: "loan", interestFrom: "2020-01-01" }];
+  const income = [{ id: "inc", name: "pay", amount: 800, gross: 1000, grossMode: "paycheck", date: "2026-01-01", recur: "weekly", raise: 3, weekdayAdj: false, dist: [{ acctId: "chk" }] }];
+  const debtPayments = [{ id: "p", name: "loan", amount: 300, date: "2026-01-01", recur: "monthly", fromAcct: "chk", toDebt: "ln" }];
+  const cfg = { accounts, debts, income, expenses: [], transfers: [], debtPayments, start: START, weeks: 60 };
+
+  const bare = simulateWeekly({ ...cfg, settings: { withdrawalRate: 4 } });
+  const zero = simulateWeekly({ ...cfg, settings: { withdrawalRate: 4, inflation: 0 } });
+  assert.deepEqual(zero.series, bare.series, "an explicit 0% inflation must match saved data that has no inflation field at all");
+});
+
+test("a nominal return equal to inflation buys nothing in real terms", () => {
+  const accounts = [{ id: "inv", type: "brokerage", balance: 10000, rate: 3 }];
+  const cfg = { accounts, debts: [], income: [], expenses: [], transfers: [], debtPayments: [], start: START, weeks: 520 };
+
+  const nominal = simulateWeekly({ ...cfg, settings: { withdrawalRate: 4, inflation: 0 } });
+  const real = simulateWeekly({ ...cfg, settings: { withdrawalRate: 4, inflation: 3 } });
+
+  assert.ok(nominal.series[520].invest > 13000, "at 3% nominal with no inflation the balance should grow over ten years");
+  assert.ok(Math.abs(real.series[520].invest - 10000) < 1, `3% growth against 3% inflation should stand still, got ${real.series[520].invest}`);
+});
+
+test("a loan payment fixed in nominal dollars loses ground to inflation", () => {
+  // $12,000 at 0% with $200/mo clears in exactly 60 months when money holds its value.
+  // The same $200 buys less every year, so under inflation it must take longer.
+  const accounts = [{ id: "chk", type: "checking", balance: 100000, rate: 0 }];
+  const debts = [{ id: "ln", apr: 0, balance: 12000, kind: "loan", interestFrom: "2020-01-01" }];
+  const debtPayments = [{ id: "p", name: "loan", amount: 200, date: "2026-01-01", recur: "monthly", fromAcct: "chk", toDebt: "ln" }];
+  const cfg = { accounts, debts, income: [], expenses: [], transfers: [], debtPayments, start: START, weeks: 520 };
+
+  const flat = simulateWeekly({ ...cfg, settings: { withdrawalRate: 4, inflation: 0 } });
+  const rising = simulateWeekly({ ...cfg, settings: { withdrawalRate: 4, inflation: 5 } });
+
+  assert.ok(flat.debtFree != null && rising.debtFree != null, "both scenarios should clear the loan inside the horizon");
+  assert.ok(rising.debtFree > flat.debtFree, `inflation should push payoff out, got ${rising.debtFree} vs ${flat.debtFree}`);
+});
+
+test("a promotion's salary is quoted in the money of its own year", () => {
+  const inc = normIncome([{
+    id: "inc", name: "pay", amount: 1000, gross: 2000, grossMode: "paycheck", date: "2026-01-01", recur: "weekly", raise: 0,
+    changes: [{ id: "c", date: "2028-01-01", label: "Promotion", gross: 2420, grossMode: "paycheck", taxRate: 0 }],
+  }], "chk", "ret")[0];
+
+  const plain = salaryAt(inc, new Date(2028, 5, 1));
+  const deflated = salaryAt(inc, new Date(2028, 5, 1), { inflation: 10, start: START });
+  assert.equal(plain.gross, 2420, "with no inflation the figure is taken at face value");
+  // two years of 10% inflation: 2420 / 1.1^2 = 2000 in today's money
+  assert.ok(Math.abs(deflated.gross - 2000) < 5, `expected ~2000 in today's dollars, got ${deflated.gross.toFixed(2)}`);
+});
+
+test("the display-only nominal toggle never reaches the engine", () => {
+  const accounts = [{ id: "inv", type: "brokerage", balance: 1000, rate: 6 }];
+  const cfg = { accounts, debts: [], income: [], expenses: [], transfers: [], debtPayments: [], start: START, weeks: 120 };
+  assert.deepEqual(
+    simulateWeekly({ ...cfg, settings: { withdrawalRate: 4, inflation: 2.5, showNominal: true } }).series,
+    simulateWeekly({ ...cfg, settings: { withdrawalRate: 4, inflation: 2.5, showNominal: false } }).series,
+    "showNominal re-labels charts; it must not change what's simulated",
+  );
+});
+
+/* ================================================================== */
+/*  Payoff strategy — avalanche vs snowball                            */
+/* ================================================================== */
+
+test("avalanche and snowball roll a surplus payment to different loans", () => {
+  // Target is cleared in the first month; where the leftover goes is the whole question.
+  // "Big" is the expensive one, "small" is the quick win — the two strategies disagree.
+  const scenario = (payoffOrder) => {
+    const accounts = [{ id: "chk", type: "checking", balance: 200000, rate: 0 }];
+    const debts = [
+      { id: "target", apr: 1, balance: 400, kind: "loan", interestFrom: "2020-01-01" },
+      { id: "big", apr: 20, balance: 6000, kind: "loan", interestFrom: "2020-01-01" },
+      { id: "small", apr: 4, balance: 1500, kind: "loan", interestFrom: "2020-01-01" },
+    ];
+    const debtPayments = [{ id: "p", name: "plan", amount: 900, date: "2026-01-01", recur: "monthly", fromAcct: "chk", toDebt: "target" }];
+    return simulateWeekly({ accounts, debts, income: [], expenses: [], transfers: [], debtPayments, settings: { withdrawalRate: 4, payoffOrder }, start: START, weeks: 260 });
+  };
+
+  const avalanche = scenario("avalanche");
+  const snowball = scenario("snowball");
+
+  assert.ok(avalanche.payoffWeek.big < avalanche.payoffWeek.small, "avalanche clears the 20% loan before the 4% one");
+  assert.ok(snowball.payoffWeek.small < snowball.payoffWeek.big, "snowball clears the smaller balance first");
+  assert.ok(avalanche.interest < snowball.interest, `avalanche should cost less interest (${avalanche.interest.toFixed(2)} vs ${snowball.interest.toFixed(2)})`);
+  assert.equal(avalanche.debtFree, snowball.debtFree, "the same money clears the same debts by the same date either way");
+});
+
+test("payoff order defaults to avalanche for saved data that predates the setting", () => {
+  const accounts = [{ id: "chk", type: "checking", balance: 50000, rate: 0 }];
+  const debts = [
+    { id: "target", apr: 1, balance: 200, kind: "loan", interestFrom: "2020-01-01" },
+    { id: "big", apr: 18, balance: 3000, kind: "loan", interestFrom: "2020-01-01" },
+    { id: "small", apr: 3, balance: 900, kind: "loan", interestFrom: "2020-01-01" },
+  ];
+  const debtPayments = [{ id: "p", name: "plan", amount: 600, date: "2026-01-01", recur: "monthly", fromAcct: "chk", toDebt: "target" }];
+  const cfg = { accounts, debts, income: [], expenses: [], transfers: [], debtPayments, start: START, weeks: 160 };
+
+  assert.deepEqual(
+    simulateWeekly({ ...cfg, settings: { withdrawalRate: 4 } }).payoffWeek,
+    simulateWeekly({ ...cfg, settings: { withdrawalRate: 4, payoffOrder: "avalanche" } }).payoffWeek,
+    "no setting must behave exactly like the old hardcoded highest-rate-first",
+  );
+});
+
+/* ================================================================== */
+/*  Annual pre-tax contribution limit                                  */
+/* ================================================================== */
+
+const yearlyPretax = (sim, year) => sim.series.reduce((s, snap) => {
+  const d = new Date(START.getTime() + snap.w * 7 * 86400000);
+  return d.getFullYear() === year ? s + snap.pretax : s;
+}, 0);
+
+test("pre-tax contributions stop at the annual limit and resume in January", () => {
+  const accounts = [{ id: "chk", type: "checking", balance: 0, rate: 0 }, { id: "ret", type: "retirement", balance: 0, rate: 0 }];
+  const income = [{
+    id: "inc", name: "pay", amount: 2000, gross: 10000, grossMode: "paycheck", date: "2026-01-01", recur: "weekly", raise: 0,
+    weekdayAdj: false, dist: [{ acctId: "chk" }], preTax: [{ id: "d", name: "401k", mode: "pct", value: 50, toAcct: "ret", counts: true, capped: true }],
+  }];
+  const cfg = { accounts, debts: [], income, expenses: [], transfers: [], debtPayments: [], start: START, weeks: 104 };
+
+  const capped = simulateWeekly({ ...cfg, settings: { withdrawalRate: 4, deferralLimit: 24500 } });
+  const uncapped = simulateWeekly({ ...cfg, settings: { withdrawalRate: 4, deferralLimit: 0 } });
+
+  assert.ok(Math.abs(yearlyPretax(capped, 2026) - 24500) < 1, `2026 contributions should stop at the limit, got ${yearlyPretax(capped, 2026).toFixed(2)}`);
+  assert.ok(Math.abs(yearlyPretax(capped, 2027) - 24500) < 1, "the allowance resets with the calendar year");
+  assert.ok(yearlyPretax(uncapped, 2026) > 24500 * 4, "with no limit set, nothing is held back");
+
+  assert.ok(capped.capInfo.inc, "the income that hit the cap should be reported");
+  const hitDate = new Date(START.getTime() + capped.capInfo.inc.week * 7 * 86400000);
+  assert.equal(hitDate.getFullYear(), 2026, "the reported week is when it first bit");
+  assert.ok(hitDate.getMonth() <= 2, "at 50% of a $10k weekly gross the cap arrives within the first quarter");
+});
+
+test("a deduction marked as outside the limit is left alone", () => {
+  const accounts = [{ id: "chk", type: "checking", balance: 0, rate: 0 }, { id: "ret", type: "retirement", balance: 0, rate: 0 }];
+  const income = [{
+    id: "inc", name: "pay", amount: 2000, gross: 10000, grossMode: "paycheck", date: "2026-01-01", recur: "weekly", raise: 0,
+    weekdayAdj: false, dist: [{ acctId: "chk" }], preTax: [{ id: "h", name: "HSA", mode: "pct", value: 50, toAcct: "ret", counts: true, capped: false }],
+  }];
+  const sim = simulateWeekly({ accounts, debts: [], income, expenses: [], transfers: [], debtPayments: [], settings: { withdrawalRate: 4, deferralLimit: 24500 }, start: START, weeks: 60 });
+
+  assert.ok(yearlyPretax(sim, 2026) > 24500 * 4, "an uncapped deduction shouldn't be trimmed by the 401k limit");
+  assert.equal(sim.capInfo.inc, undefined, "and nothing should be reported as capped");
+});
+
+test("hitting the cap early costs the match that rides on later paychecks", () => {
+  const accounts = [{ id: "chk", type: "checking", balance: 0, rate: 0 }, { id: "ret", type: "retirement", balance: 0, rate: 0 }];
+  const income = [{
+    id: "inc", name: "pay", amount: 2000, gross: 10000, grossMode: "paycheck", date: "2026-01-01", recur: "weekly", raise: 0,
+    weekdayAdj: false, dist: [{ acctId: "chk" }],
+    preTax: [{ id: "d", name: "401k", mode: "pct", value: 50, toAcct: "ret", counts: true, capped: true }],
+    match: { rate: 100, limit: 3, toAcct: "ret" },
+  }];
+  const sim = simulateWeekly({ accounts, debts: [], income, expenses: [], transfers: [], debtPayments: [], settings: { withdrawalRate: 4, deferralLimit: 24500 }, start: START, weeks: 60 });
+
+  // Once contributions stop, so does a per-paycheck match of 100% up to 3% of $10,000.
+  assert.ok(sim.capInfo.inc.lostMatch > 10000, `front-loading should forfeit most of the year's match, got ${sim.capInfo.inc.lostMatch.toFixed(2)}`);
+});

@@ -4,8 +4,8 @@ const {
   ResponsiveContainer, ReferenceLine,
 } = Recharts;
 import { AlertTriangle } from "../icons.js";
-import { Stat, Donut, Tip, MultiTip } from "../components.js";
-import { fmtMoney, fmtBig, fmtDate, fmtDur } from "../format.js";
+import { Stat, NumField, Donut, Tip, MultiTip } from "../components.js";
+import { fmtMoney, fmtBig, fmtDate, fmtDur, n0 } from "../format.js";
 import { sampleRange } from "../useScope.js";
 
 /* "3y 2mo sooner" / "5mo later" for a milestone that moves between the two scenarios.
@@ -28,9 +28,10 @@ export function OverviewTab({ D, accounts, debts, chart, scNW, scBal, fireN, set
   ].filter(Boolean) : [];
   return (
             <>
-              <div className="sgrid rise" style={{ marginBottom: 16 }}>
+              <div className="sgrid wide5 rise" style={{ marginBottom: 16 }}>
                 <Stat k="Net worth<br/>today" v={fmtBig(D.netWorth)} accent={D.netWorth >= 0 ? "green" : "red"} />
                 <Stat k="Monthly<br/>surplus" v={fmtMoney(D.surplus)} accent={D.surplus >= 0 ? "" : "red"} />
+                <Stat k="Cash runway<br/>(no income)" v={D.runway == null ? "—" : fmtDur(Math.round(D.runway))} accent={D.runway != null && D.runway < 3 ? "red" : "cyan"} />
                 <Stat k="Debt-free<br/>date" v={D.totalDebt > 0 ? (D.sim.debtFree != null ? fmtDate(w2date(D.sim.debtFree)) : "40y+") : "Clear"} accent="amber" />
                 <Stat k="Financial indep.<br/>(25× expenses)" v={D.sim.fire != null ? fmtDate(w2date(D.sim.fire)) : "40y+"} accent="green" />
               </div>
@@ -38,6 +39,10 @@ export function OverviewTab({ D, accounts, debts, chart, scNW, scBal, fireN, set
               {D.surplus < 0 && (
                 <div className="warn rise"><AlertTriangle size={18} color="var(--red)" style={{ flex: "none", marginTop: 1 }} />
                   <div><div className="wt">Spending exceeds income</div><div className="wb">You're {fmtMoney(-D.surplus)}/mo in the red before debt or investing. Adjust items in Cash flow.</div></div></div>
+              )}
+              {D.runway != null && D.runway < 3 && (
+                <div className="warn rise"><AlertTriangle size={18} color="var(--red)" style={{ flex: "none", marginTop: 1 }} />
+                  <div><div className="wt">Thin cash runway</div><div className="wb">Your cash and savings cover {fmtDur(Math.round(D.runway))} of spending with no income at all — {fmtMoney(D.liquid)} against {fmtMoney(D.mExp)}/mo. Three to six months is the usual floor before investing harder.</div></div></div>
               )}
               {!(D.surplus < 0) && D.negAcct && (
                 <div className="warn rise"><AlertTriangle size={18} color="var(--red)" style={{ flex: "none", marginTop: 1 }} />
@@ -48,13 +53,15 @@ export function OverviewTab({ D, accounts, debts, chart, scNW, scBal, fireN, set
                 <div className="phead"><div className="ptitle">Net worth projection</div>{ranges(scNW, maxW)}</div>
                 <div className="scope-wrap" ref={scNW.ref} {...scNW.handlers}>
                   <ResponsiveContainer width="100%" height={286}>
-                    <ComposedChart data={sampleRange(D.sim.series, scNW.lo, scNW.hi, 320).map((s) => ({ w: s.w, nw: s.nw, debt: s.debt, invest: s.invest }))} margin={{ top: 16, right: 12, bottom: 0, left: 6 }}>
+                    <ComposedChart data={sampleRange(D.viewSeries, scNW.lo, scNW.hi, 320).map((s) => ({ w: s.w, nw: s.nw, debt: s.debt, invest: s.invest, fi: s.fi }))} margin={{ top: 16, right: 12, bottom: 0, left: 6 }}>
                       <defs><linearGradient id="nwFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#F5A623" stopOpacity={0.26} /><stop offset="100%" stopColor="#F5A623" stopOpacity={0} /></linearGradient></defs>
                       <CartesianGrid stroke="var(--line)" strokeDasharray="2 4" />
                       <XAxis {...axisProps(scNW)} />
                       <YAxis {...yProps} />
                       <Tooltip content={(p) => <Tip {...p} start={start} rows={[{ key: "nw", name: "Net worth", color: "var(--amber)" }, { key: "invest", name: "Investments", color: "var(--green)" }, { key: "debt", name: "Debt", color: "var(--red)" }]} />} cursor={{ stroke: "var(--line2)" }} />
-                      {fireN > 0 && D.sim.fire != null && <ReferenceLine y={fireN} stroke="var(--amber)" strokeDasharray="3 3" label={{ value: "FI " + fmtBig(fireN), position: "insideTopRight", fill: "var(--amber)", fontSize: 9.5, fontFamily: "var(--mono)" }} />}
+                      {/* in future dollars the target climbs with everything else, so it's a line rather than a level */}
+                      {fireN > 0 && D.sim.fire != null && !D.showNom && <ReferenceLine y={fireN} stroke="var(--amber)" strokeDasharray="3 3" label={{ value: "FI " + fmtBig(fireN), position: "insideTopRight", fill: "var(--amber)", fontSize: 9.5, fontFamily: "var(--mono)" }} />}
+                      {fireN > 0 && D.showNom && <Line type="monotone" dataKey="fi" stroke="var(--amber)" strokeWidth={1.2} strokeDasharray="3 3" dot={false} isAnimationActive={false} />}
                       {D.sim.debtFree != null && <ReferenceLine x={D.sim.debtFree} stroke="var(--red)" strokeDasharray="2 3" strokeOpacity={0.6} label={{ value: "DEBT-FREE", position: "top", fill: "var(--red)", fontSize: 9, fontFamily: "var(--mono)" }} />}
                       <Area type="monotone" dataKey="nw" stroke="var(--amber)" strokeWidth={2.6} fill="url(#nwFill)" dot={false} activeDot={{ r: 4, fill: "var(--amber)", stroke: "none" }} isAnimationActive={false} />
                       <Line type="monotone" dataKey="invest" stroke="var(--green)" strokeWidth={1.5} dot={false} isAnimationActive={false} />
@@ -85,14 +92,27 @@ export function OverviewTab({ D, accounts, debts, chart, scNW, scBal, fireN, set
                     </div>
                   )}
                 </div>
-                <div className="assume">Today's dollars · returns and rates held constant · a projection, not a guarantee or financial advice.</div>
+                <div className="hypo" style={{ marginTop: 14 }}>
+                  <div className="fields3" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                    <NumField label="Inflation (annual)" suffix="%" value={settings.inflation} onChange={(v) => setS("inflation", n0(v))} />
+                  </div>
+                  <label className="switch">
+                    <input type="checkbox" checked={!!settings.showNominal} onChange={(e) => setS("showNominal", e.target.checked)} />
+                    <span className="swtrack"><span className="swknob" /></span>
+                    <span className="sw-label">Show future dollars instead of today's</span>
+                  </label>
+                  <div className="caphint" style={{ marginTop: 8 }}>
+                    Every rate you enter is nominal, and the projection runs in today's money: a 7% return against {n0(settings.inflation)}% inflation compounds at {(((1.07) / (1 + n0(settings.inflation) / 100) - 1) * 100).toFixed(2)}% here, and your spending stays constant in real terms. Loan payments are the exception — a fixed payment doesn't rise with prices, so it quietly gets easier to make. The toggle re-labels the charts in the money of the day; it moves no dates, because the independence target inflates alongside the balances.
+                  </div>
+                </div>
+                <div className="assume">Today's dollars · returns, rates and spending held constant in real terms · a projection, not a guarantee or financial advice.</div>
               </div>
 
               <div className="panel rise">
                 <div className="phead"><div className="ptitle">Every account & debt over time</div>{ranges(scBal, maxW)}</div>
                 <div className="scope-wrap" ref={scBal.ref} {...scBal.handlers}>
                   <ResponsiveContainer width="100%" height={300}>
-                    <ComposedChart data={sampleRange(D.sim.series, scBal.lo, scBal.hi, 320).map((s) => ({ w: s.w, nw: s.nw, ...s.acct, ...s.dbt }))} margin={{ top: 14, right: 12, bottom: 0, left: 6 }}>
+                    <ComposedChart data={sampleRange(D.viewSeries, scBal.lo, scBal.hi, 320).map((s) => ({ w: s.w, nw: s.nw, ...s.acct, ...s.dbt }))} margin={{ top: 14, right: 12, bottom: 0, left: 6 }}>
                       <CartesianGrid stroke="var(--line)" strokeDasharray="2 4" />
                       <XAxis {...axisProps(scBal)} />
                       <YAxis {...yProps} />

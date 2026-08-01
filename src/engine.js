@@ -1,18 +1,28 @@
 // The simulation engine: projects account balances, debt payoff, and net worth forward
 // week by week. Pure JS, no React dependency — this is what tests/engine.test.mjs
 // imports directly.
-import { n0, num, r2, addDays, parseDate, DAY, isInvest, OPY } from "./format.js";
+import { n0, num, r2, addDays, parseDate, DAY, isInvest, OPY, toReal, inflFactor, WPY } from "./format.js";
 import { firesInWeek } from "./recurrence.js";
 import { salaryAt, bonusOf } from "./payroll.js";
+import { minPaymentOf } from "./loan.js";
 
 export const WEEKS = 2080; // ~40 years — the simulation horizon
+
+/* Which loan a spare dollar goes to once its own target is clear. Avalanche (highest rate
+   first) costs the least interest; snowball (smallest balance first) clears individual
+   loans sooner, which is the point of it. Both are offered because the cheaper plan isn't
+   always the one someone actually sticks to. */
+export const payoffSort = (order) => (order === "snowball"
+  ? (a, b) => a.bal - b.bal || b.apr - a.apr
+  : (a, b) => b.apr - a.apr || a.bal - b.bal);
 
 /* ================================================================== */
 /*  Engines                                                            */
 /* ================================================================== */
 /* minimum-payments-only debt path, weekly resolution */
-export function projectMinWeekly(debts, start, weeks) {
-  const d = debts.filter((x) => x.kind !== "card" && n0(x.balance) > 0).map((x) => ({ apr: n0(x.apr), min: n0(x.minPayment), bal: n0(x.balance) }));
+export function projectMinWeekly(debts, start, weeks, inflation) {
+  const infl = num(inflation);
+  const d = debts.filter((x) => x.kind !== "card" && n0(x.balance) > 0).map((x) => ({ apr: toReal(n0(x.apr), infl), min: minPaymentOf(x), bal: n0(x.balance) }));
   const series = new Array(weeks + 1);
   let prevMonth = start.getFullYear() * 12 + start.getMonth();
   let interest = 0, clearedWeek = null;
@@ -25,10 +35,12 @@ export function projectMinWeekly(debts, start, weeks) {
     const cm = we.getFullYear() * 12 + we.getMonth();
     if (cm !== prevMonth) {
       prevMonth = cm;
+      /* a loan payment is fixed in nominal dollars, so in today's money it shrinks */
+      const defl = 1 / inflFactor(infl, w);
       for (const x of d) {
         if (x.bal <= 0) continue;
         const i = x.bal * (x.apr / 1200); x.bal += i; interest += i;
-        const p = Math.min(x.min, x.bal); x.bal -= p; if (x.bal <= 0.005) x.bal = 0;
+        const p = Math.min(x.min * defl, x.bal); x.bal -= p; if (x.bal <= 0.005) x.bal = 0;
       }
     }
   }
@@ -38,11 +50,18 @@ export function projectMinWeekly(debts, start, weeks) {
 /* full weekly account-level simulation */
 export function simulateWeekly(cfg) {
   const { accounts, debts, income, expenses, transfers, debtPayments, settings, start, weeks } = cfg;
+  /* Everything below runs in today's dollars, so every nominal rate the user entered —
+     account returns, debt APRs, annual raises, promotion salaries — is converted to a real
+     one first, and cash flows fixed in nominal terms (loan payments) lose value as they go.
+     At 0% inflation every conversion is the identity, which is what the older tests assert. */
+  const infl = num(settings.inflation);
+  const nextLoan = payoffSort(settings.payoffOrder);
+  const dLimit = n0(settings.deferralLimit); /* annual pre-tax deferral cap; 0 = no cap */
   const A = accounts.map((a) => {
     let asOf = start;
     if (a.asOf) { const d2 = parseDate(a.asOf); if (!isNaN(d2)) asOf = d2; }
     return {
-      id: a.id, type: a.type, bal: n0(a.balance), wr: Math.pow(1 + num(a.rate) / 100, 1 / 52.1775) - 1,
+      id: a.id, type: a.type, bal: n0(a.balance), wr: Math.pow(1 + toReal(num(a.rate), infl) / 100, 1 / WPY) - 1,
       cap: (a.cap === "" || a.cap == null) ? null : n0(a.cap),
       spillTo: a.spillTo || "", spillEvery: a.spillEvery === "weekly" ? "weekly" : "monthly",
       asOf,
@@ -53,7 +72,7 @@ export function simulateWeekly(cfg) {
   const investAcct = A.find((a) => isInvest(a.type)) || fallback;
   /* where money lands once there's no debt left to throw it at — explicit, not list order */
   const overflowAcct = byId[settings.overflowTo] || investAcct;
-  const d = debts.map((x) => ({ id: x.id, apr: n0(x.apr), bal: n0(x.balance), kind: x.kind === "card" ? "card" : "loan", carried: n0(x.balance), interestFrom: x.interestFrom || "" }));
+  const d = debts.map((x) => ({ id: x.id, apr: toReal(n0(x.apr), infl), bal: n0(x.balance), kind: x.kind === "card" ? "card" : "loan", carried: n0(x.balance), interestFrom: x.interestFrom || "" }));
   const dById = Object.fromEntries(d.map((x) => [x.id, x]));
   const hasLoans = d.some((x) => x.kind !== "card" && x.bal > 0);
   /* FI target is built from long-run spending: anything with an end date inside the
@@ -70,8 +89,15 @@ export function simulateWeekly(cfg) {
 
   let basis = A.filter((a) => isInvest(a.type)).reduce((s, a) => s + a.bal, 0);
   const series = []; const payoffWeek = {};
+  /* per-income deferral tracking: how much has gone in this calendar year, and — the part
+     worth telling someone about — when the cap bit and what employer match that cost */
+  const ytd = {}; const capInfo = {};
+  const noteCap = (id, week, year, lostMatch) => {
+    const ci = capInfo[id] || (capInfo[id] = { week, year, lostMatch: 0 });
+    if (ci.year === year) ci.lostMatch += Math.max(0, lostMatch);
+  };
   let debtFree = null, fire = null, interest = 0, cardInterest = 0;
-  if (!A.length) return { series: [{ w: 0, nw: 0, debt: 0, loanDebt: 0, invest: 0, basis: 0, acct: {}, dbt: {}, inflow: 0, outflow: 0, charged: 0, pretax: 0 }], debtFree: null, fire: null, fireNumber, annualExp, annualExpNow, endingSoon, payoffWeek, interest: 0, cardInterest: 0 };
+  if (!A.length) return { series: [{ w: 0, nw: 0, debt: 0, loanDebt: 0, invest: 0, basis: 0, acct: {}, dbt: {}, inflow: 0, outflow: 0, charged: 0, pretax: 0 }], debtFree: null, fire: null, fireNumber, annualExp, annualExpNow, endingSoon, payoffWeek, interest: 0, cardInterest: 0, capInfo };
 
   /* an account balance dated in the past gets caught up to today first: this pre-roll
      re-runs ordinary cash flow from the earliest as-of date up to today, but only for
@@ -83,10 +109,15 @@ export function simulateWeekly(cfg) {
   const preWeeks = Math.min(260, Math.max(0, Math.ceil((start - earliestAsOf) / (7 * DAY))));
   const origin = addDays(start, -preWeeks * 7);
   let prevMonth = origin.getFullYear() * 12 + origin.getMonth();
+  let prevYear = origin.getFullYear();
 
   for (let w = 0; w <= preWeeks + weeks; w++) {
     const isPreRoll = w < preWeeks;
     const ws = addDays(origin, w * 7), we = addDays(ws, 7);
+    /* what a nominally-fixed dollar in this week is worth in today's money */
+    const defl = 1 / inflFactor(infl, w - preWeeks);
+    const year = ws.getFullYear();
+    if (year !== prevYear) { prevYear = year; for (const k in ytd) ytd[k] = 0; }
     /* an account whose as-of date hasn't arrived yet (still in the future relative to
        this week) is frozen — these two helpers are the single place that's enforced,
        and both report back how much actually landed so the week's totals stay honest */
@@ -138,9 +169,9 @@ export function simulateWeekly(cfg) {
 
     let inflow = 0, outflow = 0, charged = 0, pretax = 0;
     for (const inc of income) {
-      const sal = salaryAt(inc, ws);
+      const sal = salaryAt(inc, ws, { inflation: infl, start });
       const yrs = Math.max(0, Math.floor((ws - sal.anchor) / (365.25 * DAY)));
-      const growth = Math.pow(1 + num(inc.raise) / 100, yrs);
+      const growth = Math.pow(1 + toReal(num(inc.raise), infl) / 100, yrs);
       const payTo = (dist, total) => {
         const list = (dist && dist.length) ? dist : [{ acctId: fallback.id }];
         let used = 0, applied = 0;
@@ -173,20 +204,35 @@ export function simulateWeekly(cfg) {
         /* payroll deductions never reach take-home, so they're added on top and land
            straight in their account. Percentages are of gross, which is why gross is asked for. */
         const gross = sal.gross * growth * n;
-        let matchable = 0;
+        let matchable = 0, matchableFull = 0, capped = false;
         for (const pt of (inc.preTax || [])) {
-          const p = pt.mode === "pct" ? gross * num(pt.value) / 100 : n0(pt.value) * growth * n;
+          let p = pt.mode === "pct" ? gross * num(pt.value) / 100 : n0(pt.value) * growth * n;
           if (p <= 0) continue;
-          pretax += credit(byId[pt.toAcct] || investAcct, p);
-          if (pt.counts !== false) matchable += p;
+          const full = p;
+          /* the annual deferral cap stops the contribution mid-year. The limit is a real
+             figure — the IRS raises it with inflation — so it isn't deflated here. */
+          if (dLimit > 0 && pt.capped !== false) {
+            const room = Math.max(0, dLimit - n0(ytd[inc.id]));
+            if (p > room) { p = room; capped = true; }
+            ytd[inc.id] = n0(ytd[inc.id]) + p;
+          }
+          if (p > 0) pretax += credit(byId[pt.toAcct] || investAcct, p);
+          if (pt.counts !== false) { matchable += p; matchableFull += full; }
         }
         /* "100% up to 3%" = match every dollar you put in, but only on the first 3% of gross */
         const mt = inc.match;
-        if (mt && gross > 0 && n0(mt.rate) > 0 && matchable > 0) {
+        const hitCap = capped && !isPreRoll;
+        if (mt && gross > 0 && n0(mt.rate) > 0) {
           const ceiling = gross * num(mt.limit) / 100;
-          const m = Math.min(matchable, ceiling) * n0(mt.rate) / 100;
+          const m = matchable > 0 ? Math.min(matchable, ceiling) * n0(mt.rate) / 100 : 0;
           if (m > 0) pretax += credit(byId[mt.toAcct] || investAcct, m);
-        }
+          /* a match paid per paycheck stops when the deferral it rides on stops — that
+             lost match is what front-loading into the cap actually costs */
+          if (hitCap) {
+            const mFull = matchableFull > 0 ? Math.min(matchableFull, ceiling) * n0(mt.rate) / 100 : 0;
+            noteCap(inc.id, w - preWeeks, year, mFull - m);
+          }
+        } else if (hitCap) noteCap(inc.id, w - preWeeks, year, 0);
       }
       /* the bonus lands once a year on its own date, not with a paycheck */
       const bn = inc.bonus;
@@ -196,8 +242,19 @@ export function simulateWeekly(cfg) {
           const b = bonusOf(inc, growth, sal.gross);
           if (b) {
             inflow += payTo(inc.dist, b.net * hits);
-            if (b.deferral > 0) pretax += credit(byId[((inc.preTax || [])[0] || {}).toAcct] || investAcct, b.deferral * hits);
-            if (b.match > 0) pretax += credit(byId[(inc.match || {}).toAcct] || investAcct, b.match * hits);
+            let def = b.deferral * hits, mtch = b.match * hits;
+            if (def > 0 && dLimit > 0) {
+              const room = Math.max(0, dLimit - n0(ytd[inc.id]));
+              if (def > room) {
+                /* the match rides on the deferral, so it's trimmed in the same proportion */
+                const kept = room / def;
+                if (!isPreRoll) noteCap(inc.id, w - preWeeks, year, mtch * (1 - kept));
+                mtch *= kept; def = room;
+              }
+              ytd[inc.id] = n0(ytd[inc.id]) + def;
+            }
+            if (def > 0) pretax += credit(byId[((inc.preTax || [])[0] || {}).toAcct] || investAcct, def);
+            if (mtch > 0) pretax += credit(byId[(inc.match || {}).toAcct] || investAcct, mtch);
           }
         }
       }
@@ -226,15 +283,17 @@ export function simulateWeekly(cfg) {
         /* the debt's current balance is already known, so a historical payment doesn't
            pay it down here — but the cash genuinely left the paying account */
         if (dp.payFull && cardTarget) continue;
-        outflow += debit(src, n0(dp.amount) * n);
+        outflow += debit(src, n0(dp.amount) * n * defl);
         continue;
       }
-      let rem = (dp.payFull && target) ? Math.max(0, target.bal) : n0(dp.amount) * n;
+      /* a debt payment is a nominal commitment: $400/mo stays $400/mo while everything
+         around it gets more expensive, so in today's dollars it shrinks year by year */
+      let rem = (dp.payFull && target) ? Math.max(0, target.bal) : n0(dp.amount) * n * defl;
       const total = rem;
       if (target && target.bal > 0.005) { const p = Math.min(target.bal, rem); target.bal -= p; rem -= p; }
       if (!cardTarget) {
         while (rem > 0.005) {
-          const nx = d.filter((x) => x.kind !== "card" && x.bal > 0.005).sort((a, b) => b.apr - a.apr)[0];
+          const nx = d.filter((x) => x.kind !== "card" && x.bal > 0.005).sort(nextLoan)[0];
           if (!nx) break; const p = Math.min(nx.bal, rem); nx.bal -= p; rem -= p;
         }
       }
@@ -263,7 +322,7 @@ export function simulateWeekly(cfg) {
           if (tDebt.bal > 0.005) { const p = Math.min(tDebt.bal, rem); tDebt.bal -= p; rem -= p; if (tDebt.kind === "card") tDebt.carried = Math.max(0, tDebt.bal); }
           if (tDebt.kind !== "card") {
             while (rem > 0.005) {
-              const nx = d.filter((x) => x.kind !== "card" && x.bal > 0.005).sort((p, q) => q.apr - p.apr)[0];
+              const nx = d.filter((x) => x.kind !== "card" && x.bal > 0.005).sort(nextLoan)[0];
               if (!nx) break; const p = Math.min(nx.bal, rem); nx.bal -= p; rem -= p;
             }
           }
@@ -279,6 +338,6 @@ export function simulateWeekly(cfg) {
     }
     if (snap) { snap.inflow = r2(inflow); snap.outflow = r2(outflow); snap.charged = r2(charged); snap.swept = r2(swept); snap.pretax = r2(pretax); }
   }
-  return { series, debtFree, fire, fireNumber, annualExp, annualExpNow, endingSoon, payoffWeek, interest, cardInterest };
+  return { series, debtFree, fire, fireNumber, annualExp, annualExpNow, endingSoon, payoffWeek, interest, cardInterest, capInfo };
 }
 

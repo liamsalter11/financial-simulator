@@ -27,6 +27,15 @@ export const fmtDate = (d) => d.toLocaleDateString("en-US", { month: "short", ye
 export const weekTick = (start) => (w) => { const d = addDays(start, w * 7); return d.toLocaleDateString("en-US", { month: "short" }) + " '" + String(d.getFullYear()).slice(2); };
 export function fmtDur(m) { if (m <= 0) return "0 mo"; const y = Math.floor(m / 12), mo = m % 12; if (y && mo) return `${y}y ${mo}mo`; if (y) return `${y}y`; return `${mo} mo`; }
 
+export const WPY = 52.1775; /* weeks in a year — the engine's clock */
+/* Every rate the user types is nominal. The projection works in today's dollars, so a
+   nominal rate is converted to a real one before it compounds: 7% growth with 2.5%
+   inflation buys 4.39% more, not 7%. Deflating rather than inflating spending keeps every
+   figure on screen in money you can recognise today. */
+export const toReal = (nominalPct, inflPct) => (((1 + num(nominalPct) / 100) / (1 + num(inflPct) / 100)) - 1) * 100;
+/* how much a dollar today is worth in week w's money (>1 forward, <1 before today) */
+export const inflFactor = (inflPct, weeks) => Math.pow(1 + num(inflPct) / 100, weeks / WPY);
+
 export const OPY = { once: 0, weekly: 52.1775, biweekly: 26.0888, semimonthly: 24, monthly: 12, quarterly: 4, yearly: 1 };
 export const RECUR = [
   { v: "once", label: "One-time" }, { v: "weekly", label: "Weekly" }, { v: "biweekly", label: "Every 2 weeks" },

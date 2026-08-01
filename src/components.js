@@ -5,7 +5,8 @@ const {
   ResponsiveContainer
 } = Recharts;
 import { X, Trash2, Check } from "./icons.js";
-import { fmtBig, fmtMoney, fmtDate, n0, parseDate, addMonths, addDays } from "./format.js";
+import { fmtBig, fmtMoney, fmtDate, fmtDur, n0, parseDate, addMonths, addDays } from "./format.js";
+import { minPaymentOf, monthsToPayoff } from "./loan.js";
 export const Stat = ({
   k,
   v,
@@ -146,6 +147,9 @@ export function LoanCard({
   const paid = n0(loan.balance) <= 0;
   const iFrom = loan.interestFrom ? parseDate(loan.interestFrom) : null;
   const deferred = iFrom && !isNaN(iFrom) && iFrom > start;
+  const termMode = loan.payMode === "term";
+  const derived = minPaymentOf(loan);
+  const implied = monthsToPayoff(loan.balance, loan.apr, derived);
   return React.createElement("div", {
     className: "loan" + (paid ? " done" : "")
   }, React.createElement("div", {
@@ -175,12 +179,38 @@ export function LoanCard({
     suffix: "%",
     value: loan.apr,
     onChange: v => onField(loan.id, "apr", v)
-  }), React.createElement(NumField, {
+  }), termMode ? React.createElement(NumField, {
+    label: "Term",
+    suffix: "mo",
+    value: loan.termMonths,
+    onChange: v => onField(loan.id, "termMonths", v)
+  }) : React.createElement(NumField, {
     label: "Min / mo",
     prefix: "$",
     value: loan.minPayment,
     onChange: v => onField(loan.id, "minPayment", v)
-  })), React.createElement("div", {
+  })), !paid && React.createElement("div", {
+    className: "loan-foot"
+  }, React.createElement(Seg, {
+    value: termMode ? "term" : "payment",
+    options: [{
+      v: "payment",
+      label: "by payment"
+    }, {
+      v: "term",
+      label: "by term"
+    }],
+    onChange: v => onField(loan.id, "payMode", v)
+  }), termMode ? React.createElement("span", {
+    className: "payoff-badge"
+  }, "minimum ", React.createElement("b", null, fmtMoney(derived)), "/mo") : implied == null ? React.createElement("span", {
+    className: "payoff-badge",
+    style: {
+      color: "var(--red)"
+    }
+  }, "never clears at this minimum") : React.createElement("span", {
+    className: "payoff-badge"
+  }, "runs ", React.createElement("b", null, fmtDur(implied)), " at this minimum")), React.createElement("div", {
     className: "loan-foot"
   }, paid ? React.createElement("span", {
     className: "payoff-badge paid"

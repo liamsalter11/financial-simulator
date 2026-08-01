@@ -38,6 +38,8 @@ export const CSS = `
 .fin .psub{font-family:var(--mono);font-size:11px;color:var(--faint);}
 .fin .sgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}
 @media(min-width:680px){.fin .sgrid{grid-template-columns:repeat(4,1fr);}}
+@media(min-width:680px){.fin .sgrid.wide5{grid-template-columns:repeat(3,1fr);}}
+@media(min-width:900px){.fin .sgrid.wide5{grid-template-columns:repeat(5,1fr);}}
 .fin .stat{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:13px 15px;}
 .fin .stat .k{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--faint);margin-bottom:8px;line-height:1.35;min-height:26px;}
 .fin .stat .v{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:20px;font-weight:600;letter-spacing:-0.01em;}

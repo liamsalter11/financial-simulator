@@ -23,6 +23,7 @@ needed to read them) are both the source and the shipped file.
 | `src/tabs/*.jsx` | One file per tab (`OverviewTab`, `AccountsTab`, `CashFlowTab`, `DebtTab`, `InvestTab`), each just the rendering for that tab. |
 | `src/engine.js` | The simulation engine (`simulateWeekly`, `projectMinWeekly`) — pure logic, no React. |
 | `src/montecarlo.js` | Monte Carlo projection for the invested portfolio (`runMonteCarlo`) — pure logic, no React. |
+| `src/loan.js` | Amortization: payment ↔ term ↔ months-to-payoff. |
 | `src/payroll.js` | Per-paycheck salary/401k-match/bonus math. |
 | `src/recurrence.js` | Expands a recurring event into concrete dates and counts firings per week. |
 | `src/format.js` | Money/date formatting, recurrence labels, shared constants. |
@@ -121,6 +122,23 @@ Everything stays on your device — there is no server, no account, and no
 analytics. Use Export to save a portable JSON backup, and Import to restore it
 or move it to another device. Clearing site data will erase your entries.
 
+**Everything runs in today's dollars.** Every rate entered is nominal — returns, debt
+APRs, annual raises, a promotion's future salary — and each is converted to a real rate
+(`(1+r)/(1+i) − 1`) before it compounds, so 7% growth against 2.5% inflation compounds at
+4.39%. Spending holds its value in the same terms. The deliberate exception is
+nominally-fixed commitments: a loan payment stays the number on the contract while
+everything around it gets dearer, so it's deflated week by week and quietly buys less. The
+"show future dollars" switch is display only — it re-labels the charts in the money of the
+day and moves no dates, because the independence target inflates at exactly the same rate
+the balances do. At 0% inflation every conversion is the identity, which is what the older
+engine tests assert.
+
+**Debt payoff order is a choice.** Surplus from a payment rolls either to the highest-rate
+loan (avalanche, the cheapest) or to the smallest balance (snowball, which clears
+individual loans soonest). The Debt tab runs the strategy you didn't pick as a second full
+projection and prices the difference both ways, because the cheaper plan isn't always the
+one someone sticks to.
+
 **Monte Carlo reuses the deterministic contribution schedule.** The Invest
 tab's "range of outcomes" chart takes the same week-by-week contributions the
 deterministic engine already computed (`simulateWeekly`'s `basis` series) and
@@ -135,10 +153,16 @@ cheaper to recompute on every keystroke.
 
 ## Caveats
 
-The deterministic projection holds returns, rates and spending constant,
-works in today's dollars, and models no inflation, tax on gains, volatility,
-or sequence-of-returns risk. It's a directional tool for comparing decisions
-against each other, not a forecast — and not financial advice.
+The deterministic projection holds returns, rates and spending constant in real
+terms and works in today's dollars. Inflation is modelled only as a single
+constant rate applied to every return, APR and raise; there is no tax on gains,
+no volatility, and no sequence-of-returns risk. It's a directional tool for
+comparing decisions against each other, not a forecast — and not financial advice.
+
+The annual pre-tax contribution limit counts from today rather than from January,
+so a mid-year start doesn't know what has already gone in this calendar year, and
+it's applied per income source rather than per person — model two jobs for one
+person and each gets its own allowance, which the IRS would not.
 
 The Monte Carlo chart relaxes the volatility assumption only, and only for
 the invested portion of your net worth — cash, savings, and debt payoff still

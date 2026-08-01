@@ -11,8 +11,8 @@ const {
   ReferenceLine
 } = Recharts;
 import { AlertTriangle } from "../icons.js";
-import { Stat, Donut, Tip, MultiTip } from "../components.js";
-import { fmtMoney, fmtBig, fmtDate, fmtDur } from "../format.js";
+import { Stat, NumField, Donut, Tip, MultiTip } from "../components.js";
+import { fmtMoney, fmtBig, fmtDate, fmtDur, n0 } from "../format.js";
 import { sampleRange } from "../useScope.js";
 function milestoneShift(label, weekWith, weekWithout) {
   if (weekWith == null && weekWithout == null) return null;
@@ -45,7 +45,7 @@ export function OverviewTab({
   const gap = D.hasHypo ? D.nwGapAt(scNW.hi) : 0;
   const shifts = D.hasHypo ? [milestoneShift("financial independence", D.simWith.fire, D.simWithout.fire), milestoneShift("debt-free", D.simWith.debtFree, D.simWithout.debtFree)].filter(Boolean) : [];
   return React.createElement(React.Fragment, null, React.createElement("div", {
-    className: "sgrid rise",
+    className: "sgrid wide5 rise",
     style: {
       marginBottom: 16
     }
@@ -57,6 +57,10 @@ export function OverviewTab({
     k: "Monthly<br/>surplus",
     v: fmtMoney(D.surplus),
     accent: D.surplus >= 0 ? "" : "red"
+  }), React.createElement(Stat, {
+    k: "Cash runway<br/>(no income)",
+    v: D.runway == null ? "—" : fmtDur(Math.round(D.runway)),
+    accent: D.runway != null && D.runway < 3 ? "red" : "cyan"
   }), React.createElement(Stat, {
     k: "Debt-free<br/>date",
     v: D.totalDebt > 0 ? D.sim.debtFree != null ? fmtDate(w2date(D.sim.debtFree)) : "40y+" : "Clear",
@@ -78,7 +82,20 @@ export function OverviewTab({
     className: "wt"
   }, "Spending exceeds income"), React.createElement("div", {
     className: "wb"
-  }, "You're ", fmtMoney(-D.surplus), "/mo in the red before debt or investing. Adjust items in Cash flow."))), !(D.surplus < 0) && D.negAcct && React.createElement("div", {
+  }, "You're ", fmtMoney(-D.surplus), "/mo in the red before debt or investing. Adjust items in Cash flow."))), D.runway != null && D.runway < 3 && React.createElement("div", {
+    className: "warn rise"
+  }, React.createElement(AlertTriangle, {
+    size: 18,
+    color: "var(--red)",
+    style: {
+      flex: "none",
+      marginTop: 1
+    }
+  }), React.createElement("div", null, React.createElement("div", {
+    className: "wt"
+  }, "Thin cash runway"), React.createElement("div", {
+    className: "wb"
+  }, "Your cash and savings cover ", fmtDur(Math.round(D.runway)), " of spending with no income at all \u2014 ", fmtMoney(D.liquid), " against ", fmtMoney(D.mExp), "/mo. Three to six months is the usual floor before investing harder."))), !(D.surplus < 0) && D.negAcct && React.createElement("div", {
     className: "warn rise"
   }, React.createElement(AlertTriangle, {
     size: 18,
@@ -104,11 +121,12 @@ export function OverviewTab({
     width: "100%",
     height: 286
   }, React.createElement(ComposedChart, {
-    data: sampleRange(D.sim.series, scNW.lo, scNW.hi, 320).map(s => ({
+    data: sampleRange(D.viewSeries, scNW.lo, scNW.hi, 320).map(s => ({
       w: s.w,
       nw: s.nw,
       debt: s.debt,
-      invest: s.invest
+      invest: s.invest,
+      fi: s.fi
     })),
     margin: {
       top: 16,
@@ -153,7 +171,7 @@ export function OverviewTab({
     cursor: {
       stroke: "var(--line2)"
     }
-  }), fireN > 0 && D.sim.fire != null && React.createElement(ReferenceLine, {
+  }), fireN > 0 && D.sim.fire != null && !D.showNom && React.createElement(ReferenceLine, {
     y: fireN,
     stroke: "var(--amber)",
     strokeDasharray: "3 3",
@@ -164,6 +182,14 @@ export function OverviewTab({
       fontSize: 9.5,
       fontFamily: "var(--mono)"
     }
+  }), fireN > 0 && D.showNom && React.createElement(Line, {
+    type: "monotone",
+    dataKey: "fi",
+    stroke: "var(--amber)",
+    strokeWidth: 1.2,
+    strokeDasharray: "3 3",
+    dot: false,
+    isAnimationActive: false
   }), D.sim.debtFree != null && React.createElement(ReferenceLine, {
     x: D.sim.debtFree,
     stroke: "var(--red)",
@@ -232,8 +258,40 @@ export function OverviewTab({
       marginTop: 8
     }
   }, "No promotions planned yet. Add one under Cash flow \u2192 Income \u2192 \u201CPromotions & salary changes\u201D, and this will show what it's worth.")), React.createElement("div", {
+    className: "hypo",
+    style: {
+      marginTop: 14
+    }
+  }, React.createElement("div", {
+    className: "fields3",
+    style: {
+      gridTemplateColumns: "1fr 1fr"
+    }
+  }, React.createElement(NumField, {
+    label: "Inflation (annual)",
+    suffix: "%",
+    value: settings.inflation,
+    onChange: v => setS("inflation", n0(v))
+  })), React.createElement("label", {
+    className: "switch"
+  }, React.createElement("input", {
+    type: "checkbox",
+    checked: !!settings.showNominal,
+    onChange: e => setS("showNominal", e.target.checked)
+  }), React.createElement("span", {
+    className: "swtrack"
+  }, React.createElement("span", {
+    className: "swknob"
+  })), React.createElement("span", {
+    className: "sw-label"
+  }, "Show future dollars instead of today's")), React.createElement("div", {
+    className: "caphint",
+    style: {
+      marginTop: 8
+    }
+  }, "Every rate you enter is nominal, and the projection runs in today's money: a 7% return against ", n0(settings.inflation), "% inflation compounds at ", ((1.07 / (1 + n0(settings.inflation) / 100) - 1) * 100).toFixed(2), "% here, and your spending stays constant in real terms. Loan payments are the exception \u2014 a fixed payment doesn't rise with prices, so it quietly gets easier to make. The toggle re-labels the charts in the money of the day; it moves no dates, because the independence target inflates alongside the balances.")), React.createElement("div", {
     className: "assume"
-  }, "Today's dollars \xB7 returns and rates held constant \xB7 a projection, not a guarantee or financial advice.")), React.createElement("div", {
+  }, "Today's dollars \xB7 returns, rates and spending held constant in real terms \xB7 a projection, not a guarantee or financial advice.")), React.createElement("div", {
     className: "panel rise"
   }, React.createElement("div", {
     className: "phead"
@@ -246,7 +304,7 @@ export function OverviewTab({
     width: "100%",
     height: 300
   }, React.createElement(ComposedChart, {
-    data: sampleRange(D.sim.series, scBal.lo, scBal.hi, 320).map(s => ({
+    data: sampleRange(D.viewSeries, scBal.lo, scBal.hi, 320).map(s => ({
       w: s.w,
       nw: s.nw,
       ...s.acct,
