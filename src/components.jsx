@@ -1,6 +1,6 @@
 // Small, reusable presentational pieces shared across tabs.
 const { PieChart, Pie, Cell, ResponsiveContainer } = Recharts;
-import { X, Trash2, Check } from "./icons.js";
+import { X, Trash2, Check, AlertTriangle } from "./icons.js";
 import { fmtBig, fmtMoney, fmtDate, fmtDur, n0, parseDate, addMonths, addDays } from "./format.js";
 import { minPaymentOf, monthsToPayoff } from "./loan.js";
 
@@ -24,7 +24,9 @@ export function Modal({ title, onClose, children, wide }) {
 export function Donut({ data, center, sub }) {
   const total = data.reduce((s, d) => s + d.value, 0) || 1;
   return (<div className="split">
-    <div className="donut-wrap">
+    {/* the ring is decorative: the legend beside it already lists every slice with its
+        share, which is the accessible version of the same information */}
+    <div className="donut-wrap" aria-hidden="true">
       <ResponsiveContainer width="100%" height={186}>
         <PieChart><Pie data={data.length ? data : [{ name: "—", value: 1, color: "var(--donut-empty)" }]} dataKey="value" nameKey="name" innerRadius={58} outerRadius={82} paddingAngle={data.length > 1 ? 2 : 0} stroke="none" isAnimationActive={false}>
           {(data.length ? data : [{ color: "var(--donut-empty)" }]).map((d, i) => <Cell key={i} fill={d.color} />)}
@@ -32,7 +34,7 @@ export function Donut({ data, center, sub }) {
       </ResponsiveContainer>
       <div className="donut-center"><div className="dc-v">{center}</div><div className="dc-s">{sub}</div></div>
     </div>
-    <div className="dlegend">{data.map((d, i) => (<div className="dl-row" key={i}>
+    <div className="dlegend" role="list" aria-label={`${sub}: ${fmtBig(total)} across ${data.length} ${data.length === 1 ? "slice" : "slices"}`}>{data.map((d, i) => (<div className="dl-row" role="listitem" key={i}>
       <span className="dot" style={{ background: d.color }} /><span className="nm">{d.name}</span>
       <span className="vl">{fmtBig(d.value)}</span><span className="pc">{Math.round((d.value / total) * 100)}%</span></div>))}
     </div></div>);
@@ -76,6 +78,29 @@ export function LoanCard({ loan, rank, payoffMonth, start, hasPayments, onField,
       </span>
       {hasPayments && <span>from ${Math.round(n0(loan.originalBalance)).toLocaleString()}</span>}</div></div>);
 }
+/* A chart's text alternative. The picture itself is unreadable to a screen reader and to
+   anyone who can't tell two hues apart, so every chart carries one of these: a sentence
+   with the figures that matter, and a pointer at the Numbers view for the rest. It also
+   states the keyboard controls, which is the only place they're written down. */
+export const ChartAlt = ({ summary }) => (
+  <p className="sr-only">{summary} Every figure behind this chart is available as a table under “Numbers” in the toolbar. With this chart focused, arrow keys pan it, plus and minus zoom, Home and End jump to either end, and 0 shows the whole range.</p>
+);
+
+/* The inline half of a finding from src/checks.js. Both this and the summary list read the
+   same array, which is the point: a condition written twice eventually says two different
+   things, and this app had thirteen of them written twice. */
+export function RowChecks({ checks }) {
+  if (!checks || !checks.length) return null;
+  return (<div className="rowchecks">
+    {checks.map((c) => (
+      <div className={"rowcheck " + c.level} key={c.id}>
+        <AlertTriangle size={12} />
+        <span><b>{c.title}</b> {c.detail} <i>{c.fix}</i></span>
+      </div>
+    ))}
+  </div>);
+}
+
 export const EndDate = ({ value, onChange }) => (
   <span className={"endwrap" + (value ? "" : " off")}>
     <span className="cap">ends</span>

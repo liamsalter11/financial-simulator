@@ -70,5 +70,29 @@ export function useScope(maxW, defSpan) {
     }
   };
   const onPointerUp = (e) => { ptrs.current.delete(e.pointerId); last.current = null; };
-  return { lo: win.lo, hi: win.hi, snap, ref: setNode, handlers: { onPointerDown, onPointerMove, onPointerUp, onPointerCancel: onPointerUp, onPointerLeave: onPointerUp } };
+  /* Zoom and pan were mouse-and-touch only, which made the whole feature unreachable
+     without a pointing device. Arrows pan by a quarter of the window, +/- zoom about the
+     middle, Home and End go to the ends, and 0 shows everything. */
+  const onKeyDown = (e) => {
+    const span = win.hi - win.lo;
+    const nudge = Math.max(1, Math.round(span / 4));
+    const go = (lo) => { e.preventDefault(); setWin(clampTo(lo, lo + span)); };
+    switch (e.key) {
+      case "ArrowLeft": return go(win.lo - nudge);
+      case "ArrowRight": return go(win.lo + nudge);
+      case "Home": return go(0);
+      case "End": return go(maxRef.current - span);
+      case "+": case "=": e.preventDefault(); return zoomAt(0.5, 1 / 1.4);
+      case "-": case "_": e.preventDefault(); return zoomAt(0.5, 1.4);
+      case "0": e.preventDefault(); return snap(maxRef.current);
+      default: return undefined;
+    }
+  };
+  return {
+    lo: win.lo, hi: win.hi, snap, ref: setNode,
+    handlers: {
+      onPointerDown, onPointerMove, onPointerUp, onPointerCancel: onPointerUp, onPointerLeave: onPointerUp,
+      onKeyDown, tabIndex: 0,
+    },
+  };
 }

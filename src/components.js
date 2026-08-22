@@ -4,7 +4,7 @@ const {
   Cell,
   ResponsiveContainer
 } = Recharts;
-import { X, Trash2, Check } from "./icons.js";
+import { X, Trash2, Check, AlertTriangle } from "./icons.js";
 import { fmtBig, fmtMoney, fmtDate, fmtDur, n0, parseDate, addMonths, addDays } from "./format.js";
 import { minPaymentOf, monthsToPayoff } from "./loan.js";
 export const Stat = ({
@@ -90,7 +90,8 @@ export function Donut({
   return React.createElement("div", {
     className: "split"
   }, React.createElement("div", {
-    className: "donut-wrap"
+    className: "donut-wrap",
+    "aria-hidden": "true"
   }, React.createElement(ResponsiveContainer, {
     width: "100%",
     height: 186
@@ -119,9 +120,12 @@ export function Donut({
   }, center), React.createElement("div", {
     className: "dc-s"
   }, sub))), React.createElement("div", {
-    className: "dlegend"
+    className: "dlegend",
+    role: "list",
+    "aria-label": `${sub}: ${fmtBig(total)} across ${data.length} ${data.length === 1 ? "slice" : "slices"}`
   }, data.map((d, i) => React.createElement("div", {
     className: "dl-row",
+    role: "listitem",
     key: i
   }, React.createElement("span", {
     className: "dot",
@@ -242,6 +246,24 @@ export function LoanCard({
   }), deferred ? React.createElement("span", {
     className: "badge"
   }, "no interest yet") : null), hasPayments && React.createElement("span", null, "from $", Math.round(n0(loan.originalBalance)).toLocaleString())));
+}
+export const ChartAlt = ({
+  summary
+}) => React.createElement("p", {
+  className: "sr-only"
+}, summary, " Every figure behind this chart is available as a table under \u201CNumbers\u201D in the toolbar. With this chart focused, arrow keys pan it, plus and minus zoom, Home and End jump to either end, and 0 shows the whole range.");
+export function RowChecks({
+  checks
+}) {
+  if (!checks || !checks.length) return null;
+  return React.createElement("div", {
+    className: "rowchecks"
+  }, checks.map(c => React.createElement("div", {
+    className: "rowcheck " + c.level,
+    key: c.id
+  }, React.createElement(AlertTriangle, {
+    size: 12
+  }), React.createElement("span", null, React.createElement("b", null, c.title), " ", c.detail, " ", React.createElement("i", null, c.fix)))));
 }
 export const EndDate = ({
   value,

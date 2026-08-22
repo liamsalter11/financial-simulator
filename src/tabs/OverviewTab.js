@@ -11,7 +11,7 @@ const {
   ReferenceLine
 } = Recharts;
 import { AlertTriangle, Zap } from "../icons.js";
-import { Stat, NumField, Seg, Donut, Tip, MultiTip } from "../components.js";
+import { Stat, NumField, Seg, Donut, Tip, MultiTip, ChartAlt } from "../components.js";
 import { fmtMoney, fmtBig, fmtDate, fmtDur, n0 } from "../format.js";
 import { sampleRange } from "../useScope.js";
 function milestoneShift(label, weekWith, weekWithout) {
@@ -57,7 +57,9 @@ export function OverviewTab({
   runTornado,
   knobs,
   targets,
-  openScenarios
+  openScenarios,
+  openChecks,
+  onCheck
 }) {
   const {
     ranges,
@@ -97,8 +99,9 @@ export function OverviewTab({
     k: "Financial indep.<br/>(25\xD7 expenses)",
     v: D.sim.fire != null ? fmtDate(w2date(D.sim.fire)) : "40y+",
     accent: "green"
-  })), D.surplus < 0 && React.createElement("div", {
-    className: "warn rise"
+  })), D.checks.filter(c => c.level === "error").slice(0, 3).map(c => React.createElement("div", {
+    className: "warn rise",
+    key: c.id
   }, React.createElement(AlertTriangle, {
     size: 18,
     color: "var(--red)",
@@ -108,35 +111,25 @@ export function OverviewTab({
     }
   }), React.createElement("div", null, React.createElement("div", {
     className: "wt"
-  }, "Spending exceeds income"), React.createElement("div", {
+  }, c.title), React.createElement("div", {
     className: "wb"
-  }, "You're ", fmtMoney(-D.surplus), "/mo in the red before debt or investing. Adjust items in Cash flow."))), D.runway != null && D.runway < 3 && React.createElement("div", {
-    className: "warn rise"
-  }, React.createElement(AlertTriangle, {
-    size: 18,
-    color: "var(--red)",
-    style: {
-      flex: "none",
-      marginTop: 1
-    }
-  }), React.createElement("div", null, React.createElement("div", {
-    className: "wt"
-  }, "Thin cash runway"), React.createElement("div", {
-    className: "wb"
-  }, "Your cash and savings cover ", fmtDur(Math.round(D.runway)), " of spending with no income at all \u2014 ", fmtMoney(D.liquid), " against ", fmtMoney(D.mExp), "/mo. Three to six months is the usual floor before investing harder."))), !(D.surplus < 0) && D.negAcct && React.createElement("div", {
-    className: "warn rise"
-  }, React.createElement(AlertTriangle, {
-    size: 18,
-    color: "var(--red)",
-    style: {
-      flex: "none",
-      marginTop: 1
-    }
-  }), React.createElement("div", null, React.createElement("div", {
-    className: "wt"
-  }, D.negAcct, " runs dry"), React.createElement("div", {
-    className: "wb"
-  }, "With these dated flows, ", D.negAcct, " goes negative at some point. Route more income into it, or draw some expenses or payments from another account."))), React.createElement("div", {
+  }, c.detail, " ", React.createElement("b", null, c.fix))), React.createElement("button", {
+    className: "btn btn-ghost",
+    onClick: () => onCheck(c)
+  }, "Take me there"))), (() => {
+    const shown = Math.min(D.checks.filter(c => c.level === "error").length, 3);
+    const rest = D.checks.length - shown;
+    return rest > 0 ? React.createElement("div", {
+      className: "assume",
+      style: {
+        marginTop: shown ? -8 : 0,
+        marginBottom: 14
+      }
+    }, React.createElement("button", {
+      className: "linkish",
+      onClick: openChecks
+    }, rest, " thing", rest === 1 ? "" : "s", " worth looking at \u2192")) : null;
+  })(), React.createElement("div", {
     className: "panel rise"
   }, React.createElement("div", {
     className: "phead"
@@ -145,7 +138,12 @@ export function OverviewTab({
   }, "Net worth projection"), ranges(scNW, maxW)), React.createElement("div", _extends({
     className: "scope-wrap",
     ref: scNW.ref
-  }, scNW.handlers), React.createElement(ResponsiveContainer, {
+  }, scNW.handlers, {
+    role: "group",
+    "aria-label": "Net worth projection"
+  }), React.createElement(ChartAlt, {
+    summary: `Net worth from ${fmtMoney(D.netWorth)} today to ${fmtBig(D.sim.series[Math.min(scNW.hi | 0, D.sim.series.length - 1)].nw)} by ${fmtDate(w2date(Math.min(scNW.hi | 0, D.sim.series.length - 1)))}, with invested balances and total debt alongside it. ${D.sim.debtFree != null ? `Debt is cleared in ${fmtDate(w2date(D.sim.debtFree))}.` : "Debt is not cleared inside the projection."} ${D.sim.fire != null ? `Independence is reached in ${fmtDate(w2date(D.sim.fire))}.` : ""}`
+  }), React.createElement(ResponsiveContainer, {
     width: "100%",
     height: 286
   }, React.createElement(ComposedChart, {
@@ -248,14 +246,16 @@ export function OverviewTab({
     type: "monotone",
     dataKey: "invest",
     stroke: "var(--green)",
-    strokeWidth: 1.5,
+    strokeWidth: 1.6,
+    strokeDasharray: "6 3",
     dot: false,
     isAnimationActive: false
   }), React.createElement(Line, {
     type: "monotone",
     dataKey: "debt",
     stroke: "var(--red)",
-    strokeWidth: 1.5,
+    strokeWidth: 1.6,
+    strokeDasharray: "2 3",
     dot: false,
     isAnimationActive: false
   }), D.compare && React.createElement(Line, {
@@ -279,6 +279,58 @@ export function OverviewTab({
     connectNulls: true,
     isAnimationActive: false
   })))), ZHINT, React.createElement("div", {
+    className: "legend",
+    style: {
+      marginTop: 8
+    }
+  }, React.createElement("span", {
+    className: "lg"
+  }, React.createElement("span", {
+    className: "swatch",
+    style: {
+      borderTopColor: "var(--amber)",
+      borderTopWidth: 3
+    }
+  }), "Net worth"), React.createElement("span", {
+    className: "lg"
+  }, React.createElement("span", {
+    className: "swatch",
+    style: {
+      borderTopColor: "var(--green)",
+      borderTopStyle: "dashed"
+    }
+  }), "Invested"), React.createElement("span", {
+    className: "lg"
+  }, React.createElement("span", {
+    className: "swatch",
+    style: {
+      borderTopColor: "var(--red)",
+      borderTopStyle: "dotted"
+    }
+  }), "Debt"), fireN > 0 && React.createElement("span", {
+    className: "lg"
+  }, React.createElement("span", {
+    className: "swatch",
+    style: {
+      borderTopColor: "var(--amber)",
+      borderTopStyle: "dashed"
+    }
+  }), "Independence target"), D.compare && React.createElement("span", {
+    className: "lg"
+  }, React.createElement("span", {
+    className: "swatch",
+    style: {
+      borderTopColor: "var(--muted)",
+      borderTopStyle: "dashed"
+    }
+  }), D.compare.name), D.actuals.length > 1 && React.createElement("span", {
+    className: "lg"
+  }, React.createElement("span", {
+    className: "dot",
+    style: {
+      background: "var(--cyan)"
+    }
+  }), "Recorded")), React.createElement("div", {
     className: "hypo"
   }, React.createElement("label", {
     className: "switch"
@@ -388,7 +440,12 @@ export function OverviewTab({
   }, "Every account & debt over time"), ranges(scBal, maxW)), React.createElement("div", _extends({
     className: "scope-wrap",
     ref: scBal.ref
-  }, scBal.handlers), React.createElement(ResponsiveContainer, {
+  }, scBal.handlers, {
+    role: "group",
+    "aria-label": "Every account and debt over time"
+  }), React.createElement(ChartAlt, {
+    summary: `A line for each of your ${accounts.length} account${accounts.length === 1 ? "" : "s"} (${accounts.map(a => a.name).join(", ")}) and a dashed line for each debt (${debts.length ? debts.map(d => d.name).join(", ") : "none"}), against total net worth.`
+  }), React.createElement(ResponsiveContainer, {
     width: "100%",
     height: 300
   }, React.createElement(ComposedChart, {
@@ -420,6 +477,7 @@ export function OverviewTab({
     type: "monotone",
     dataKey: a.id,
     stroke: D.acctColors[a.id],
+    strokeDasharray: D.acctDashes[a.id],
     strokeWidth: 1.5,
     dot: false,
     isAnimationActive: false
@@ -458,7 +516,8 @@ export function OverviewTab({
   }, React.createElement("span", {
     className: "swatch",
     style: {
-      borderTopColor: D.acctColors[a.id]
+      borderTopColor: D.acctColors[a.id],
+      borderTopStyle: D.acctDashes[a.id] ? "dashed" : "solid"
     }
   }), a.name)), debts.map(l => React.createElement("span", {
     className: "lg",

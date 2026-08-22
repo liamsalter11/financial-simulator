@@ -4,7 +4,7 @@ const {
   ResponsiveContainer, ReferenceLine,
 } = Recharts;
 import { AlertTriangle, Zap } from "../icons.js";
-import { Stat, NumField, Seg, Donut, Tip, MultiTip } from "../components.js";
+import { Stat, NumField, Seg, Donut, Tip, MultiTip, ChartAlt } from "../components.js";
 import { fmtMoney, fmtBig, fmtDate, fmtDur, n0 } from "../format.js";
 import { sampleRange } from "../useScope.js";
 
@@ -31,7 +31,7 @@ function SolveAnswer({ solve, knob, target, fmtWeek }) {
   return <>{knob.direction === "min" ? <>You'd need {amount}</> : <>You could go up to {amount}</>} — that lands on {achieved}.</>;
 }
 
-export function OverviewTab({ D, accounts, debts, chart, scNW, scBal, fireN, settings, setS, ask, setAsk, runSolve, runTornado, knobs, targets, openScenarios }) {
+export function OverviewTab({ D, accounts, debts, chart, scNW, scBal, fireN, settings, setS, ask, setAsk, runSolve, runTornado, knobs, targets, openScenarios, openChecks, onCheck }) {
   const { ranges, ZHINT, axisProps, yProps, w2date, start, maxW } = chart;
   const askKnob = knobs.find((k) => k.v === ask.knob) || knobs[0];
   const askTarget = targets.find((t) => t.v === ask.target) || targets[0];
@@ -50,22 +50,37 @@ export function OverviewTab({ D, accounts, debts, chart, scNW, scBal, fireN, set
                 <Stat k="Financial indep.<br/>(25× expenses)" v={D.sim.fire != null ? fmtDate(w2date(D.sim.fire)) : "40y+"} accent="green" />
               </div>
 
-              {D.surplus < 0 && (
-                <div className="warn rise"><AlertTriangle size={18} color="var(--red)" style={{ flex: "none", marginTop: 1 }} />
-                  <div><div className="wt">Spending exceeds income</div><div className="wb">You're {fmtMoney(-D.surplus)}/mo in the red before debt or investing. Adjust items in Cash flow.</div></div></div>
-              )}
-              {D.runway != null && D.runway < 3 && (
-                <div className="warn rise"><AlertTriangle size={18} color="var(--red)" style={{ flex: "none", marginTop: 1 }} />
-                  <div><div className="wt">Thin cash runway</div><div className="wb">Your cash and savings cover {fmtDur(Math.round(D.runway))} of spending with no income at all — {fmtMoney(D.liquid)} against {fmtMoney(D.mExp)}/mo. Three to six months is the usual floor before investing harder.</div></div></div>
-              )}
-              {!(D.surplus < 0) && D.negAcct && (
-                <div className="warn rise"><AlertTriangle size={18} color="var(--red)" style={{ flex: "none", marginTop: 1 }} />
-                  <div><div className="wt">{D.negAcct} runs dry</div><div className="wb">With these dated flows, {D.negAcct} goes negative at some point. Route more income into it, or draw some expenses or payments from another account.</div></div></div>
-              )}
+              {/* The three hand-written banners that used to live here were three more copies
+                  of conditions the tabs also tested. They come from D.checks now — the most
+                  serious few, with the rest a click away, so a problem on a tab you aren't
+                  looking at isn't invisible. */}
+              {D.checks.filter((c) => c.level === "error").slice(0, 3).map((c) => (
+                <div className="warn rise" key={c.id}>
+                  <AlertTriangle size={18} color="var(--red)" style={{ flex: "none", marginTop: 1 }} />
+                  <div>
+                    <div className="wt">{c.title}</div>
+                    <div className="wb">{c.detail} <b>{c.fix}</b></div>
+                  </div>
+                  <button className="btn btn-ghost" onClick={() => onCheck(c)}>Take me there</button>
+                </div>
+              ))}
+              {(() => {
+                /* A banner is for "the plan can't do what you asked". Everything milder —
+                   a thin runway, a Monte Carlo caution — belongs in the list rather than
+                   shouting at someone who hasn't entered their numbers yet. */
+                const shown = Math.min(D.checks.filter((c) => c.level === "error").length, 3);
+                const rest = D.checks.length - shown;
+                return rest > 0 ? (
+                  <div className="assume" style={{ marginTop: shown ? -8 : 0, marginBottom: 14 }}>
+                    <button className="linkish" onClick={openChecks}>{rest} thing{rest === 1 ? "" : "s"} worth looking at →</button>
+                  </div>
+                ) : null;
+              })()}
 
               <div className="panel rise">
                 <div className="phead"><div className="ptitle">Net worth projection</div>{ranges(scNW, maxW)}</div>
-                <div className="scope-wrap" ref={scNW.ref} {...scNW.handlers}>
+                <div className="scope-wrap" ref={scNW.ref} {...scNW.handlers} role="group" aria-label="Net worth projection">
+                  <ChartAlt summary={`Net worth from ${fmtMoney(D.netWorth)} today to ${fmtBig(D.sim.series[Math.min(scNW.hi | 0, D.sim.series.length - 1)].nw)} by ${fmtDate(w2date(Math.min(scNW.hi | 0, D.sim.series.length - 1)))}, with invested balances and total debt alongside it. ${D.sim.debtFree != null ? `Debt is cleared in ${fmtDate(w2date(D.sim.debtFree))}.` : "Debt is not cleared inside the projection."} ${D.sim.fire != null ? `Independence is reached in ${fmtDate(w2date(D.sim.fire))}.` : ""}`} />
                   <ResponsiveContainer width="100%" height={286}>
                     <ComposedChart data={sampleRange(D.viewSeries, scNW.lo, scNW.hi, 320).map((s) => ({ w: s.w, nw: s.nw, debt: s.debt, invest: s.invest, fi: s.fi, cmp: s.cmp }))} margin={{ top: 16, right: 12, bottom: 0, left: 6 }}>
                       <defs><linearGradient id="nwFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--amber)" stopOpacity={0.26} /><stop offset="100%" stopColor="var(--amber)" stopOpacity={0} /></linearGradient></defs>
@@ -78,8 +93,9 @@ export function OverviewTab({ D, accounts, debts, chart, scNW, scBal, fireN, set
                       {fireN > 0 && D.fiSloped && <Line type="monotone" dataKey="fi" stroke="var(--amber)" strokeWidth={1.2} strokeDasharray="3 3" dot={false} isAnimationActive={false} />}
                       {D.sim.debtFree != null && <ReferenceLine x={D.sim.debtFree} stroke="var(--red)" strokeDasharray="2 3" strokeOpacity={0.6} label={{ value: "DEBT-FREE", position: "top", fill: "var(--red)", fontSize: 9, fontFamily: "var(--mono)" }} />}
                       <Area type="monotone" dataKey="nw" stroke="var(--amber)" strokeWidth={2.6} fill="url(#nwFill)" dot={false} activeDot={{ r: 4, fill: "var(--amber)", stroke: "none" }} isAnimationActive={false} />
-                      <Line type="monotone" dataKey="invest" stroke="var(--green)" strokeWidth={1.5} dot={false} isAnimationActive={false} />
-                      <Line type="monotone" dataKey="debt" stroke="var(--red)" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+                      {/* dashed differently, not just coloured differently — these two were the same stroke in two hues, which is no distinction at all in greyscale */}
+                      <Line type="monotone" dataKey="invest" stroke="var(--green)" strokeWidth={1.6} strokeDasharray="6 3" dot={false} isAnimationActive={false} />
+                      <Line type="monotone" dataKey="debt" stroke="var(--red)" strokeWidth={1.6} strokeDasharray="2 3" dot={false} isAnimationActive={false} />
                       {D.compare && <Line type="monotone" dataKey="cmp" stroke="var(--muted)" strokeWidth={1.6} strokeDasharray="5 4" dot={false} isAnimationActive={false} />}
                       {/* what was actually recorded, as points rather than a line — there
                           are only as many as there are days you've opened the app */}
@@ -88,6 +104,16 @@ export function OverviewTab({ D, accounts, debts, chart, scNW, scBal, fireN, set
                   </ResponsiveContainer>
                 </div>
                 {ZHINT}
+                {/* the main chart had no legend at all: which line was which was only
+                    discoverable by hovering, which is a mouse and a colour away */}
+                <div className="legend" style={{ marginTop: 8 }}>
+                  <span className="lg"><span className="swatch" style={{ borderTopColor: "var(--amber)", borderTopWidth: 3 }} />Net worth</span>
+                  <span className="lg"><span className="swatch" style={{ borderTopColor: "var(--green)", borderTopStyle: "dashed" }} />Invested</span>
+                  <span className="lg"><span className="swatch" style={{ borderTopColor: "var(--red)", borderTopStyle: "dotted" }} />Debt</span>
+                  {fireN > 0 && <span className="lg"><span className="swatch" style={{ borderTopColor: "var(--amber)", borderTopStyle: "dashed" }} />Independence target</span>}
+                  {D.compare && <span className="lg"><span className="swatch" style={{ borderTopColor: "var(--muted)", borderTopStyle: "dashed" }} />{D.compare.name}</span>}
+                  {D.actuals.length > 1 && <span className="lg"><span className="dot" style={{ background: "var(--cyan)" }} />Recorded</span>}
+                </div>
                 <div className="hypo">
                   <label className="switch">
                     <input type="checkbox" checked={settings.hypotheticals !== false} onChange={(e) => setS("hypotheticals", e.target.checked)} />
@@ -151,14 +177,15 @@ export function OverviewTab({ D, accounts, debts, chart, scNW, scBal, fireN, set
 
               <div className="panel rise">
                 <div className="phead"><div className="ptitle">Every account & debt over time</div>{ranges(scBal, maxW)}</div>
-                <div className="scope-wrap" ref={scBal.ref} {...scBal.handlers}>
+                <div className="scope-wrap" ref={scBal.ref} {...scBal.handlers} role="group" aria-label="Every account and debt over time">
+                  <ChartAlt summary={`A line for each of your ${accounts.length} account${accounts.length === 1 ? "" : "s"} (${accounts.map((a) => a.name).join(", ")}) and a dashed line for each debt (${debts.length ? debts.map((d) => d.name).join(", ") : "none"}), against total net worth.`} />
                   <ResponsiveContainer width="100%" height={300}>
                     <ComposedChart data={sampleRange(D.viewSeries, scBal.lo, scBal.hi, 320).map((s) => ({ w: s.w, nw: s.nw, ...s.acct, ...s.dbt }))} margin={{ top: 14, right: 12, bottom: 0, left: 6 }}>
                       <CartesianGrid stroke="var(--line)" strokeDasharray="2 4" />
                       <XAxis {...axisProps(scBal)} />
                       <YAxis {...yProps} />
                       <Tooltip content={(p) => <MultiTip {...p} start={start} names={D.names} />} cursor={{ stroke: "var(--line2)" }} />
-                      {accounts.map((a) => <Line key={a.id} type="monotone" dataKey={a.id} stroke={D.acctColors[a.id]} strokeWidth={1.5} dot={false} isAnimationActive={false} />)}
+                      {accounts.map((a) => <Line key={a.id} type="monotone" dataKey={a.id} stroke={D.acctColors[a.id]} strokeDasharray={D.acctDashes[a.id]} strokeWidth={1.5} dot={false} isAnimationActive={false} />)}
                       {debts.map((l) => <Line key={l.id} type="monotone" dataKey={l.id} stroke={D.debtColors[l.id]} strokeWidth={1.4} strokeDasharray="4 3" dot={false} isAnimationActive={false} />)}
                       <Line type="monotone" dataKey="nw" stroke="var(--amber)" strokeWidth={2.6} dot={false} isAnimationActive={false} />
                     </ComposedChart>
@@ -167,7 +194,7 @@ export function OverviewTab({ D, accounts, debts, chart, scNW, scBal, fireN, set
                 {ZHINT}
                 <div className="legend" style={{ marginTop: 10 }}>
                   <span className="lg"><span className="swatch" style={{ borderTopColor: "var(--amber)", borderTopWidth: 3 }} />Net worth</span>
-                  {accounts.map((a) => <span className="lg" key={a.id}><span className="swatch" style={{ borderTopColor: D.acctColors[a.id] }} />{a.name}</span>)}
+                  {accounts.map((a) => <span className="lg" key={a.id}><span className="swatch" style={{ borderTopColor: D.acctColors[a.id], borderTopStyle: D.acctDashes[a.id] ? "dashed" : "solid" }} />{a.name}</span>)}
                   {debts.map((l) => <span className="lg" key={l.id}><span className="swatch" style={{ borderTopColor: D.debtColors[l.id], borderTopStyle: "dashed" }} />{l.name}</span>)}
                 </div>
               </div>

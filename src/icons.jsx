@@ -47,6 +47,8 @@ export const Contrast = (p) => (<IconBase {...p}><circle cx="12" cy="12" r="9" /
 export const Printer = (p) => (<IconBase {...p}>
   <path d="M6 9V3h12v6" /><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
   <rect x="6" y="14" width="12" height="8" rx="1" /></IconBase>);
+export const TableIcon = (p) => (<IconBase {...p}>
+  <rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18" /><path d="M3 15h18" /><path d="M9 3v18" /></IconBase>);
 export const Link2 = (p) => (<IconBase {...p}>
   <path d="M9 17H7A5 5 0 0 1 7 7h2" /><path d="M15 7h2a5 5 0 1 1 0 10h-2" /><path d="M8 12h8" /></IconBase>);
 export const ArrowRight = (p) => (<IconBase {...p}><path d="M5 12h14" /><path d="m12 5 7 7-7 7" /></IconBase>);

@@ -13,11 +13,12 @@ const {
   Cell
 } = Recharts;
 import { Plus, Trash2, ArrowRight, Upload } from "../icons.js";
-import { Stat, NumField, Seg, EndDate, Tip } from "../components.js";
+import { Stat, NumField, Seg, EndDate, Tip, RowChecks, ChartAlt } from "../components.js";
 import { fmtMoney, fmtDate, n0, num, OPY, parseDate, RECUR, recurLabel, CATEGORIES, catLabel } from "../format.js";
 import { payrollOf, bonusOf, perCheck, effectiveTaxRate, isDerived, taxBreakdown } from "../payroll.js";
 import { FILING, TAX_YEAR } from "../tax.js";
 import { isCard } from "../seeds.js";
+import { checksFor } from "../checks.js";
 import { sampleRange } from "../useScope.js";
 export function CashFlowTab({
   D,
@@ -63,7 +64,8 @@ export function CashFlowTab({
   addTr,
   openCsv,
   itemised,
-  setItemised
+  setItemised,
+  focusId
 }) {
   const {
     ranges,
@@ -73,6 +75,14 @@ export function CashFlowTab({
     start,
     maxW
   } = chart;
+  const rowChecks = id => checksFor(D.checks, id);
+  const rowProps = id => {
+    const cs = rowChecks(id);
+    return {
+      "data-row": id,
+      className: (focusId === id ? " flagged" : "") + (cs.some(c => c.level === "error") ? " bad" : "")
+    };
+  };
   const dp = Math.max(0, D.mDp),
     iv = Math.max(0, D.mTr),
     lo = Math.max(0, D.leftover);
@@ -124,7 +134,12 @@ export function CashFlowTab({
   }, "Cash flow, week by week"), ranges(scCF, Math.min(maxW, 312))), React.createElement("div", _extends({
     className: "scope-wrap",
     ref: scCF.ref
-  }, scCF.handlers), React.createElement(ResponsiveContainer, {
+  }, scCF.handlers, {
+    role: "group",
+    "aria-label": "Cash flow week by week"
+  }), React.createElement(ChartAlt, {
+    summary: `Money in and out week by week, averaging ${fmtMoney(D.mInc)} in and ${fmtMoney(D.mExp + Math.max(0, D.mDp) + Math.max(0, D.mTr))} out a month, with the rolling monthly average drawn over the weekly spikes.`
+  }), React.createElement(ResponsiveContainer, {
     width: "100%",
     height: 272
   }, React.createElement(ComposedChart, {
@@ -348,7 +363,8 @@ export function CashFlowTab({
     }
     const rest = Math.max(0, amt - used);
     return React.createElement("div", {
-      className: "card",
+      className: "card" + rowProps(inc.id).className,
+      "data-row": inc.id,
       key: inc.id
     }, React.createElement("div", {
       className: "card-r1"
@@ -936,7 +952,9 @@ export function CashFlowTab({
       }, "+ Add a promotion or salary change"), React.createElement("div", {
         className: "caphint"
       }, "Salary steps to the new figure on that date and the raise percentage compounds from there. Take-home is worked out from the tax rate, prefilled from today's rate \u2014 adjust it if the raise pushes you into a new bracket. Your baseline stays intact, so you can compare with the change removed."));
-    })()));
+    })()), React.createElement(RowChecks, {
+      checks: rowChecks(inc.id)
+    }));
   }), React.createElement("button", {
     className: "btn btn-add",
     onClick: addInc
@@ -961,7 +979,8 @@ export function CashFlowTab({
   }, React.createElement(Upload, {
     size: 13
   }), "Import from a statement")), expenses.map(ex => React.createElement("div", {
-    className: "card",
+    className: "card" + rowProps(ex.id).className,
+    "data-row": ex.id,
     key: ex.id
   }, React.createElement("div", {
     className: "card-r1"
@@ -1032,7 +1051,9 @@ export function CashFlowTab({
   }, c.label))), ex.recur !== "once" && React.createElement(EndDate, {
     value: ex.end,
     onChange: v => upExp(ex.id, "end", v)
-  })))), React.createElement("button", {
+  })), React.createElement(RowChecks, {
+    checks: rowChecks(ex.id)
+  }))), React.createElement("button", {
     className: "btn btn-add",
     onClick: addExp
   }, React.createElement(Plus, {
@@ -1053,7 +1074,8 @@ export function CashFlowTab({
     const np = D.nextCardPay[c.id];
     const monthlyCharges = D.chargedTo(c.id);
     return React.createElement("div", {
-      className: "cardrow",
+      className: "cardrow" + rowProps(c.id).className,
+      "data-row": c.id,
       key: c.id
     }, React.createElement("span", {
       className: "badge"
@@ -1085,11 +1107,9 @@ export function CashFlowTab({
     }, React.createElement("span", null, fmtMoney(monthlyCharges), "/mo charged to it"), np ? React.createElement("span", null, "next payment ", np.date.toLocaleDateString("en-US", {
       month: "short",
       day: "numeric"
-    }), " \xB7 ", React.createElement("b", null, fmtMoney(np.amount)), np.full ? " (in full)" : "") : React.createElement("span", {
-      style: {
-        color: "var(--red)"
-      }
-    }, "no payment set \u2014 this balance will just grow")));
+    }), " \xB7 ", React.createElement("b", null, fmtMoney(np.amount)), np.full ? " (in full)" : "") : null), React.createElement(RowChecks, {
+      checks: rowChecks(c.id)
+    }));
   }), React.createElement("button", {
     className: "btn btn-add",
     onClick: addCardWithPayment
@@ -1111,7 +1131,8 @@ export function CashFlowTab({
     const tgt = debts.find(x => x.id === p.toDebt);
     const cardTarget = isCard(tgt);
     return React.createElement("div", {
-      className: "card",
+      className: "card" + rowProps(p.id).className,
+      "data-row": p.id,
       key: p.id
     }, React.createElement("div", {
       className: "card-r1"
@@ -1196,7 +1217,9 @@ export function CashFlowTab({
       type: "checkbox",
       checked: !!p.payFull,
       onChange: e => upDp(p.id, "payFull", e.target.checked)
-    }), "Pay the whole balance every time (no interest)"));
+    }), "Pay the whole balance every time (no interest)"), React.createElement(RowChecks, {
+      checks: rowChecks(p.id)
+    }));
   }), React.createElement("div", {
     className: "modal-row",
     style: {
@@ -1236,7 +1259,8 @@ export function CashFlowTab({
   }, fmtMoney(D.mTr), "/mo")), transfers.length === 0 && React.createElement("div", {
     className: "empty"
   }, "No transfers yet.", React.createElement("br", null), "Add one to route cash into savings or investments."), transfers.map(tr => React.createElement("div", {
-    className: "card",
+    className: "card" + rowProps(tr.id).className,
+    "data-row": tr.id,
     key: tr.id
   }, React.createElement("div", {
     className: "card-r1"
@@ -1300,7 +1324,9 @@ export function CashFlowTab({
   }, a.name))), tr.recur !== "once" && React.createElement(EndDate, {
     value: tr.end,
     onChange: v => upTr(tr.id, "end", v)
-  })))), React.createElement("button", {
+  })), React.createElement(RowChecks, {
+    checks: rowChecks(tr.id)
+  }))), React.createElement("button", {
     className: "btn btn-add",
     onClick: addTr
   }, React.createElement(Plus, {

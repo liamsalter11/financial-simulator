@@ -100,5 +100,11 @@ export const BUCKET_COLOR = { Investments: "var(--green)", Savings: "var(--cyan)
 export const PAL = ["var(--amber)", "var(--cyan)", "var(--green)", "var(--violet)", "var(--gold)", "var(--blue)", "var(--teal)", "var(--pink)", "var(--slate)", "var(--clay)"];
 export const ACCT_PAL = ["var(--cyan)", "var(--green)", "var(--violet)", "var(--gold)", "var(--blue)", "var(--teal)", "var(--sky)", "var(--lilac)"];
 export const DEBT_PAL = ["var(--red)", "var(--red2)", "var(--red3)", "var(--red4)"];
+/* A second axis alongside the palette, so a chart doesn't rely on hue alone. It matters
+   most past the eighth account, where ACCT_PAL starts repeating and the dash is the only
+   thing telling two lines apart — but it helps at two lines too, for anyone who can't
+   separate the hues in the first place. */
+export const DASHES = ["", "5 3", "2 3", "8 3 2 3", "1 3"];
+export const dashFor = (i) => DASHES[Math.floor(i / ACCT_PAL.length) % DASHES.length] || undefined;
 export const acctColor = (i) => ACCT_PAL[i % ACCT_PAL.length];
 export const debtColor = (i) => DEBT_PAL[i % DEBT_PAL.length];

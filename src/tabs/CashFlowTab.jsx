@@ -5,11 +5,12 @@ const {
   ResponsiveContainer, ReferenceLine, Cell,
 } = Recharts;
 import { Plus, Trash2, ArrowRight, Upload } from "../icons.js";
-import { Stat, NumField, Seg, EndDate, Tip } from "../components.js";
+import { Stat, NumField, Seg, EndDate, Tip, RowChecks, ChartAlt } from "../components.js";
 import { fmtMoney, fmtDate, n0, num, OPY, parseDate, RECUR, recurLabel, CATEGORIES, catLabel } from "../format.js";
 import { payrollOf, bonusOf, perCheck, effectiveTaxRate, isDerived, taxBreakdown } from "../payroll.js";
 import { FILING, TAX_YEAR } from "../tax.js";
 import { isCard } from "../seeds.js";
+import { checksFor } from "../checks.js";
 import { sampleRange } from "../useScope.js";
 
 export function CashFlowTab({
@@ -17,9 +18,15 @@ export function CashFlowTab({
   upInc, rmInc, addInc, addGuaranteed, addSplit, upSplit, rmSplit, addPreTax, upPreTax, rmPreTax,
   setMatch, upMatch, setBonus, upBonus, addChange, upChange, rmChange,
   upExp, rmExp, addExp, upDebtField, upDebtBal, rmDebt, addCardWithPayment,
-  upDp, rmDp, addDp, upTr, rmTr, addTr, openCsv, itemised, setItemised,
+  upDp, rmDp, addDp, upTr, rmTr, addTr, openCsv, itemised, setItemised, focusId,
 }) {
   const { ranges, ZHINT, axisProps, yProps, start, maxW } = chart;
+  /* every warning on this tab comes from D.checks, keyed by the row it belongs to */
+  const rowChecks = (id) => checksFor(D.checks, id);
+  const rowProps = (id) => {
+    const cs = rowChecks(id);
+    return { "data-row": id, className: (focusId === id ? " flagged" : "") + (cs.some((c) => c.level === "error") ? " bad" : "") };
+  };
             const dp = Math.max(0, D.mDp), iv = Math.max(0, D.mTr), lo = Math.max(0, D.leftover);
             const segs = [
               { name: "Living costs", value: D.mExp, color: "var(--red)" },
@@ -39,7 +46,8 @@ export function CashFlowTab({
 
                 <div className="panel rise">
                   <div className="phead"><div className="ptitle">Cash flow, week by week</div>{ranges(scCF, Math.min(maxW, 312))}</div>
-                  <div className="scope-wrap" ref={scCF.ref} {...scCF.handlers}>
+                  <div className="scope-wrap" ref={scCF.ref} {...scCF.handlers} role="group" aria-label="Cash flow week by week">
+                    <ChartAlt summary={`Money in and out week by week, averaging ${fmtMoney(D.mInc)} in and ${fmtMoney(D.mExp + Math.max(0, D.mDp) + Math.max(0, D.mTr))} out a month, with the rolling monthly average drawn over the weekly spikes.`} />
                     <ResponsiveContainer width="100%" height={272}>
                       <ComposedChart data={sampleRange(D.cf, scCF.lo, scCF.hi, 320)} margin={{ top: 14, right: 12, bottom: 0, left: 6 }}>
                         <CartesianGrid stroke="var(--line)" strokeDasharray="2 4" />
@@ -108,7 +116,7 @@ export function CashFlowTab({
                     for (let i = 1; i < dist.length; i++) { const sp = dist[i]; const want = sp.mode === "amt" ? n0(sp.value) : amt * num(sp.value) / 100; used += Math.min(want, Math.max(0, amt - used)); }
                     const rest = Math.max(0, amt - used);
                     return (
-                      <div className="card" key={inc.id}>
+                      <div className={"card" + rowProps(inc.id).className} data-row={inc.id} key={inc.id}>
                         <div className="card-r1">
                           <input className="rname" value={inc.name} onChange={(e) => upInc(inc.id, "name", e.target.value)} aria-label="Income name" />
                           <div className="num-box sm" title={derived ? "Derived from your gross salary and the tax brackets" : ""}>
@@ -321,6 +329,7 @@ export function CashFlowTab({
                             </>);
                           })()}
                         </div>
+                        <RowChecks checks={rowChecks(inc.id)} />
                       </div>
                     );
                   })}
@@ -335,7 +344,7 @@ export function CashFlowTab({
                     <button className="tbtn" onClick={openCsv}><Upload size={13} />Import from a statement</button>
                   </div>
                   {expenses.map((ex) => (
-                    <div className="card" key={ex.id}>
+                    <div className={"card" + rowProps(ex.id).className} data-row={ex.id} key={ex.id}>
                       <div className="card-r1">
                         <input className="rname" value={ex.label} onChange={(e) => upExp(ex.id, "label", e.target.value)} aria-label="Expense name" />
                         <div className="num-box sm"><span className="pfx">$</span><input className="num-input" type="number" inputMode="decimal" value={ex.amount} onChange={(e) => upExp(ex.id, "amount", e.target.value)} aria-label="Amount" style={{ color: "var(--red)" }} /></div>
@@ -355,6 +364,7 @@ export function CashFlowTab({
                         </select>
                         {ex.recur !== "once" && <EndDate value={ex.end} onChange={(v) => upExp(ex.id, "end", v)} />}
                       </div>
+                      <RowChecks checks={rowChecks(ex.id)} />
                     </div>
                   ))}
                   <button className="btn btn-add" onClick={addExp}><Plus size={15} />Add expense</button>
@@ -368,7 +378,7 @@ export function CashFlowTab({
                     const np = D.nextCardPay[c.id];
                     const monthlyCharges = D.chargedTo(c.id);
                     return (
-                      <div className="cardrow" key={c.id}>
+                      <div className={"cardrow" + rowProps(c.id).className} data-row={c.id} key={c.id}>
                         <span className="badge">Card</span>
                         <input className="rname" value={c.name} onChange={(e) => upDebtField(c.id, "name", e.target.value)} aria-label="Card name" />
                         <NumField cls="ramt" label="Balance owed" prefix="$" value={c.balance} onChange={(v) => upDebtBal(c.id, v)} />
@@ -376,9 +386,9 @@ export function CashFlowTab({
                         <button className="icon-btn" onClick={() => rmDebt(c.id)} aria-label="Remove"><Trash2 size={16} /></button>
                         <div className="cardbal">
                           <span>{fmtMoney(monthlyCharges)}/mo charged to it</span>
-                          {np ? <span>next payment {np.date.toLocaleDateString("en-US", { month: "short", day: "numeric" })} · <b>{fmtMoney(np.amount)}</b>{np.full ? " (in full)" : ""}</span>
-                            : <span style={{ color: "var(--red)" }}>no payment set — this balance will just grow</span>}
+                          {np ? <span>next payment {np.date.toLocaleDateString("en-US", { month: "short", day: "numeric" })} · <b>{fmtMoney(np.amount)}</b>{np.full ? " (in full)" : ""}</span> : null}
                         </div>
+                        <RowChecks checks={rowChecks(c.id)} />
                       </div>
                     );
                   })}
@@ -393,7 +403,7 @@ export function CashFlowTab({
                     const tgt = debts.find((x) => x.id === p.toDebt);
                     const cardTarget = isCard(tgt);
                     return (
-                      <div className="card" key={p.id}>
+                      <div className={"card" + rowProps(p.id).className} data-row={p.id} key={p.id}>
                         <div className="card-r1">
                           <input className="rname" value={p.name} onChange={(e) => upDp(p.id, "name", e.target.value)} aria-label="Payment name" />
                           {cardTarget && p.payFull
@@ -418,6 +428,7 @@ export function CashFlowTab({
                             Pay the whole balance every time (no interest)
                           </label>
                         )}
+                        <RowChecks checks={rowChecks(p.id)} />
                       </div>
                     );
                   })}
@@ -437,7 +448,7 @@ export function CashFlowTab({
                   <div className="phead"><div className="ptitle">Transfers between accounts</div><div className="psub">{fmtMoney(D.mTr)}/mo</div></div>
                   {transfers.length === 0 && <div className="empty">No transfers yet.<br />Add one to route cash into savings or investments.</div>}
                   {transfers.map((tr) => (
-                    <div className="card" key={tr.id}>
+                    <div className={"card" + rowProps(tr.id).className} data-row={tr.id} key={tr.id}>
                       <div className="card-r1">
                         <input className="rname" value={tr.name} onChange={(e) => upTr(tr.id, "name", e.target.value)} aria-label="Transfer name" />
                         <div className="num-box sm"><span className="pfx">$</span><input className="num-input" type="number" inputMode="decimal" value={tr.amount} onChange={(e) => upTr(tr.id, "amount", e.target.value)} aria-label="Amount" style={{ color: "var(--green)" }} /></div>
@@ -451,6 +462,7 @@ export function CashFlowTab({
                         <select value={tr.toAcct} onChange={(e) => upTr(tr.id, "toAcct", e.target.value)} aria-label="To">{accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
                         {tr.recur !== "once" && <EndDate value={tr.end} onChange={(v) => upTr(tr.id, "end", v)} />}
                       </div>
+                      <RowChecks checks={rowChecks(tr.id)} />
                     </div>
                   ))}
                   <button className="btn btn-add" onClick={addTr}><Plus size={15} />Add a transfer</button>

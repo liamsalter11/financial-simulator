@@ -11,7 +11,7 @@ const {
   ReferenceLine
 } = Recharts;
 import { AlertTriangle, Plus, Trash2 } from "../icons.js";
-import { Stat, LoanCard, Seg, Tip } from "../components.js";
+import { Stat, LoanCard, Seg, Tip, ChartAlt } from "../components.js";
 import { fmtMoney, fmtBig, fmtDate, fmtDur, n0 } from "../format.js";
 import { sampleRange } from "../useScope.js";
 export function DebtTab({
@@ -110,7 +110,12 @@ export function DebtTab({
   }, "Balance decay"), ranges(scDebt, maxW)), React.createElement("div", _extends({
     className: "scope-wrap",
     ref: scDebt.ref
-  }, scDebt.handlers), React.createElement(ResponsiveContainer, {
+  }, scDebt.handlers, {
+    role: "group",
+    "aria-label": "Debt balance over time"
+  }), React.createElement(ChartAlt, {
+    summary: `Total debt from ${fmtMoney(D.totalDebt)} today under your plan, against a second line for paying only the minimums. ${D.sim.debtFree != null ? `Your plan clears it in ${fmtDate(w2date(D.sim.debtFree))}.` : "Your plan does not clear it inside the projection."}`
+  }), React.createElement(ResponsiveContainer, {
     width: "100%",
     height: 278
   }, React.createElement(ComposedChart, {
