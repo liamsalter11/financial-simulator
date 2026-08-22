@@ -4,6 +4,7 @@ const { useState, useEffect, useMemo, useRef, useDeferredValue } = React;
 import {
   HelpCircle, Upload, Download, RotateCcw, Zap, AlertTriangle, Check, X,
   LayoutGrid, Wallet, Receipt, TrendingDown, InvestIcon, Trash2, RotateCw, Link2,
+  Sun, Moon, Contrast, Printer,
 } from "./icons.js";
 import { Modal } from "./components.js";
 import {
@@ -20,6 +21,7 @@ import { milestones, milestoneDiff } from "./milestones.js";
 import { pushUndo, dailySnapshots, previousSnapshot, actualSeries } from "./history.js";
 import { encodePlan, decodePlan, readHash, stripHash, shareUrl } from "./share.js";
 import { suggestExpenses, toExpense } from "./csv.js";
+import { PrintSheet } from "./print.js";
 import {
   SEED_ACCOUNTS, SEED_DEBTS, normDebts, normIncome, normAccounts, normExpenses, isCard, pickIds,
   seedIncome, seedExpenses, seedTransfers, seedDebtPays, seedSettings,
@@ -80,6 +82,15 @@ export function FinancialSimulator() {
      to localStorage while it sits in this state */
   const [offered, setOffered] = useState(null);
   const [spendItemised, setSpendItemised] = useState(false);
+  /* Not in `settings`: settings travel inside an export and inside a #plan= share link, and
+     how someone likes to read the screen is not part of somebody else's plan. Same reason
+     `compareWith` has its own key. */
+  const [theme, setTheme] = useState(() => {
+    /* read synchronously, unlike everything else here: the theme decides the first frame,
+       and a value that arrives a microtask later shows up as a flash of the wrong one */
+    const t = store.getNow("fin3:theme");
+    return ["auto", "light", "dark"].includes(t) ? t : "auto";
+  });
   const [csvText, setCsvText] = useState("");
   const [csvInfo, setCsvInfo] = useState(null);
   const [csvRows, setCsvRows] = useState([]);
@@ -136,6 +147,7 @@ export function FinancialSimulator() {
   useEffect(() => { if (ready) persist("fin3:scenarios", JSON.stringify(scenarios)); }, [scenarios, ready]);
   useEffect(() => { if (ready) persist("fin3:compareWith", compareId); }, [compareId, ready]);
   useEffect(() => { if (ready) persist("fin3:snapshots", JSON.stringify(snapshots)); }, [snapshots, ready]);
+  useEffect(() => { if (ready) persist("fin3:theme", theme); }, [theme, ready]);
 
   /* setters */
   const setS = (k, v) => setSettings((p) => ({ ...p, [k]: v }));
@@ -408,6 +420,16 @@ export function FinancialSimulator() {
     setSeedNote(false); store.set("fin3:seedNote", "0");
     showToast("Loaded the shared plan — ⌘Z puts yours back");
   };
+  /* Auto → Light → Dark → Auto. One button rather than three, because the toolbar is
+     already wide and the label says which of the three you're on. */
+  const THEMES = [
+    { v: "auto", label: "Auto", Icon: Contrast, title: "Following your system setting — click for light" },
+    { v: "light", label: "Light", Icon: Sun, title: "Light — click for dark" },
+    { v: "dark", label: "Dark", Icon: Moon, title: "Dark — click to follow your system again" },
+  ];
+  const themeOpt = THEMES.find((t) => t.v === theme) || THEMES[0];
+  const cycleTheme = () => setTheme(THEMES[(THEMES.indexOf(themeOpt) + 1) % THEMES.length].v);
+
   const shareLink = async () => {
     const url = shareUrl(window.location.href, await encodePlan(planNow()));
     if (url.length > 30000) { showToast("This plan is too large to fit in a link — use Export instead", true, 5000); return; }
@@ -752,7 +774,7 @@ export function FinancialSimulator() {
     if (next !== snapshots) setSnapshots(next);
   }, [D, ready]);
 
-  if (!accounts || !D) return (<><style>{CSS}</style><div className="fin"><div className="wrap"><div className="eyebrow">loading…</div></div></div></>);
+  if (!accounts || !D) return (<><style>{CSS}</style><div className="fin" data-theme={theme}><div className="wrap"><div className="eyebrow">loading…</div></div></div></>);
 
   const TABS = [
     { id: "overview", label: "Overview", Icon: LayoutGrid },
@@ -786,7 +808,7 @@ export function FinancialSimulator() {
   return (
     <>
       <style>{CSS}</style>
-      <div className="fin">
+      <div className="fin" data-theme={theme} data-printing={modal === "print" ? "1" : undefined}>
         <div className="wrap">
 
           <div className="topbar rise">
@@ -806,6 +828,8 @@ export function FinancialSimulator() {
               <button className="tbtn" onClick={() => { setImportText(""); setModal("import"); }}><Upload size={13} />Import</button>
               <button className="tbtn" onClick={shareLink} title="Copy a link with this whole plan in it"><Link2 size={13} />Share</button>
               <button className="tbtn" onClick={openExport}><Download size={13} />Export</button>
+              <button className="tbtn" onClick={() => setModal("print")} title="A summary sheet you can print or save as PDF"><Printer size={13} />Print</button>
+              <button className="tbtn icon-only" onClick={cycleTheme} title={themeOpt.title} aria-label={`Theme: ${themeOpt.label}`}><themeOpt.Icon size={14} /></button>
               <button className="tbtn" onClick={resetAll}><RotateCcw size={13} />Reset</button>
             </div>
           </div>
@@ -914,7 +938,17 @@ export function FinancialSimulator() {
                 <button className="btn btn-ghost" onClick={() => setModal(null)}>Cancel</button></div>
             </Modal>
           )}
-          {modal === "csv" && (
+          {modal === "print" && (
+            <Modal title="Print summary" onClose={() => setModal(null)} wide>
+              <div className="mnote">Where you stand, where the projection says you're going, and the assumptions behind it — a page, give or take, depending on how much you've entered. It prints on white whichever theme you're reading in, and this preview is exactly what will come out.</div>
+              <div className="modal-row">
+                <button className="btn btn-amber" onClick={() => window.print()}><Printer size={15} />Print or save as PDF</button>
+                <button className="btn btn-ghost" onClick={() => setModal(null)}>Close</button>
+              </div>
+              <PrintSheet D={D} accounts={accounts} debts={debts} settings={settings} start={start} fireN={fireN} />
+            </Modal>
+          )}
+                    {modal === "csv" && (
             <Modal title="Import spending from a statement" onClose={() => setModal(null)}>
               <div className="mnote">Export a few months of transactions from your bank as CSV and drop them in. Nothing leaves this page — the file is read in your browser. Charges are grouped by merchant and a frequency is inferred from the spacing of the dates; every guess is shown here before anything is created.</div>
               <div className="modal-row">

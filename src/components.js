@@ -62,13 +62,14 @@ export const Seg = ({
 export function Modal({
   title,
   onClose,
-  children
+  children,
+  wide
 }) {
   return React.createElement("div", {
     className: "modal",
     onClick: onClose
   }, React.createElement("div", {
-    className: "modal-card",
+    className: "modal-card" + (wide ? " wide" : ""),
     onClick: e => e.stopPropagation()
   }, React.createElement("div", {
     className: "modal-head"
@@ -97,7 +98,7 @@ export function Donut({
     data: data.length ? data : [{
       name: "—",
       value: 1,
-      color: "#1B2735"
+      color: "var(--donut-empty)"
     }],
     dataKey: "value",
     nameKey: "name",
@@ -107,7 +108,7 @@ export function Donut({
     stroke: "none",
     isAnimationActive: false
   }, (data.length ? data : [{
-    color: "#1B2735"
+    color: "var(--donut-empty)"
   }]).map((d, i) => React.createElement(Cell, {
     key: i,
     fill: d.color

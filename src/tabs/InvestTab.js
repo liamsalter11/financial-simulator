@@ -146,11 +146,11 @@ export function InvestTab({
     y2: "1"
   }, React.createElement("stop", {
     offset: "0%",
-    stopColor: "#5CCB8B",
+    stopColor: "var(--green)",
     stopOpacity: 0.24
   }), React.createElement("stop", {
     offset: "100%",
-    stopColor: "#5CCB8B",
+    stopColor: "var(--green)",
     stopOpacity: 0
   }))), React.createElement(CartesianGrid, {
     stroke: "var(--line)",
@@ -337,19 +337,19 @@ export function InvestTab({
     dataKey: "p10to25",
     stackId: "mc",
     stroke: "none",
-    fill: "rgba(92,203,139,0.10)",
+    fill: "var(--band-edge)",
     isAnimationActive: false
   }), React.createElement(Area, {
     dataKey: "p25to75",
     stackId: "mc",
     stroke: "none",
-    fill: "rgba(92,203,139,0.22)",
+    fill: "var(--band-core)",
     isAnimationActive: false
   }), React.createElement(Area, {
     dataKey: "p75to90",
     stackId: "mc",
     stroke: "none",
-    fill: "rgba(92,203,139,0.10)",
+    fill: "var(--band-edge)",
     isAnimationActive: false
   }), React.createElement(Line, {
     type: "monotone",
@@ -376,7 +376,7 @@ export function InvestTab({
   }, React.createElement("span", {
     className: "dot",
     style: {
-      background: "rgba(92,203,139,0.5)"
+      background: "var(--band-core)"
     }
   }), "Middle 50% / 80% of outcomes")), React.createElement("div", {
     className: "assume"

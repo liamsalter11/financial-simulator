@@ -22,10 +22,10 @@ export function CashFlowTab({
   const { ranges, ZHINT, axisProps, yProps, start, maxW } = chart;
             const dp = Math.max(0, D.mDp), iv = Math.max(0, D.mTr), lo = Math.max(0, D.leftover);
             const segs = [
-              { name: "Living costs", value: D.mExp, color: "#E8695B" },
-              { name: "Debt payments", value: dp, color: "#B98CE8" },
-              { name: "Investing", value: iv, color: "#5CCB8B" },
-              { name: "Left in cash", value: lo, color: "#F5A623" },
+              { name: "Living costs", value: D.mExp, color: "var(--red)" },
+              { name: "Debt payments", value: dp, color: "var(--violet)" },
+              { name: "Investing", value: iv, color: "var(--green)" },
+              { name: "Left in cash", value: lo, color: "var(--amber)" },
             ].filter((s) => s.value > 0);
             const denom = Math.max(D.mInc, D.mExp + dp + iv + lo) || 1;
             return (
@@ -45,10 +45,10 @@ export function CashFlowTab({
                         <CartesianGrid stroke="var(--line)" strokeDasharray="2 4" />
                         <XAxis {...axisProps(scCF)} />
                         <YAxis {...yProps} />
-                        <Tooltip content={(p) => <Tip {...p} start={start} rows={[{ key: "income", name: "In", color: "var(--green)" }, { key: "spend", name: "Out", color: "var(--red)" }, { key: "net", name: "Net", color: "var(--violet)" }, { key: "smooth", name: "Monthly avg", color: "var(--amber)" }]} />} cursor={{ fill: "rgba(126,148,171,0.06)" }} />
+                        <Tooltip content={(p) => <Tip {...p} start={start} rows={[{ key: "income", name: "In", color: "var(--green)" }, { key: "spend", name: "Out", color: "var(--red)" }, { key: "net", name: "Net", color: "var(--violet)" }, { key: "smooth", name: "Monthly avg", color: "var(--amber)" }]} />} cursor={{ fill: "var(--cursor-fill)" }} />
                         <ReferenceLine y={0} stroke="var(--line2)" />
                         <Bar dataKey="net" radius={[2, 2, 0, 0]} isAnimationActive={false}>
-                          {sampleRange(D.cf, scCF.lo, scCF.hi, 320).map((e, i) => <Cell key={i} fill={e.net >= 0 ? "rgba(185,140,232,0.42)" : "rgba(232,105,91,0.5)"} />)}
+                          {sampleRange(D.cf, scCF.lo, scCF.hi, 320).map((e, i) => <Cell key={i} fill={e.net >= 0 ? "var(--bar-pos)" : "var(--bar-neg)"} />)}
                         </Bar>
                         <Line type="monotone" dataKey="income" stroke="var(--green)" strokeWidth={1.4} dot={false} isAnimationActive={false} />
                         <Line type="monotone" dataKey="spend" stroke="var(--red)" strokeWidth={1.3} dot={false} isAnimationActive={false} />
@@ -60,7 +60,7 @@ export function CashFlowTab({
                   <div className="legend" style={{ marginTop: 8 }}>
                     <span className="lg"><span className="swatch" style={{ borderTopColor: "var(--green)" }} />In</span>
                     <span className="lg"><span className="swatch" style={{ borderTopColor: "var(--red)" }} />Out</span>
-                    <span className="lg"><span className="dot" style={{ background: "rgba(185,140,232,.7)" }} />Weekly net</span>
+                    <span className="lg"><span className="dot" style={{ background: "var(--violet)" }} />Weekly net</span>
                     <span className="lg"><span className="swatch" style={{ borderTopColor: "var(--amber)", borderTopWidth: 3 }} />Monthly average</span>
                   </div>
                   <div className="assume">The amber line smooths the weekly spikes into a rolling monthly average — the trend underneath the paycheck-and-rent sawtooth.</div>

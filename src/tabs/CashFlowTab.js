@@ -79,19 +79,19 @@ export function CashFlowTab({
   const segs = [{
     name: "Living costs",
     value: D.mExp,
-    color: "#E8695B"
+    color: "var(--red)"
   }, {
     name: "Debt payments",
     value: dp,
-    color: "#B98CE8"
+    color: "var(--violet)"
   }, {
     name: "Investing",
     value: iv,
-    color: "#5CCB8B"
+    color: "var(--green)"
   }, {
     name: "Left in cash",
     value: lo,
-    color: "#F5A623"
+    color: "var(--amber)"
   }].filter(s => s.value > 0);
   const denom = Math.max(D.mInc, D.mExp + dp + iv + lo) || 1;
   return React.createElement(React.Fragment, null, React.createElement("div", {
@@ -160,7 +160,7 @@ export function CashFlowTab({
       }]
     })),
     cursor: {
-      fill: "rgba(126,148,171,0.06)"
+      fill: "var(--cursor-fill)"
     }
   }), React.createElement(ReferenceLine, {
     y: 0,
@@ -171,7 +171,7 @@ export function CashFlowTab({
     isAnimationActive: false
   }, sampleRange(D.cf, scCF.lo, scCF.hi, 320).map((e, i) => React.createElement(Cell, {
     key: i,
-    fill: e.net >= 0 ? "rgba(185,140,232,0.42)" : "rgba(232,105,91,0.5)"
+    fill: e.net >= 0 ? "var(--bar-pos)" : "var(--bar-neg)"
   }))), React.createElement(Line, {
     type: "monotone",
     dataKey: "income",
@@ -217,7 +217,7 @@ export function CashFlowTab({
   }, React.createElement("span", {
     className: "dot",
     style: {
-      background: "rgba(185,140,232,.7)"
+      background: "var(--violet)"
     }
   }), "Weekly net"), React.createElement("span", {
     className: "lg"

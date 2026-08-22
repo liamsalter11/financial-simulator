@@ -49,7 +49,7 @@ export function DebtTab({
                     <div className="scope-wrap" ref={scDebt.ref} {...scDebt.handlers}>
                       <ResponsiveContainer width="100%" height={278}>
                         <ComposedChart data={sampleRange(D.debtCurve, scDebt.lo, scDebt.hi, 320)} margin={{ top: 14, right: 12, bottom: 0, left: 6 }}>
-                          <defs><linearGradient id="planFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#F5A623" stopOpacity={0.28} /><stop offset="100%" stopColor="#F5A623" stopOpacity={0} /></linearGradient></defs>
+                          <defs><linearGradient id="planFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--amber)" stopOpacity={0.28} /><stop offset="100%" stopColor="var(--amber)" stopOpacity={0} /></linearGradient></defs>
                           <CartesianGrid stroke="var(--line)" strokeDasharray="2 4" />
                           <XAxis {...axisProps(scDebt)} />
                           <YAxis {...yProps} />

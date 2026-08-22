@@ -6,25 +6,43 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="description" content="A personal finance projection tool — model accounts, debt payoff, and investing over time.">
     <style>
-        html, body { margin: 0; background: #0C131C; }
+        /* These few rules paint the page before the app's own stylesheet exists, so they
+           carry their own light variant — otherwise a light-mode visitor gets a dark flash
+           on load and a dark gutter around the app afterwards. They follow the OS, unless
+           the script below finds a theme pinned from a previous visit. */
+        :root { color-scheme: dark light; --pg: #0C131C; --lnk: #8496A8; --lnk-hi: #E9EFF5; --dim: #73879B; }
+        @media (prefers-color-scheme: light) {
+            :root:not([data-theme="dark"]) { --pg: #F6F8FB; --lnk: #4B5F73; --lnk-hi: #16222F; --dim: #63768A; }
+        }
+        :root[data-theme="light"] { color-scheme: light; --pg: #F6F8FB; --lnk: #4B5F73; --lnk-hi: #16222F; --dim: #63768A; }
+        :root[data-theme="dark"] { color-scheme: dark; --pg: #0C131C; --lnk: #8496A8; --lnk-hi: #E9EFF5; --dim: #73879B; }
+        html, body { margin: 0; background: var(--pg); }
         #back-link {
             display: inline-block;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             font-size: 13px;
-            color: #8496A8;
+            color: var(--lnk);
             text-decoration: none;
             padding: 14px 16px 0;
         }
-        #back-link:hover { color: #E9EFF5; }
+        #back-link:hover { color: var(--lnk-hi); }
         #loading {
             font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
-            color: #5E7183;
+            color: var(--dim);
             text-transform: uppercase;
             letter-spacing: .16em;
             font-size: 11px;
             padding: 16px;
         }
+        @media print { #back-link { display: none; } html, body { background: #fff; } }
     </style>
+    <script>
+        /* The app's own Theme button can override the OS, but these few pre-mount rules load
+           before any of it exists — so they read the same stored choice, synchronously, and
+           stamp it on <html>. Without this a visitor who pinned Light on a dark machine gets
+           a dark flash before the app paints. */
+        try { var t = localStorage.getItem("fin3:theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) { }
+    </script>
 </head>
 <body>
     <a id="back-link" href="/">&larr; liamsalter.com</a>

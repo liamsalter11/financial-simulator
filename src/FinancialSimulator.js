@@ -5,7 +5,7 @@ const {
   useRef,
   useDeferredValue
 } = React;
-import { HelpCircle, Upload, Download, RotateCcw, Zap, AlertTriangle, Check, X, LayoutGrid, Wallet, Receipt, TrendingDown, InvestIcon, Trash2, RotateCw, Link2 } from "./icons.js";
+import { HelpCircle, Upload, Download, RotateCcw, Zap, AlertTriangle, Check, X, LayoutGrid, Wallet, Receipt, TrendingDown, InvestIcon, Trash2, RotateCw, Link2, Sun, Moon, Contrast, Printer } from "./icons.js";
 import { Modal } from "./components.js";
 import { n0, num, uid, todayISO, nextFirstISO, firstOfYear, isoDate, addMonths, parseDate, addDays, fmtMoney, fmtBig, fmtC, weekTick, r2, parse, OPY, RECUR, ACCT_TYPES, isInvest, isSav, isCash, BUCKET_COLOR, PAL, CATEGORIES, acctColor, debtColor, inflFactor } from "./format.js";
 import { firesInWeek } from "./recurrence.js";
@@ -17,6 +17,7 @@ import { milestones, milestoneDiff } from "./milestones.js";
 import { pushUndo, dailySnapshots, previousSnapshot, actualSeries } from "./history.js";
 import { encodePlan, decodePlan, readHash, stripHash, shareUrl } from "./share.js";
 import { suggestExpenses, toExpense } from "./csv.js";
+import { PrintSheet } from "./print.js";
 import { SEED_ACCOUNTS, SEED_DEBTS, normDebts, normIncome, normAccounts, normExpenses, isCard, pickIds, seedIncome, seedExpenses, seedTransfers, seedDebtPays, seedSettings } from "./seeds.js";
 import { store } from "./store.js";
 import { useScope } from "./useScope.js";
@@ -72,6 +73,10 @@ export function FinancialSimulator() {
   const [compareId, setCompareId] = useState("");
   const [offered, setOffered] = useState(null);
   const [spendItemised, setSpendItemised] = useState(false);
+  const [theme, setTheme] = useState(() => {
+    const t = store.getNow("fin3:theme");
+    return ["auto", "light", "dark"].includes(t) ? t : "auto";
+  });
   const [csvText, setCsvText] = useState("");
   const [csvInfo, setCsvInfo] = useState(null);
   const [csvRows, setCsvRows] = useState([]);
@@ -169,6 +174,9 @@ export function FinancialSimulator() {
   useEffect(() => {
     if (ready) persist("fin3:snapshots", JSON.stringify(snapshots));
   }, [snapshots, ready]);
+  useEffect(() => {
+    if (ready) persist("fin3:theme", theme);
+  }, [theme, ready]);
   const setS = (k, v) => setSettings(p => ({
     ...p,
     [k]: v
@@ -760,6 +768,24 @@ export function FinancialSimulator() {
     store.set("fin3:seedNote", "0");
     showToast("Loaded the shared plan — ⌘Z puts yours back");
   };
+  const THEMES = [{
+    v: "auto",
+    label: "Auto",
+    Icon: Contrast,
+    title: "Following your system setting — click for light"
+  }, {
+    v: "light",
+    label: "Light",
+    Icon: Sun,
+    title: "Light — click for dark"
+  }, {
+    v: "dark",
+    label: "Dark",
+    Icon: Moon,
+    title: "Dark — click to follow your system again"
+  }];
+  const themeOpt = THEMES.find(t => t.v === theme) || THEMES[0];
+  const cycleTheme = () => setTheme(THEMES[(THEMES.indexOf(themeOpt) + 1) % THEMES.length].v);
   const shareLink = async () => {
     const url = shareUrl(window.location.href, await encodePlan(planNow()));
     if (url.length > 30000) {
@@ -1334,7 +1360,8 @@ export function FinancialSimulator() {
     if (next !== snapshots) setSnapshots(next);
   }, [D, ready]);
   if (!accounts || !D) return React.createElement(React.Fragment, null, React.createElement("style", null, CSS), React.createElement("div", {
-    className: "fin"
+    className: "fin",
+    "data-theme": theme
   }, React.createElement("div", {
     className: "wrap"
   }, React.createElement("div", {
@@ -1420,7 +1447,9 @@ export function FinancialSimulator() {
     maxW
   };
   return React.createElement(React.Fragment, null, React.createElement("style", null, CSS), React.createElement("div", {
-    className: "fin"
+    className: "fin",
+    "data-theme": theme,
+    "data-printing": modal === "print" ? "1" : undefined
   }, React.createElement("div", {
     className: "wrap"
   }, React.createElement("div", {
@@ -1490,6 +1519,19 @@ export function FinancialSimulator() {
   }, React.createElement(Download, {
     size: 13
   }), "Export"), React.createElement("button", {
+    className: "tbtn",
+    onClick: () => setModal("print"),
+    title: "A summary sheet you can print or save as PDF"
+  }, React.createElement(Printer, {
+    size: 13
+  }), "Print"), React.createElement("button", {
+    className: "tbtn icon-only",
+    onClick: cycleTheme,
+    title: themeOpt.title,
+    "aria-label": `Theme: ${themeOpt.label}`
+  }, React.createElement(themeOpt.Icon, {
+    size: 14
+  })), React.createElement("button", {
     className: "tbtn",
     onClick: resetAll
   }, React.createElement(RotateCcw, {
@@ -1740,7 +1782,30 @@ export function FinancialSimulator() {
   }), "Load data"), React.createElement("button", {
     className: "btn btn-ghost",
     onClick: () => setModal(null)
-  }, "Cancel"))), modal === "csv" && React.createElement(Modal, {
+  }, "Cancel"))), modal === "print" && React.createElement(Modal, {
+    title: "Print summary",
+    onClose: () => setModal(null),
+    wide: true
+  }, React.createElement("div", {
+    className: "mnote"
+  }, "Where you stand, where the projection says you're going, and the assumptions behind it \u2014 a page, give or take, depending on how much you've entered. It prints on white whichever theme you're reading in, and this preview is exactly what will come out."), React.createElement("div", {
+    className: "modal-row"
+  }, React.createElement("button", {
+    className: "btn btn-amber",
+    onClick: () => window.print()
+  }, React.createElement(Printer, {
+    size: 15
+  }), "Print or save as PDF"), React.createElement("button", {
+    className: "btn btn-ghost",
+    onClick: () => setModal(null)
+  }, "Close")), React.createElement(PrintSheet, {
+    D: D,
+    accounts: accounts,
+    debts: debts,
+    settings: settings,
+    start: start,
+    fireN: fireN
+  })), modal === "csv" && React.createElement(Modal, {
     title: "Import spending from a statement",
     onClose: () => setModal(null)
   }, React.createElement("div", {

@@ -51,20 +51,21 @@ export const ACCT_TYPES = [
 /* Expense categories are a fixed list rather than free text, because free text can't be
    rolled up — two people writing "Groceries" and "groceries" are two categories, and one
    person writing "Rent" and "Mortgage" never see them as the same kind of cost. What was
-   typed survives as the expense's own `label`; this is only the bucket it counts toward. */
+   typed survives as the expense's own `label`; this is only the bucket it counts toward.
+   The colours are CSS custom properties, not hex — see the note on PAL below. */
 export const CATEGORIES = [
-  { v: "housing", label: "Housing", color: "#F5A623" },
-  { v: "food", label: "Food", color: "#5CCB8B" },
-  { v: "transport", label: "Transport", color: "#38BDD0" },
-  { v: "health", label: "Health", color: "#B98CE8" },
-  { v: "insurance", label: "Insurance", color: "#5B9BD5" },
-  { v: "debt", label: "Debt", color: "#E8695B" },
-  { v: "fun", label: "Fun", color: "#E8B84B" },
-  { v: "other", label: "Other", color: "#8A9AAB" },
+  { v: "housing", label: "Housing", color: "var(--amber)" },
+  { v: "food", label: "Food", color: "var(--green)" },
+  { v: "transport", label: "Transport", color: "var(--cyan)" },
+  { v: "health", label: "Health", color: "var(--violet)" },
+  { v: "insurance", label: "Insurance", color: "var(--blue)" },
+  { v: "debt", label: "Debt", color: "var(--red)" },
+  { v: "fun", label: "Fun", color: "var(--gold)" },
+  { v: "other", label: "Other", color: "var(--slate)" },
 ];
 export const isCategory = (v) => CATEGORIES.some((c) => c.v === v);
 export const catLabel = (v) => (CATEGORIES.find((c) => c.v === v) || {}).label || "Other";
-export const catColor = (v) => (CATEGORIES.find((c) => c.v === v) || {}).color || "#8A9AAB";
+export const catColor = (v) => (CATEGORIES.find((c) => c.v === v) || {}).color || "var(--slate)";
 /* Ordered, because the first match wins and some words belong to two buckets: "car
    insurance" is insurance, not transport, and "gas bill" is housing while "gas" alone is
    a filling station. */
@@ -89,9 +90,15 @@ export function matchCategory(text) {
 export const isInvest = (t) => t === "brokerage" || t === "retirement";
 export const isSav = (t) => t === "savings";
 export const isCash = (t) => t === "checking" || t === "cash" || t === "other";
-export const BUCKET_COLOR = { Investments: "#5CCB8B", Savings: "#38BDD0", Cash: "#F5A623" };
-export const PAL = ["#F5A623", "#38BDD0", "#5CCB8B", "#B98CE8", "#E8B84B", "#5B9BD5", "#4FC3B0", "#D98BB0", "#8A9AAB", "#E0885B"];
-export const ACCT_PAL = ["#38BDD0", "#5CCB8B", "#B98CE8", "#E8B84B", "#5B9BD5", "#4FC3B0", "#7FB2E8", "#C9A0DC"];
-export const DEBT_PAL = ["#E8695B", "#D9776B", "#C86A5E", "#E88070"];
+/* Every chart colour is a CSS variable rather than a hex, because these strings are handed
+   straight to Recharts as `stroke`/`fill` and SVG resolves `var()` the same way CSS does.
+   That's what lets a theme reach the charts at all: the light palette darkens every hue
+   (the dark amber on white is a contrast failure), and no tab needs to know which theme is on.
+   Both palettes live together in src/styles.js; tests/tokens.test.mjs asserts every name
+   used here is defined in both. */
+export const BUCKET_COLOR = { Investments: "var(--green)", Savings: "var(--cyan)", Cash: "var(--amber)" };
+export const PAL = ["var(--amber)", "var(--cyan)", "var(--green)", "var(--violet)", "var(--gold)", "var(--blue)", "var(--teal)", "var(--pink)", "var(--slate)", "var(--clay)"];
+export const ACCT_PAL = ["var(--cyan)", "var(--green)", "var(--violet)", "var(--gold)", "var(--blue)", "var(--teal)", "var(--sky)", "var(--lilac)"];
+export const DEBT_PAL = ["var(--red)", "var(--red2)", "var(--red3)", "var(--red4)"];
 export const acctColor = (i) => ACCT_PAL[i % ACCT_PAL.length];
 export const debtColor = (i) => DEBT_PAL[i % DEBT_PAL.length];

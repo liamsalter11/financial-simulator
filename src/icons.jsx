@@ -38,6 +38,15 @@ export const Zap = (p) => (<IconBase {...p}><path d="M15.914 4a1.5 1.5 0 00-2.47
 export const Upload = (p) => (<IconBase {...p}><path d="M12 3v12" /><path d="m17 8-5-5-5 5" /><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /></IconBase>);
 export const Download = (p) => (<IconBase {...p}><path d="M12 15V3" /><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><path d="m7 10 5 5 5-5" /></IconBase>);
 export const X = (p) => (<IconBase {...p}><path d="M18 6 6 18" /><path d="m6 6 12 12" /></IconBase>);
+export const Sun = (p) => (<IconBase {...p}><circle cx="12" cy="12" r="4" />
+  <path d="M12 2v2" /><path d="M12 20v2" /><path d="m4.93 4.93 1.41 1.41" /><path d="m17.66 17.66 1.41 1.41" />
+  <path d="M2 12h2" /><path d="M20 12h2" /><path d="m6.34 17.66-1.41 1.41" /><path d="m19.07 4.93-1.41 1.41" /></IconBase>);
+export const Moon = (p) => (<IconBase {...p}><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9" /></IconBase>);
+/* half-filled disc: the OS decides */
+export const Contrast = (p) => (<IconBase {...p}><circle cx="12" cy="12" r="9" /><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" /></IconBase>);
+export const Printer = (p) => (<IconBase {...p}>
+  <path d="M6 9V3h12v6" /><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+  <rect x="6" y="14" width="12" height="8" rx="1" /></IconBase>);
 export const Link2 = (p) => (<IconBase {...p}>
   <path d="M9 17H7A5 5 0 0 1 7 7h2" /><path d="M15 7h2a5 5 0 1 1 0 10h-2" /><path d="M8 12h8" /></IconBase>);
 export const ArrowRight = (p) => (<IconBase {...p}><path d="M5 12h14" /><path d="m12 5 7 7-7 7" /></IconBase>);

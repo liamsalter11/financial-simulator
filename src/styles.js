@@ -1,22 +1,76 @@
 // The app's entire stylesheet, scoped under .fin. Pure data — injected via a <style>
 // tag by FinancialSimulator so this stays a single-file drop-in, no separate CSS load.
+/* The light palette, written once and interpolated into the three places that need it:
+   an explicit choice, the OS preference while the choice is "auto", and print — which is
+   always on paper and so is always light. Dark stays on `.fin` itself as the base, so
+   `data-theme="dark"` needs no block of its own and the default look is untouched.
+
+   Light is not the dark palette on a white card. #F5A623 on white is a contrast failure,
+   so every series hue is darkened here — which is the whole reason the chart palettes had
+   to stop being hex literals in format.js and become tokens. */
+const LIGHT = `
+  --bg:#F6F8FB; --panel:#FFFFFF; --panel2:#F1F5F9; --panel3:#EAF0F6;
+  --line:rgba(43,66,88,0.13); --line2:rgba(43,66,88,0.26);
+  --text:#16222F; --muted:#4B5F73; --faint:#63768A;
+  --dots:rgba(43,66,88,0.055);
+  --amber:#A26709; --amber-soft:rgba(162,103,9,0.12); --amber-deep:#6E4405; --on-amber:#FFF6E6;
+  --cyan:#0E7C8C; --green:#1B8150; --red:#C0392B; --violet:#7A4FB0;
+  --gold:#8F7110; --blue:#2E6DA8; --teal:#0F7F72; --pink:#A64A76; --slate:#5A6B7C;
+  --clay:#A65531; --sky:#3D74B8; --lilac:#8B5FA8;
+  --red2:#B24A3E; --red3:#9E4033; --red4:#C25443;
+  --bar-pos:rgba(122,79,176,0.34); --bar-neg:rgba(192,57,43,0.34);
+  --cursor-fill:rgba(43,66,88,0.07);
+  --band-edge:rgba(27,129,80,0.12); --band-core:rgba(27,129,80,0.26);
+  --donut-empty:#DCE4EC;
+  --amber-line:rgba(162,103,9,.36); --green-soft:rgba(27,129,80,.11); --green-line:rgba(27,129,80,.34);
+  --red-soft:rgba(192,57,43,.08); --red-line:rgba(192,57,43,.32);
+  --violet-soft:rgba(122,79,176,.11); --violet-line:rgba(122,79,176,.30);
+  --cyan-soft:rgba(14,124,140,.10); --cyan-line:rgba(14,124,140,.28);
+  --slate-soft:rgba(43,66,88,.07); --scrim:rgba(22,34,47,.40);
+  --shadow:rgba(22,34,47,.13); --shadow-lg:rgba(22,34,47,.17);
+  color-scheme:light;
+`;
+
 export const CSS = `
 .fin{
   --bg:#0C131C; --panel:#111B27; --panel2:#16222F; --panel3:#0A121B;
   --line:rgba(126,148,171,0.14); --line2:rgba(126,148,171,0.26);
-  --text:#E9EFF5; --muted:#8496A8; --faint:#5E7183;
-  --amber:#F5A623; --amber-soft:rgba(245,166,35,0.13);
+  --text:#E9EFF5; --muted:#8496A8; --faint:#73879B;
+  --dots:rgba(126,148,171,0.05);
+  --amber:#F5A623; --amber-soft:rgba(245,166,35,0.13); --amber-deep:#B5760F; --on-amber:#1A1206;
   --cyan:#38BDD0; --green:#5CCB8B; --red:#E8695B; --violet:#B98CE8;
+  /* the rest of the series palette — named hues, not roles, because a chart line's colour
+     means nothing beyond "not the one next to it" */
+  --gold:#E8B84B; --blue:#5B9BD5; --teal:#4FC3B0; --pink:#D98BB0; --slate:#8A9AAB;
+  --clay:#E0885B; --sky:#7FB2E8; --lilac:#C9A0DC;
+  --red2:#D9776B; --red3:#C86A5E; --red4:#E88070;
+  --bar-pos:rgba(185,140,232,0.42); --bar-neg:rgba(232,105,91,0.5);
+  --cursor-fill:rgba(126,148,171,0.06);
+  --band-edge:rgba(92,203,139,0.10); --band-core:rgba(92,203,139,0.22);
+  --donut-empty:#1B2735;
+  /* tints of the hues above, used as soft backgrounds and hairline borders. They're tokens
+     rather than inline rgba() because an rgba built from the dark hue is the wrong colour
+     once the palette moves — a 45%-opacity bright amber border is invisible on white. */
+  --amber-line:rgba(245,166,35,.34); --green-soft:rgba(92,203,139,.13); --green-line:rgba(92,203,139,.32);
+  --red-soft:rgba(232,105,91,.09); --red-line:rgba(232,105,91,.32);
+  --violet-soft:rgba(185,140,232,.13); --violet-line:rgba(185,140,232,.32);
+  --cyan-soft:rgba(56,189,208,.10); --cyan-line:rgba(56,189,208,.28);
+  --slate-soft:rgba(126,148,171,.10); --scrim:rgba(6,10,16,.74);
+  --shadow:rgba(0,0,0,.45); --shadow-lg:rgba(0,0,0,.5);
   --mono:ui-monospace,'SF Mono','JetBrains Mono','Cascadia Code',Menlo,Consolas,monospace;
   --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  color-scheme:dark;
   font-family:var(--sans); color:var(--text); background:var(--bg);
-  background-image:radial-gradient(rgba(126,148,171,0.05) 1px,transparent 1px);
+  background-image:radial-gradient(var(--dots) 1px,transparent 1px);
   background-size:22px 22px; min-height:100vh; padding:22px 16px 64px; box-sizing:border-box; -webkit-font-smoothing:antialiased;
 }
+.fin[data-theme="light"]{${LIGHT}}
+@media(prefers-color-scheme:light){.fin[data-theme="auto"]{${LIGHT}}}
 .fin *{box-sizing:border-box;}
-/* every control is dark by default — :where() keeps this a zero-specificity safety net */
+/* controls inherit the theme rather than being pinned dark — :where() keeps this a
+   zero-specificity safety net */
 .fin :where(input:not([type=range]):not([type=checkbox]), select, textarea){
-  background:var(--bg); color:var(--text); font-family:var(--mono); color-scheme:dark;}
+  background:var(--bg); color:var(--text); font-family:var(--mono);}
 .fin .wrap{max-width:1060px;margin:0 auto;}
 .fin .mono{font-family:var(--mono);font-variant-numeric:tabular-nums;}
 .fin .eyebrow{font-family:var(--mono);text-transform:uppercase;letter-spacing:.16em;font-size:11px;color:var(--faint);}
@@ -27,11 +81,12 @@ export const CSS = `
 .fin .toolbar{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end;}
 .fin .tbtn{display:inline-flex;align-items:center;gap:6px;font-family:var(--sans);font-size:12px;font-weight:600;color:var(--muted);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 11px;cursor:pointer;transition:color .15s,border-color .15s;}
 .fin .tbtn:hover{color:var(--text);border-color:var(--faint);}
+.fin .tbtn.icon-only{padding:8px 9px;}
 .fin .tabs{display:flex;gap:6px;overflow-x:auto;margin-bottom:18px;padding-bottom:4px;scrollbar-width:none;-ms-overflow-style:none;}
 .fin .tabs::-webkit-scrollbar{display:none;}
 .fin .tabbtn{display:inline-flex;align-items:center;gap:7px;white-space:nowrap;flex:none;font-family:var(--sans);font-size:13px;font-weight:600;color:var(--muted);background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:9px 14px;cursor:pointer;transition:color .15s,border-color .15s,background .15s;}
 .fin .tabbtn:hover{color:var(--text);}
-.fin .tabbtn.active{color:#1A1206;background:var(--amber);border-color:var(--amber);}
+.fin .tabbtn.active{color:var(--on-amber);background:var(--amber);border-color:var(--amber);}
 .fin .panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:16px;}
 .fin .phead{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:12px;flex-wrap:wrap;}
 .fin .ptitle{font-size:12.5px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);font-weight:600;}
@@ -73,7 +128,7 @@ export const CSS = `
 .fin .scope-wrap{margin:2px -4px 0;touch-action:pan-y;cursor:grab;user-select:none;}
 .fin .scope-wrap:active{cursor:grabbing;}
 .fin .zhint{font-family:var(--mono);font-size:10px;color:var(--faint);text-align:right;margin-top:6px;opacity:.75;}
-.fin .tt{background:var(--panel3);border:1px solid var(--line2);border-radius:10px;padding:10px 12px;font-family:var(--mono);box-shadow:0 8px 24px rgba(0,0,0,.45);max-width:230px;}
+.fin .tt{background:var(--panel3);border:1px solid var(--line2);border-radius:10px;padding:10px 12px;font-family:var(--mono);box-shadow:0 8px 24px var(--shadow);max-width:230px;}
 .fin .tt .tt-m{font-size:10px;color:var(--faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:7px;}
 .fin .tt-row{display:flex;align-items:center;gap:8px;font-size:12px;margin-top:3px;color:var(--text);}
 .fin .tt-row b{margin-left:auto;font-weight:600;}
@@ -100,12 +155,12 @@ export const CSS = `
 .fin .caphint{font-family:var(--mono);font-size:10.5px;color:var(--faint);width:100%;line-height:1.55;overflow-wrap:anywhere;}
 .fin .caphint.warn-txt{color:var(--red);}
 .fin .icon-btn{background:transparent;border:none;color:var(--faint);cursor:pointer;padding:5px;border-radius:7px;display:inline-flex;transition:color .15s,background .15s;flex:none;}
-.fin .icon-btn:hover{color:var(--red);background:rgba(232,105,91,.1);}
+.fin .icon-btn:hover{color:var(--red);background:var(--red-soft);}
 .fin .loan{background:var(--panel2);border:1px solid var(--line);border-radius:13px;padding:14px;margin-bottom:12px;}
 .fin .loan.done{opacity:.6;}
 .fin .loan-top{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;}
-.fin .rank{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--amber);background:var(--amber-soft);border:1px solid rgba(245,166,35,.3);border-radius:7px;padding:3px 8px;flex:none;}
-.fin .rank.paid{color:var(--green);background:rgba(92,203,139,.12);border-color:rgba(92,203,139,.32);}
+.fin .rank{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--amber);background:var(--amber-soft);border:1px solid var(--amber-line);border-radius:7px;padding:3px 8px;flex:none;}
+.fin .rank.paid{color:var(--green);background:var(--green-soft);border-color:var(--green-line);}
 .fin .fields3{display:grid;grid-template-columns:1fr;gap:10px;}
 @media(min-width:560px){.fin .fields3{grid-template-columns:1.3fr .8fr 1fr;}}
 .fin .loan-foot{display:flex;align-items:center;justify-content:space-between;margin-top:12px;font-family:var(--mono);font-size:11.5px;color:var(--faint);gap:10px;flex-wrap:wrap;}
@@ -142,18 +197,18 @@ export const CSS = `
 .fin .prog-rem{font-family:var(--mono);font-size:12px;color:var(--faint);text-align:right;}
 .fin .prog-rem b{color:var(--text);font-weight:600;}
 .fin .track{height:10px;background:var(--bg);border:1px solid var(--line);border-radius:20px;overflow:hidden;}
-.fin .fill{height:100%;background:linear-gradient(90deg,#B5760F,var(--amber));border-radius:20px;transition:width .5s ease;}
+.fin .fill{height:100%;background:linear-gradient(90deg,var(--amber-deep),var(--amber));border-radius:20px;transition:width .5s ease;}
 .fin .btn{display:inline-flex;align-items:center;gap:7px;font-family:var(--sans);font-size:13px;font-weight:600;border-radius:10px;padding:9px 14px;cursor:pointer;border:1px solid transparent;transition:filter .15s,background .15s;}
-.fin .btn-amber{background:var(--amber);color:#1A1206;} .fin .btn-amber:hover{filter:brightness(1.08);}
+.fin .btn-amber{background:var(--amber);color:var(--on-amber);} .fin .btn-amber:hover{filter:brightness(1.08);}
 .fin .btn-ghost{background:transparent;border-color:var(--line2);color:var(--muted);} .fin .btn-ghost:hover{color:var(--text);border-color:var(--faint);}
 .fin .btn-add{width:100%;justify-content:center;background:transparent;border:1px dashed var(--line2);color:var(--muted);padding:11px;}
 .fin .btn-add:hover{border-color:var(--amber);color:var(--amber);}
 .fin .empty{font-family:var(--mono);font-size:12px;color:var(--faint);text-align:center;padding:18px 0;line-height:1.6;}
-.fin .warn{display:flex;gap:12px;align-items:flex-start;background:rgba(232,105,91,.08);border:1px solid rgba(232,105,91,.3);border-radius:12px;padding:14px 16px;margin-bottom:16px;}
+.fin .warn{display:flex;gap:12px;align-items:flex-start;background:var(--red-soft);border:1px solid var(--red-line);border-radius:12px;padding:14px 16px;margin-bottom:16px;}
 .fin .warn .wt{font-size:13px;font-weight:600;color:var(--red);margin-bottom:3px;}
 .fin .warn .wb{font-size:12.5px;color:var(--muted);line-height:1.5;}
-.fin .tbtn.on{color:var(--amber);border-color:rgba(245,166,35,.45);background:var(--amber-soft);}
-.fin .panel.help{border-color:rgba(245,166,35,.28);}
+.fin .tbtn.on{color:var(--amber);border-color:var(--amber-line);background:var(--amber-soft);}
+.fin .panel.help{border-color:var(--amber-line);}
 .fin .help .phead{margin-bottom:10px;}
 .fin .help .ptitle{color:var(--amber);text-transform:none;letter-spacing:.02em;font-size:13px;}
 .fin .help-intro{font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:14px;}
@@ -163,10 +218,10 @@ export const CSS = `
 .fin .help-item dt{font-size:12.5px;font-weight:600;color:var(--text);margin-bottom:4px;}
 .fin .help-item dd{margin:0;font-size:12.5px;color:var(--muted);line-height:1.6;}
 .fin .help-foot{font-family:var(--mono);font-size:10.5px;color:var(--faint);margin-top:12px;}
-.fin .notice{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:11.5px;color:var(--faint);margin-bottom:14px;background:var(--amber-soft);border:1px solid rgba(245,166,35,.22);border-radius:10px;padding:9px 12px;}
+.fin .notice{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:11.5px;color:var(--faint);margin-bottom:14px;background:var(--amber-soft);border:1px solid var(--amber-line);border-radius:10px;padding:9px 12px;}
 .fin .notice button{margin-left:auto;background:none;border:none;color:var(--faint);cursor:pointer;font-size:15px;line-height:1;padding:2px 6px;}
 .fin .notice button:hover{color:var(--text);}
-.fin .notice.offer{background:rgba(56,189,208,.10);border-color:rgba(56,189,208,.28);color:var(--muted);flex-wrap:wrap;}
+.fin .notice.offer{background:var(--cyan-soft);border-color:var(--cyan-line);color:var(--muted);flex-wrap:wrap;}
 .fin .notice.offer span{flex:1;min-width:200px;}
 .fin .notice.offer .btn{margin-left:0;padding:7px 12px;font-size:12px;}
 .fin .csvlist{display:flex;flex-direction:column;gap:6px;max-height:300px;overflow:auto;margin-top:10px;padding-right:2px;}
@@ -175,10 +230,43 @@ export const CSS = `
 .fin .csvrow .csvname{font-size:12.5px;font-weight:600;color:var(--text);max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .fin .csvrow select{max-width:132px;}
 .fin .csvrow .num-box{flex:none;}
-.fin .badge.lvl-high{color:var(--green);background:rgba(92,203,139,.13);border-color:rgba(92,203,139,.32);}
-.fin .badge.lvl-medium{color:var(--amber);background:var(--amber-soft);border-color:rgba(245,166,35,.3);}
-.fin .badge.lvl-low{color:var(--faint);background:rgba(126,148,171,.10);border-color:var(--line2);}
-.fin .modal{position:fixed;inset:0;background:rgba(6,10,16,.74);display:flex;align-items:center;justify-content:center;z-index:60;padding:18px;}
+.fin .badge.lvl-high{color:var(--green);background:var(--green-soft);border-color:var(--green-line);}
+.fin .badge.lvl-medium{color:var(--amber);background:var(--amber-soft);border-color:var(--amber-line);}
+.fin .badge.lvl-low{color:var(--faint);background:var(--slate-soft);border-color:var(--line2);}
+/* ---- the print summary sheet ---------------------------------------------------- */
+/* It lives on screen inside the preview modal and on paper as the only thing on the page,
+   so it's sized in a fixed 720px column either way rather than filling its container. */
+.fin .printsheet{width:720px;max-width:100%;margin:0 auto;color:var(--text);font-size:12px;}
+.fin .pr-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;border-bottom:2px solid var(--line2);padding-bottom:8px;margin-bottom:11px;}
+.fin .pr-title{font-size:19px;font-weight:700;letter-spacing:-0.01em;}
+.fin .pr-sub{font-family:var(--mono);font-size:10.5px;color:var(--faint);margin-top:4px;}
+.fin .pr-nw{text-align:right;font-family:var(--mono);}
+.fin .pr-nw span{display:block;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);}
+.fin .pr-nw b{font-size:24px;font-variant-numeric:tabular-nums;letter-spacing:-0.02em;}
+.fin .pr-stats{display:grid;grid-template-columns:repeat(6,1fr);gap:7px;margin-bottom:13px;}
+.fin .pr-stats div{border:1px solid var(--line);border-radius:8px;padding:6px 8px;}
+.fin .pr-stats span{display:block;font-family:var(--mono);font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:3px;}
+.fin .pr-stats b{font-family:var(--mono);font-size:13px;font-variant-numeric:tabular-nums;}
+.fin .pr-block{margin-bottom:12px;break-inside:avoid;page-break-inside:avoid;}
+.fin .pr-block h3{font-size:10px;font-family:var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin:0 0 8px;font-weight:600;}
+.fin .pr-cols{display:grid;grid-template-columns:1fr 1fr;gap:22px;}
+.fin .pr-row{display:flex;justify-content:space-between;gap:10px;padding:3px 0;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:11.5px;}
+.fin .pr-k{color:var(--muted);} .fin .pr-v{font-variant-numeric:tabular-nums;} .fin .pr-v em{color:var(--faint);font-style:normal;font-size:10px;}
+.fin .pr-table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11px;}
+.fin .pr-table th{text-align:left;font-weight:600;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);border-bottom:1px solid var(--line2);padding:0 8px 4px 0;}
+.fin .pr-table td{padding:3px 8px 3px 0;border-bottom:1px solid var(--line);vertical-align:top;}
+.fin .pr-table td.num,.fin .pr-table th.num{text-align:right;font-variant-numeric:tabular-nums;}
+.fin .pr-table em{color:var(--faint);font-style:normal;}
+.fin .pr-table .when{width:84px;white-space:nowrap;color:var(--muted);}
+.fin .pr-legend{display:flex;gap:14px;flex-wrap:wrap;font-family:var(--mono);font-size:9.5px;color:var(--faint);margin-top:6px;}
+.fin .pr-legend i{display:inline-block;width:14px;height:0;border-top:2px solid var(--faint);vertical-align:3px;margin-right:5px;}
+.fin .pr-legend i.s-nw{border-color:var(--amber);} .fin .pr-legend i.s-inv{border-top-style:dashed;border-color:var(--green);}
+.fin .pr-legend i.s-debt{border-top-style:dotted;border-color:var(--red);} .fin .pr-legend i.s-fi{border-top-style:dashed;border-color:var(--amber);}
+.fin .pr-more{font-family:var(--mono);font-size:9.5px;color:var(--faint);padding-top:4px;}
+.fin .pr-foot{font-family:var(--mono);font-size:9.5px;line-height:1.7;color:var(--faint);border-top:1px solid var(--line2);padding-top:9px;margin-top:4px;}
+.fin .modal-card.wide{width:min(820px,96vw);}
+
+.fin .modal{position:fixed;inset:0;background:var(--scrim);display:flex;align-items:center;justify-content:center;z-index:60;padding:18px;}
 .fin .modal-card{background:var(--panel);border:1px solid var(--line2);border-radius:16px;padding:20px;width:min(580px,94vw);max-height:88vh;overflow:auto;}
 .fin .modal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
 .fin .modal-head span{font-size:14px;font-weight:600;}
@@ -192,7 +280,7 @@ export const CSS = `
 .fin .inp input[type=number],.fin .num-box .num-input,.fin .pctbox input[type=number]{border:none;padding:0;background:transparent;}
 .fin .seg{display:inline-flex;background:var(--bg);border:1px solid var(--line2);border-radius:9px;overflow:hidden;flex:none;}
 .fin .seg button{background:transparent;border:none;color:var(--faint);font-family:var(--mono);font-size:11.5px;padding:7px 11px;cursor:pointer;transition:background .15s,color .15s;}
-.fin .seg button.on{color:#1A1206;background:var(--amber);}
+.fin .seg button.on{color:var(--on-amber);background:var(--amber);}
 .fin .card{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px;}
 .fin .card-r1{display:flex;align-items:center;gap:9px;margin-bottom:10px;flex-wrap:wrap;}
 .fin .card-r2{display:flex;align-items:center;gap:9px;flex-wrap:wrap;}
@@ -228,15 +316,36 @@ export const CSS = `
 .fin .cardbal{font-family:var(--mono);font-size:12px;color:var(--faint);width:100%;display:flex;justify-content:space-between;gap:10px;padding-top:4px;border-top:1px solid var(--line);margin-top:2px;}
 .fin .cardbal b{color:var(--violet);font-weight:600;}
 .fin .badge{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--violet);
-  background:rgba(185,140,232,.13);border:1px solid rgba(185,140,232,.32);border-radius:6px;padding:2px 6px;flex:none;}
+  background:var(--violet-soft);border:1px solid var(--violet-line);border-radius:6px;padding:2px 6px;flex:none;}
 .fin .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:90;display:flex;align-items:center;gap:9px;
   background:var(--panel3);border:1px solid var(--line2);border-radius:11px;padding:11px 16px;font-family:var(--mono);font-size:12.5px;
-  color:var(--text);box-shadow:0 10px 30px rgba(0,0,0,.5);animation:toastIn .22s cubic-bezier(.2,.7,.3,1) both;max-width:88vw;}
-.fin .toast.err{border-color:rgba(232,105,91,.5);}
+  color:var(--text);box-shadow:0 10px 30px var(--shadow-lg);animation:toastIn .22s cubic-bezier(.2,.7,.3,1) both;max-width:88vw;}
+.fin .toast.err{border-color:var(--red-line);}
 @keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(10px);}to{opacity:1;transform:translateX(-50%) translateY(0);}}
 @media(prefers-reduced-motion:reduce){.fin .toast{animation:none;}}
 .fin .rise{animation:rise .45s cubic-bezier(.2,.7,.3,1) both;}
 @keyframes rise{from{opacity:0;transform:translateY(9px);}to{opacity:1;transform:none;}}
 .fin :focus-visible{outline:2px solid var(--amber);outline-offset:2px;}
 @media(prefers-reduced-motion:reduce){.fin .rise{animation:none;}.fin .fill,.fin .catfill{transition:none;}}
+
+/* ---- printing ------------------------------------------------------------------- */
+/* Paper is always light, so print borrows the light palette outright rather than asking
+   anyone to burn a cartridge on the dark one. Everything except the sheet is hidden — the
+   toolbar, the tabs, the modal chrome the sheet is previewed inside, the toast. */
+@media print{
+  /* paper is the --panel token, which the light palette makes white — one fewer literal */
+  .fin{${LIGHT} background:var(--panel); background-image:none; padding:0; min-height:0;}
+  .fin .topbar, .fin .tabs, .fin .notice, .fin .toast, .fin .zhint{display:none !important;}
+  .fin .rise{animation:none;}
+  .fin *{box-shadow:none !important;}
+  .fin .panel{break-inside:avoid;page-break-inside:avoid;}
+  /* With the preview open, the sheet is the whole page: hide everything the tab was
+     showing behind it, and strip the modal down to bare paper. Without it, a bare Cmd+P
+     still prints the tab you're looking at, minus the chrome. */
+  .fin[data-printing] .wrap > *:not(.modal){display:none !important;}
+  .fin[data-printing] .modal{position:static;inset:auto;background:none;padding:0;display:block;z-index:auto;}
+  .fin[data-printing] .modal-card{width:auto;max-width:none;max-height:none;overflow:visible;border:none;border-radius:0;padding:0;background:var(--panel);}
+  .fin[data-printing] .modal-head, .fin[data-printing] .modal-row, .fin[data-printing] .mnote{display:none !important;}
+  @page{margin:11mm;}
+}
 `;

@@ -16,8 +16,8 @@ export function NumField({ label, value, onChange, prefix, suffix, cls, readOnly
 export const Seg = ({ value, options, onChange, cls }) => (
   <div className={"seg " + (cls || "")}>{options.map((o) => <button key={o.v} className={value === o.v ? "on" : ""} onClick={() => onChange(o.v)}>{o.label}</button>)}</div>
 );
-export function Modal({ title, onClose, children }) {
-  return (<div className="modal" onClick={onClose}><div className="modal-card" onClick={(e) => e.stopPropagation()}>
+export function Modal({ title, onClose, children, wide }) {
+  return (<div className="modal" onClick={onClose}><div className={"modal-card" + (wide ? " wide" : "")} onClick={(e) => e.stopPropagation()}>
     <div className="modal-head"><span>{title}</span><button className="icon-btn" onClick={onClose} aria-label="Close"><X size={18} /></button></div>
     {children}</div></div>);
 }
@@ -26,8 +26,8 @@ export function Donut({ data, center, sub }) {
   return (<div className="split">
     <div className="donut-wrap">
       <ResponsiveContainer width="100%" height={186}>
-        <PieChart><Pie data={data.length ? data : [{ name: "—", value: 1, color: "#1B2735" }]} dataKey="value" nameKey="name" innerRadius={58} outerRadius={82} paddingAngle={data.length > 1 ? 2 : 0} stroke="none" isAnimationActive={false}>
-          {(data.length ? data : [{ color: "#1B2735" }]).map((d, i) => <Cell key={i} fill={d.color} />)}
+        <PieChart><Pie data={data.length ? data : [{ name: "—", value: 1, color: "var(--donut-empty)" }]} dataKey="value" nameKey="name" innerRadius={58} outerRadius={82} paddingAngle={data.length > 1 ? 2 : 0} stroke="none" isAnimationActive={false}>
+          {(data.length ? data : [{ color: "var(--donut-empty)" }]).map((d, i) => <Cell key={i} fill={d.color} />)}
         </Pie></PieChart>
       </ResponsiveContainer>
       <div className="donut-center"><div className="dc-v">{center}</div><div className="dc-s">{sub}</div></div>
