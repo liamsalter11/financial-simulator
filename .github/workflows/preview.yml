@@ -12,12 +12,15 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, closed]
 
-# One preview job at a time: they all push to the same site repo, and two concurrent pushes
-# race. Not cancel-in-progress — that would cancel *other* PRs' previews, not just stale
-# builds of this one.
+# Grouped per pull request, not globally. A single shared group looks right — every preview
+# pushes to the same site repository, so serializing them avoids a race — but GitHub keeps at
+# most one *running* and one *pending* run per group and cancels any earlier pending one. Eight
+# pull requests updated together left six cancelled before a job ever started. Different pull
+# requests now run in parallel, superseded builds of the same one are cancelled (which is what
+# you actually want), and the push race is handled where it belongs: the retry loop below.
 concurrency:
-  group: pr-preview-site
-  cancel-in-progress: false
+  group: pr-preview-${{ github.event.number }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -107,17 +110,18 @@ jobs:
           fi
           git commit -m "$MSG"
 
-          # Another workflow may have pushed between our checkout and now — rebase and retry
-          # rather than failing a preview over a race. The branch is named explicitly so this
-          # doesn't depend on tracking config being set up.
+          # Previews for different pull requests run in parallel and all push here, so losing
+          # the race is expected rather than exceptional — rebase and retry rather than failing
+          # a preview over it. The branch is named explicitly so this doesn't depend on tracking
+          # config, and the backoff is jittered so two racers don't retry in lockstep forever.
           BRANCH=$(git rev-parse --abbrev-ref HEAD)
-          for i in 1 2 3 4 5; do
+          for i in $(seq 1 8); do
             if git push origin "$BRANCH"; then exit 0; fi
             echo "Push rejected (attempt $i) — rebasing onto the current site head."
-            sleep $((i * 3))
+            sleep $(( i * 2 + RANDOM % 5 ))
             git pull --rebase origin "$BRANCH"
           done
-          echo "Could not push the preview after five attempts." >&2
+          echo "Could not push the preview after eight attempts." >&2
           exit 1
 
       - name: Say where it is
