@@ -1,0 +1,149 @@
+# A live preview of every pull request, at
+# https://liamsalter.com/financial-simulator-preview/pr-<number>/
+#
+# The app is a static page with no runtime build, so a preview is just the app packaged into
+# one self-contained file (preview.mjs) and committed to the site repo beside the live copy.
+# It deliberately publishes to a *sibling* path: enabling GitHub Pages on this repo instead
+# would serve it at /financial-simulator/, which is exactly where the live app lives, and
+# project pages take precedence — previews would silently shadow production.
+name: PR preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+
+# One preview job at a time: they all push to the same site repo, and two concurrent pushes
+# race. Not cancel-in-progress — that would cancel *other* PRs' previews, not just stale
+# builds of this one.
+concurrency:
+  group: pr-preview-site
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  preview:
+    # Secrets aren't available to pull requests from forks, so the deploy would fail rather
+    # than do anything useful. Skip cleanly instead.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    env:
+      DIR: financial-simulator-preview/pr-${{ github.event.number }}
+      URL: https://liamsalter.com/financial-simulator-preview/pr-${{ github.event.number }}/
+    steps:
+      - name: Checkout the pull request
+        if: github.event.action != 'closed'
+        uses: actions/checkout@v4
+        with:
+          path: app
+          fetch-depth: 0
+
+      # Vendored libraries are ~640 KB of an 850 KB build, and every build is a new blob in
+      # the site repo's history. When the branch hasn't touched vendor/, point at the copies
+      # already published beside it; when it has, inline them, because then the preview is
+      # precisely about that change.
+      - name: Decide whether to inline the vendored libraries
+        if: github.event.action != 'closed'
+        id: vendor
+        working-directory: app
+        run: |
+          BASE="origin/${{ github.base_ref }}"
+          if ! git rev-parse --verify --quiet "$BASE" >/dev/null; then
+            echo "base=" >> "$GITHUB_OUTPUT"
+            echo "Can't resolve $BASE — inlining, which is always correct if larger."
+          elif git diff --quiet "$BASE...HEAD" -- vendor/; then
+            echo "base=/financial-simulator" >> "$GITHUB_OUTPUT"
+            echo "This branch doesn't touch vendor/ — linking to the published copies."
+          else
+            echo "base=" >> "$GITHUB_OUTPUT"
+            echo "This branch changes vendor/ — inlining so the preview shows those changes."
+          fi
+
+      - uses: actions/setup-node@v4
+        if: github.event.action != 'closed'
+        with:
+          node-version: 22
+
+      - name: Build the preview
+        if: github.event.action != 'closed'
+        working-directory: app
+        run: |
+          node preview.mjs \
+            --out "$GITHUB_WORKSPACE/build/index.html" \
+            --label "PR #${{ github.event.number }} · ${{ github.head_ref }}" \
+            --vendor-base "${{ steps.vendor.outputs.base }}"
+          ls -lh "$GITHUB_WORKSPACE/build/index.html"
+
+      - name: Checkout the site
+        uses: actions/checkout@v4
+        with:
+          repository: liamsalter11/liamsalter11.github.io
+          token: ${{ secrets.SITE_DEPLOY_TOKEN }}
+          path: site
+
+      - name: Publish, or tear down on close
+        working-directory: site
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git config user.name "financial-simulator previews"
+          git config user.email "actions@users.noreply.github.com"
+
+          if [ "${{ github.event.action }}" = "closed" ]; then
+            rm -rf "$DIR"
+            MSG="Remove preview for financial-simulator PR #${{ github.event.number }}"
+          else
+            mkdir -p "$DIR"
+            cp "$GITHUB_WORKSPACE/build/index.html" "$DIR/index.html"
+            MSG="Preview financial-simulator PR #${{ github.event.number }} @ ${HEAD_SHA::7}"
+          fi
+
+          git add -A "financial-simulator-preview" || true
+          if git diff --cached --quiet; then
+            echo "Nothing changed."
+            exit 0
+          fi
+          git commit -m "$MSG"
+
+          # Another workflow may have pushed between our checkout and now — rebase and retry
+          # rather than failing a preview over a race. The branch is named explicitly so this
+          # doesn't depend on tracking config being set up.
+          BRANCH=$(git rev-parse --abbrev-ref HEAD)
+          for i in 1 2 3 4 5; do
+            if git push origin "$BRANCH"; then exit 0; fi
+            echo "Push rejected (attempt $i) — rebasing onto the current site head."
+            sleep $((i * 3))
+            git pull --rebase origin "$BRANCH"
+          done
+          echo "Could not push the preview after five attempts." >&2
+          exit 1
+
+      - name: Say where it is
+        if: github.event.action != 'closed'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const url = process.env.URL;
+            const body = [
+              '### Preview',
+              '',
+              `**${url}**`,
+              '',
+              `Updated for \`${context.payload.pull_request.head.sha.slice(0, 7)}\`. It runs entirely in your browser and saves to its own storage, so it can't touch the live plan.`,
+              '',
+              'Two things differ from production: the projection runs on the main thread rather than in a Web Worker (the app\'s documented fallback), so typing lags slightly more; and this is built whether or not the tests pass, which is usually exactly when you want to look.',
+              '',
+              '<!-- fin-sim-preview -->',
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              ...context.repo, issue_number: context.issue.number, per_page: 100,
+            });
+            const mine = comments.find((c) => c.body.includes('<!-- fin-sim-preview -->'));
+            if (mine) {
+              await github.rest.issues.updateComment({ ...context.repo, comment_id: mine.id, body });
+            } else {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });
+            }
