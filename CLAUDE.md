@@ -58,6 +58,7 @@ There is no bundler and no in-browser transpiler. `index.html` loads `src/main.j
 | `src/help-content.js` | The per-tab Help panel copy. |
 | `src/styles.js` | The app's CSS, as a template string injected via a `<style>` tag. |
 | `vendor/` | Pinned copies of React, ReactDOM, PropTypes and Recharts (UMD builds). |
+| `preview.mjs` | Packages the app into one self-contained HTML file — what the per-PR preview publishes. Dev tooling; never shipped. |
 
 The pure-logic modules (`engine.js`, `montecarlo.js`, `payroll.js`, `recurrence.js`, `format.js`, `seeds.js`, `store.js`, `sample.js`) have no React dependency and are `import`ed directly in tests — no browser or stubbing needed.
 
@@ -81,9 +82,10 @@ The pure-logic modules (`engine.js`, `montecarlo.js`, `payroll.js`, `recurrence.
 
 `tests/helpers/staticServer.mjs` serves the **parent** of this repo, so `/` and `/financial-simulator/` resolve as they do on GitHub Pages. That layout only exists when this repo is checked out inside a clone of `liamsalter11.github.io`; in a standalone clone the one test that needs the site's front page skips itself rather than failing.
 
-CI: `.github/workflows/test.yml` runs the full suite on pull requests and pushes to `main`. `.github/workflows/sync-to-site.yml` rsyncs the repo contents into the `liamsalter11.github.io` site repo on pushes to `main` (excluding `.git`, `.github`, `node_modules`, `test-results`, `playwright-report`) — its `sync` job now `needs` a `test` job, so a failing suite blocks the deploy.
+CI: `.github/workflows/test.yml` runs the full suite on pull requests and pushes to `main`. `.github/workflows/preview.yml` builds a live preview of every pull request and publishes it beside the live app at `liamsalter.com/financial-simulator-preview/pr-<number>/`, then removes it when the PR closes. `.github/workflows/sync-to-site.yml` rsyncs the repo contents into the `liamsalter11.github.io` site repo on pushes to `main` (excluding `.git`, `.github`, `node_modules`, `test-results`, `playwright-report`) — its `sync` job now `needs` a `test` job, so a failing suite blocks the deploy.
 
 ## Conventions
 
+- **A pull request previews itself.** `preview.mjs` packages the whole app into one file by turning each module into a blob URL and repointing its import specifiers at the blob URLs of its dependencies — nothing is rewritten, so module semantics stay the browser's own and a preview can't quietly differ from the real page. Two things do differ, both stated on the page: `new Worker(new URL("./worker.js", import.meta.url))` can't resolve inside a bundle, so the projection takes the documented `projectAll()` fallback and runs on the main thread; and downloads may be blocked depending on where it's served, which falls through to the clipboard. The preview publishes to a **sibling** path in the site repo, never to `/financial-simulator/` — GitHub project pages take precedence over a path in the user site, so serving previews from this repo's own Pages would silently shadow production. `tests/preview.test.mjs` guards the packager: every module reachable from `main.js` is packed, every relative specifier resolves to something packed, and the codebase uses only the one import form the rewrite handles.
 - **No new runtime dependencies without vendoring.** The app intentionally has zero CDN dependencies and no bundler; if a feature needs a library, either vendor a UMD build into `vendor/` and add a `<script>` tag in `index.html`, or write it inline (as was done for icons — see `src/icons.jsx`, replacing a `lucide-react` import with small local SVG components).
 - `package.json`/`build.mjs`/`playwright` are dev tooling only — never shipped to the browser.

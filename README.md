@@ -34,7 +34,7 @@ needed to read them) are both the source and the shipped file.
 | `src/styles.js` | The app's CSS, as a template string injected via a `<style>` tag. |
 | `vendor/` | Pinned copies of React, ReactDOM, PropTypes and Recharts. |
 | `tests/` | Sync, engine, and end-to-end tests — see [Tests](#tests) below. |
-| `package.json`, `build.mjs` | Dev tooling only (rebuilding `.js` from `.jsx`, running tests). Not shipped to the browser. |
+| `package.json`, `build.mjs`, `preview.mjs` | Dev tooling only (rebuilding `.js` from `.jsx`, running tests, packaging a preview). Not shipped to the browser. |
 
 ## Editing
 
@@ -98,8 +98,26 @@ npm run test:all       # everything
   bug — a missing import in a shared component — only surfaced once a
   Tooltip actually rendered, which static page-load checks don't trigger).
 
-CI (`.github/workflows/financial-simulator-ci.yml`) runs all of this on every
-push or pull request that touches `financial-simulator/`.
+CI (`.github/workflows/test.yml`) runs all of this on every push to `main` and
+every pull request.
+
+**Every pull request gets a live preview.** `.github/workflows/preview.yml` packages
+the branch into one self-contained HTML file and publishes it beside the live app at
+`liamsalter.com/financial-simulator-preview/pr-<number>/`, comments the link on the
+pull request, and deletes it again when the pull request closes. Nothing has to be
+run locally to look at a change.
+
+It publishes to a *sibling* path deliberately: GitHub project pages take precedence
+over a path in the user site, so serving previews from this repo's own Pages would put
+them at `/financial-simulator/` and silently shadow production.
+
+The packaging turns each module into a blob URL and repoints its import specifiers at
+the blob URLs of its dependencies — nothing is rewritten, so module semantics stay the
+browser's own and a preview can't quietly differ from the real page. Two things do
+differ, both stated on the page itself: the projection runs on the main thread, because
+a Web Worker can't be constructed from a bundle (the app's documented fallback catches
+it); and a preview is built whether or not the tests pass, which is usually exactly when
+you want to look at one. `npm run preview` builds the same file by hand.
 
 ## Design notes
 
