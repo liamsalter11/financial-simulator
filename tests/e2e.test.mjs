@@ -658,3 +658,72 @@ test("the milestone timeline agrees with the stat cards", async () => {
   assert.deepEqual(consoleErrors, []);
   await page.close();
 });
+
+test("undo steps back over a whole burst of typing, and redo returns it", async () => {
+  const { page, consoleErrors } = await newPage();
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+  await page.locator(".nwbig").waitFor();
+  const start = await page.locator(".nwbig").textContent();
+
+  await page.locator(".tabbtn", { hasText: "Accounts" }).click();
+  const balance = page.locator(".row.acct input[type=number]").first();
+  // typed one character at a time — this must be one undo step, not four
+  for (const v of ["7", "70", "700", "7000"]) { await balance.fill(v); await page.waitForTimeout(60); }
+  await page.waitForTimeout(800);
+  await page.locator(".tabbtn", { hasText: "Overview" }).click();
+  const edited = await page.locator(".nwbig").textContent();
+  assert.notEqual(edited, start);
+
+  await page.keyboard.press("Control+z");
+  await page.waitForTimeout(500);
+  assert.equal(await page.locator(".nwbig").textContent(), start, "one undo should clear the whole gesture");
+
+  await page.keyboard.press("Control+Shift+z");
+  await page.waitForTimeout(500);
+  assert.equal(await page.locator(".nwbig").textContent(), edited, "and redo should put it back");
+
+  assert.deepEqual(consoleErrors, []);
+  await page.close();
+});
+
+test("undo restores a deleted row", async () => {
+  const { page, consoleErrors } = await newPage();
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+  await page.locator(".nwbig").waitFor();
+  await page.locator(".tabbtn", { hasText: "Accounts" }).click();
+
+  const before = await page.locator(".row.acct").count();
+  await page.locator(".row.acct").first().locator(".icon-btn").click();
+  await page.waitForTimeout(500);
+  assert.equal(await page.locator(".row.acct").count(), before - 1);
+
+  await page.locator(".tbtn", { hasText: "Undo" }).click();
+  await page.waitForTimeout(500);
+  assert.equal(await page.locator(".row.acct").count(), before, "the deleted account should come back");
+
+  assert.deepEqual(consoleErrors, []);
+  await page.close();
+});
+
+test("the app keeps a daily copy of the plan, and can restore it", async () => {
+  const { page, consoleErrors } = await newPage();
+  page.on("dialog", (d) => d.accept());
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+  await page.locator(".nwbig").waitFor();
+  await page.waitForTimeout(700);
+
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("fin3:snapshots") || "[]"));
+  assert.ok(saved.length >= 1, "a snapshot should be written without being asked for");
+  assert.ok(saved[0].plan && typeof saved[0].nw === "number", "carrying the plan and what it was worth");
+
+  await page.locator(".tbtn", { hasText: "Scenarios" }).click();
+  const restore = page.locator(".modal .btn", { hasText: "Restore" }).first();
+  await restore.waitFor();
+  await restore.click();
+  await page.waitForTimeout(500);
+  assert.equal(await page.locator(".nwbig").isVisible(), true, "restoring shouldn't break the page");
+  assert.equal(await page.locator(".tbtn", { hasText: "Undo" }).isDisabled(), false, "and is itself undoable");
+
+  assert.deepEqual(consoleErrors, []);
+  await page.close();
+});

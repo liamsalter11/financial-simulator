@@ -3,7 +3,7 @@
 const { useState, useEffect, useMemo, useRef, useDeferredValue } = React;
 import {
   HelpCircle, Upload, Download, RotateCcw, Zap, AlertTriangle, Check, X,
-  LayoutGrid, Wallet, Receipt, TrendingDown, InvestIcon, Trash2,
+  LayoutGrid, Wallet, Receipt, TrendingDown, InvestIcon, Trash2, RotateCw,
 } from "./icons.js";
 import { Modal } from "./components.js";
 import {
@@ -17,6 +17,7 @@ import { WEEKS } from "./engine.js";
 import { projectAll, payoffVsInvest } from "./project.js";
 import { goalSeek, tornado, KNOBS, TARGETS, knobOf, targetOf } from "./solve.js";
 import { milestones, milestoneDiff } from "./milestones.js";
+import { pushUndo, dailySnapshots, previousSnapshot, actualSeries } from "./history.js";
 import {
   SEED_ACCOUNTS, SEED_DEBTS, normDebts, normIncome, normAccounts, isCard, pickIds,
   seedIncome, seedExpenses, seedTransfers, seedDebtPays, seedSettings,
@@ -64,6 +65,14 @@ export function FinancialSimulator() {
     });
   };
   const [scenarios, setScenarios] = useState([]);
+  const [snapshots, setSnapshots] = useState([]);
+  /* Undo history. Kept in refs rather than state because every plan edit touches it and
+     re-rendering on that would be pure overhead — `histTick` is the one bit of state, so
+     the toolbar buttons can enable and disable themselves. */
+  const undoRef = useRef([]);
+  const redoRef = useRef([]);
+  const applyingRef = useRef(false);
+  const [histTick, setHistTick] = useState(0);
   const [compareId, setCompareId] = useState("");
   const [scenarioName, setScenarioName] = useState("");
   const [logLoan, setLogLoan] = useState(""); const [logAmt, setLogAmt] = useState(""); const [logDate, setLogDate] = useState(todayISO());
@@ -72,9 +81,11 @@ export function FinancialSimulator() {
 
   useEffect(() => {
     (async () => {
-      const K = ["fin3:accounts", "fin3:debts", "fin3:income", "fin3:expenses", "fin3:transfers", "fin3:debtPayments", "fin3:payments", "fin3:settings", "fin3:seedNote", "fin3:scenarios", "fin3:compareWith"];
+      const K = ["fin3:accounts", "fin3:debts", "fin3:income", "fin3:expenses", "fin3:transfers", "fin3:debtPayments", "fin3:payments", "fin3:settings", "fin3:seedNote", "fin3:scenarios", "fin3:compareWith", "fin3:snapshots"];
       const O = ["fin2:accounts", "fin2:debts", "fin2:income", "fin2:expenses", "fin2:contributions", "fin2:payments", "fin2:settings"];
-      const [a3, d3, i3, e3, t3, dp3, p3, s3, note, scen, cmp, a2, d2, i2, e2, c2, p2, s2] = await Promise.all([...K, ...O].map((k) => store.get(k)));
+      const [a3, d3, i3, e3, t3, dp3, p3, s3, note, scen, cmp, snaps, a2, d2, i2, e2, c2, p2, s2] = await Promise.all([...K, ...O].map((k) => store.get(k)));
+      const savedSnaps = parse(snaps, []);
+      setSnapshots(Array.isArray(savedSnaps) ? savedSnaps : []);
       const savedScenarios = parse(scen, []);
       setScenarios(Array.isArray(savedScenarios) ? savedScenarios : []);
       /* the comparison lives in its own key, not in settings — settings are part of a saved
@@ -114,6 +125,7 @@ export function FinancialSimulator() {
   useEffect(() => { if (ready) persist("fin3:settings", JSON.stringify(settings)); }, [settings, ready]);
   useEffect(() => { if (ready) persist("fin3:scenarios", JSON.stringify(scenarios)); }, [scenarios, ready]);
   useEffect(() => { if (ready) persist("fin3:compareWith", compareId); }, [compareId, ready]);
+  useEffect(() => { if (ready) persist("fin3:snapshots", JSON.stringify(snapshots)); }, [snapshots, ready]);
 
   /* setters */
   const setS = (k, v) => setSettings((p) => ({ ...p, [k]: v }));
@@ -203,6 +215,61 @@ export function FinancialSimulator() {
     if (Array.isArray(p.payments)) setPayments(p.payments);
     if (p.settings && typeof p.settings === "object") setSettings({ ...seedSettings(), ...p.settings });
   };
+  /* ================================================================== */
+  /*  Undo, redo, and the daily auto-save                                */
+  /* ================================================================== */
+  /* Every plan change lands here. `applyingRef` is what stops an undo from being recorded
+     as an edit and immediately undoing itself. */
+  useEffect(() => {
+    if (!ready || !accounts) return;
+    if (applyingRef.current) { applyingRef.current = false; return; }
+    const { stack, changed } = pushUndo(undoRef.current, planNow(), Date.now());
+    if (!changed) return;
+    undoRef.current = stack;
+    redoRef.current = [];   /* a fresh edit is a new branch — the redo path is gone */
+    setHistTick((t) => t + 1);
+  }, [accounts, debts, income, expenses, transfers, debtPayments, payments, settings, ready]);
+
+  const stepHistory = (from, to) => {
+    if (from.current.length < 2) return;
+    const current = from.current[from.current.length - 1];
+    const target = from.current[from.current.length - 2];
+    from.current = from.current.slice(0, -1);
+    to.current = [...to.current, current];
+    applyingRef.current = true;
+    applyPlan(target.plan);
+    setHistTick((t) => t + 1);
+  };
+  const undo = () => {
+    if (undoRef.current.length < 2) return;
+    stepHistory(undoRef, redoRef);
+  };
+  const redo = () => {
+    const next = redoRef.current[redoRef.current.length - 1];
+    if (!next) return;
+    redoRef.current = redoRef.current.slice(0, -1);
+    undoRef.current = [...undoRef.current, next];
+    applyingRef.current = true;
+    applyPlan(next.plan);
+    setHistTick((t) => t + 1);
+  };
+  const canUndo = undoRef.current.length > 1;
+  const canRedo = redoRef.current.length > 0;
+
+  useEffect(() => {
+    /* The app's fields are controlled React inputs, so the browser's own text undo doesn't
+       meaningfully work in them — intercepting globally is the lesser surprise. */
+    const onKey = (e) => {
+      const z = e.key === "z" || e.key === "Z";
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      if (z && e.shiftKey) { e.preventDefault(); redo(); return; }
+      if (z) { e.preventDefault(); undo(); return; }
+      if (e.key === "y" || e.key === "Y") { e.preventDefault(); redo(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
   const saveScenario = (name) => {
     const trimmed = (name || "").trim();
     if (!trimmed) return;
@@ -227,6 +294,14 @@ export function FinancialSimulator() {
     setCompareId((c) => (c === id ? "" : c));
   };
   const compareScenario = scenarios.find((s) => s.id === compareId) || null;
+  const restoreSnapshot = (at) => {
+    const s = snapshots.find((x) => x.at === at);
+    if (!s) return;
+    if (!window.confirm(`Restore the plan as it was on ${String(at).slice(0, 10)}? You can undo this.`)) return;
+    applyPlan(s.plan);   /* deliberately not marked as "applying", so the restore is undoable */
+    setModal(null);
+    showToast(`Restored ${String(at).slice(0, 10)}`);
+  };
 
   const buildDump = () => JSON.stringify({ app: "fin-sim", version: 7, exportedAt: new Date().toISOString(), ...planNow(), scenarios }, null, 2);
   const openExport = () => { setImportText(buildDump()); setModal("export"); };
@@ -492,7 +567,11 @@ export function FinancialSimulator() {
        as a ghost line without a second data pass */
     const cmpSeries = P.compare && P.compare.sim ? P.compare.sim.series : null;
     const withCmp = (s) => (cmpSeries && cmpSeries[s.w] ? { ...s, cmp: r2(cmpSeries[s.w].nw * nomAt(s.w)) } : s);
-    const viewSeries = (showNom ? sim.series.map(scaleSnap) : sim.series).map(withCmp);
+    /* recorded net worth, keyed by the week it was recorded in, so the chart can draw the
+       trailing actuals against the projection without a second series to align */
+    const actualAt = new Map(actualSeries(snapshots, start).map((a) => [a.week, a.nw]));
+    const withActual = (s) => (actualAt.has(s.w) ? { ...s, actual: r2(actualAt.get(s.w) * nomAt(s.w)) } : s);
+    const viewSeries = (showNom ? sim.series.map(scaleSnap) : sim.series).map(withCmp).map(withActual);
 
     const cf = [];
     const cfMax = Math.min(sim.series.length - 1, 312);
@@ -536,6 +615,17 @@ export function FinancialSimulator() {
 
     /* the dates this plan reaches, and how a saved scenario compares — both are reads over
        projections already computed, so neither costs a simulation */
+    /* what was actually recorded, and what an earlier day's plan predicted — the two
+       halves of "is this going the way I thought?" */
+    const actuals = actualSeries(snapshots, start);
+    const prevSnap = previousSnapshot(snapshots, new Date().toISOString());
+    const drift = prevSnap ? {
+      at: prevSnap.at,
+      nw: typeof prevSnap.nw === "number" ? prevSnap.nw : null,
+      fire: prevSnap.fire || null,
+      debtFree: prevSnap.debtFree || null,
+    } : null;
+
     const timeline = milestones(P, { start, debts, income, settings });
     const cmpPlan = compareScenario ? compareScenario.plan : null;
     const cmpTimeline = P.compare && cmpPlan
@@ -547,8 +637,8 @@ export function FinancialSimulator() {
       nwGap: sim.series[Math.min(maxW, sim.series.length - 1)].nw - P.compare.sim.series[Math.min(maxW, P.compare.sim.series.length - 1)].nw,
     } : null;
 
-    return { totalAssets, totalDebt, totalLoans, netWorth, loans, cards, mInc, mExp, mTr, mDp, mPreTax, mBonusNet, surplus, savingsRate, leftover, monthlyInterest, sim, simWith, simWithout, hasHypo, hypoOn, nwGapAt, minW, maxW, mc: mcView, mcReturn, interestSaved, wksSaved, acctColors, debtColors, names, cf, debtCurve, alloc, spend, bInv, negAcct, nextCardPay, loansNoPayment, chargedTo, worstMonthOut, avgSweep, capped, infl, showNom, nomAt, viewSeries, strategy, liquid, runway, deferralNotes, fiSloped, bridge: sim.bridge, retireWeek, horizonWeeks, busy, timeline, compare };
-  }, [accounts, debts, income, expenses, transfers, debtPayments, settings, start, P, busy, compareScenario]);
+    return { totalAssets, totalDebt, totalLoans, netWorth, loans, cards, mInc, mExp, mTr, mDp, mPreTax, mBonusNet, surplus, savingsRate, leftover, monthlyInterest, sim, simWith, simWithout, hasHypo, hypoOn, nwGapAt, minW, maxW, mc: mcView, mcReturn, interestSaved, wksSaved, acctColors, debtColors, names, cf, debtCurve, alloc, spend, bInv, negAcct, nextCardPay, loansNoPayment, chargedTo, worstMonthOut, avgSweep, capped, infl, showNom, nomAt, viewSeries, strategy, liquid, runway, deferralNotes, fiSloped, bridge: sim.bridge, retireWeek, horizonWeeks, busy, timeline, compare, actuals, drift };
+  }, [accounts, debts, income, expenses, transfers, debtPayments, settings, start, P, busy, compareScenario, snapshots]);
 
   const maxW = D ? D.maxW : 520;
   const scNW = useScope(maxW, 260);
@@ -557,6 +647,25 @@ export function FinancialSimulator() {
   const scDebt = useScope(maxW, 260);
   const scInv = useScope(maxW, 260);
   const scMC = useScope(maxW, 260);
+
+  /* The daily auto-save. One entry per calendar day, written once the projection for that
+     day's plan exists — so each snapshot carries not just the plan but what it *said*:
+     net worth then, and the dates it was predicting. That's what lets the Overview show
+     drift later without re-running anything. */
+  useEffect(() => {
+    if (!ready || !D || D.busy) return;
+    const at = new Date().toISOString();
+    const today = at.slice(0, 10);
+    const existing = snapshots[0];
+    if (existing && String(existing.at).slice(0, 10) === today && existing.nw === D.netWorth) return;
+    const entry = {
+      at, plan: planNow(), nw: D.netWorth,
+      debtFree: D.sim.debtFree == null ? null : isoDate(addDays(start, D.sim.debtFree * 7)),
+      fire: D.sim.fire == null ? null : isoDate(addDays(start, D.sim.fire * 7)),
+    };
+    const next = dailySnapshots(snapshots, entry);
+    if (next !== snapshots) setSnapshots(next);
+  }, [D, ready]);
 
   if (!accounts || !D) return (<><style>{CSS}</style><div className="fin"><div className="wrap"><div className="eyebrow">loading…</div></div></div></>);
 
@@ -605,6 +714,8 @@ export function FinancialSimulator() {
             <div className="toolbar">
               <button className={"tbtn" + (showHelp ? " on" : "")} onClick={() => setShowHelp((v) => !v)}
                 aria-expanded={showHelp} aria-controls="help-panel"><HelpCircle size={13} />Help</button>
+              <button className="tbtn" onClick={undo} disabled={!canUndo} title="Undo (⌘Z)" aria-label="Undo"><RotateCcw size={13} />Undo</button>
+              <button className="tbtn" onClick={redo} disabled={!canRedo} title="Redo (⌘⇧Z)" aria-label="Redo"><RotateCw size={13} />Redo</button>
               <button className={"tbtn" + (compareScenario ? " on" : "")} onClick={() => { setScenarioName(""); setModal("scenarios"); }}
                 title={compareScenario ? `Comparing against "${compareScenario.name}"` : "Save and compare plans"}><LayoutGrid size={13} />Scenarios{scenarios.length ? ` (${scenarios.length})` : ""}</button>
               <button className="tbtn" onClick={() => { setImportText(""); setModal("import"); }}><Upload size={13} />Import</button>
@@ -679,6 +790,21 @@ export function FinancialSimulator() {
                           compare against this
                         </label>
                       </div>
+                    </div>
+                  ))}
+                </div>}
+
+              <div className="mnote" style={{ marginTop: 20 }}>
+                <b>Automatic history.</b> The app keeps a copy of your plan once a day, so a bad edit or a bad import is recoverable even if you didn't save a scenario first. Restoring is itself undoable.
+              </div>
+              {snapshots.length === 0
+                ? <div className="empty">Nothing saved automatically yet — the first copy is written after your next edit.</div>
+                : <div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: 220, overflow: "auto" }}>
+                  {snapshots.map((s) => (
+                    <div key={s.at} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 4px", borderBottom: "1px solid var(--line)", fontFamily: "var(--mono)", fontSize: 12 }}>
+                      <span style={{ color: "var(--faint)", width: 84 }}>{String(s.at).slice(0, 10)}</span>
+                      <span style={{ color: "var(--muted)", flex: 1 }}>{typeof s.nw === "number" ? fmtMoney(s.nw) : "—"}{s.fire ? ` · FI ${s.fire.slice(0, 7)}` : ""}</span>
+                      <button className="btn btn-ghost" onClick={() => restoreSnapshot(s.at)}>Restore</button>
                     </div>
                   ))}
                 </div>}
