@@ -24,6 +24,9 @@ export const normDebts = (list) => (list || []).map((x) => ({
   interestFrom: x.interestFrom || todayISO(),
   payMode: x.payMode === "term" ? "term" : "payment",
   termMonths: x.termMonths != null ? x.termMonths : "",
+  /* the asset this debt is a lien on, if any — a mortgage against a home. Empty for the
+     consumer debt that "debt-free" has always meant. */
+  securedBy: x.securedBy || "",
 }));
 
 export const normDist = (dist, fb) => {
@@ -124,6 +127,11 @@ export const defaultTreatment = (type) => (type === "retirement" ? "traditional"
 export const normAccounts = (list) => (list || []).map((a) => ({
   ...a,
   taxTreatment: ["taxable", "traditional", "roth"].includes(a.taxTreatment) ? a.taxTreatment : defaultTreatment(a.type),
+  /* An illiquid asset is left out of the independence test because you can't spend the
+     house you live in. Someone who genuinely plans to sell and move somewhere cheaper can
+     say so per asset, and then its equity counts like any other money. Off by default:
+     the optimistic answer should be the one you asked for. */
+  spendDown: !!a.spendDown,
 }));
 
 /* deferralLimit is the annual employee 401k/403b election cap — editable because the IRS

@@ -6,6 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { simulateWeekly, projectMinWeekly } from "../src/engine.js";
+import { WPY } from "../src/format.js";
 import { payrollOf, bonusOf, salaryAt, hasPromotions, withoutPromotions } from "../src/payroll.js";
 import { normIncome } from "../src/seeds.js";
 
@@ -895,4 +896,199 @@ test("money locked in retirement accounts is reported as a bridge gap, not silen
   assert.equal(young.series[0].reach, 20000, "but only the taxable account is reachable now");
   assert.ok(young.bridge && young.bridge.gap > 0, "so the bridge to 59½ is short");
   assert.ok(young.bridge.need > young.bridge.reachable);
+});
+
+/* ================================================================== */
+/*  Assets that aren't money                                           */
+/* ================================================================== */
+/* A house appreciates, a car falls apart, and neither one buys groceries. The engine's job
+   is to keep both in net worth while keeping their equity out of anything that claims to
+   say what you could spend — which before this it did not, so a $500k house brought the
+   independence date forward and inflated the cash runway. */
+
+const HOUSE_W = 260;   /* five years, enough for compounding to be unmistakable */
+
+test("a home appreciates and a vehicle depreciates at the rates they're given", () => {
+  const s = sim({
+    accounts: [
+      { id: "home", type: "home", balance: 400000, rate: 3 },
+      { id: "car", type: "vehicle", balance: 30000, rate: -12 },
+    ],
+    weeks: HOUSE_W,
+  });
+  const last = s.series[HOUSE_W];
+  /* weekly compounding at the annual rate, real terms at 0% inflation. 260 weeks is a
+     few days short of five years, which is why the exponent is in weeks. */
+  const after = (bal, rate) => bal * Math.pow(Math.pow(1 + rate / 100, 1 / WPY), HOUSE_W);
+  assert.ok(Math.abs(last.acct.home - after(400000, 3)) < 1, `home was ${last.acct.home}`);
+  assert.ok(Math.abs(last.acct.car - after(30000, -12)) < 1, `car was ${last.acct.car}`);
+  /* a depreciating asset decays toward zero, it never turns into a liability */
+  const long = sim({ accounts: [{ id: "car", type: "vehicle", balance: 30000, rate: -12 }], weeks: 2080 });
+  assert.ok(long.series[2080].acct.car > 0, "depreciation is geometric, so it never crosses zero");
+  assert.ok(long.series[2080].acct.car < 500, "but after forty years there's nothing much left");
+});
+
+test("illiquid equity counts toward net worth and nothing else", () => {
+  const withHouse = sim({
+    accounts: [
+      { id: "brk", type: "brokerage", balance: 100000, rate: 0 },
+      { id: "home", type: "home", balance: 400000, rate: 0 },
+    ],
+    weeks: 4,
+  });
+  const s = withHouse.series[0];
+  assert.equal(s.nw, 500000, "the house is genuinely part of what you're worth");
+  assert.equal(s.illiquid, 400000);
+  assert.equal(s.locked, 400000, "with no lien, the whole value is locked equity");
+  assert.equal(s.spendable, 100000, "but only the brokerage could fund a retirement");
+  assert.equal(s.reach, 100000, "and only the brokerage is reachable at any age");
+});
+
+test("ticking spendDown puts the equity back — the plan really is to sell", () => {
+  const acct = (spendDown) => sim({
+    accounts: [
+      { id: "brk", type: "brokerage", balance: 100000, rate: 0 },
+      { id: "home", type: "home", balance: 400000, rate: 0, spendDown },
+    ],
+    weeks: 4,
+  }).series[0];
+  const kept = acct(false), sold = acct(true);
+  assert.equal(kept.nw, sold.nw, "net worth is the same either way — this is not a valuation question");
+  assert.equal(sold.locked, 0);
+  assert.equal(sold.spendable, 500000);
+  assert.equal(sold.reach, 500000);
+  assert.ok(sold.spendable > kept.spendable, "which is the whole point of the opt-in");
+});
+
+test("a mortgage is netted off the equity, not off the value — the debt is only subtracted once", () => {
+  const s = sim({
+    accounts: [{ id: "home", type: "home", balance: 400000, rate: 0 }],
+    debts: [{ id: "mtg", kind: "loan", apr: 0, balance: 300000, securedBy: "home", interestFrom: "2020-01-01" }],
+    weeks: 4,
+  }).series[0];
+  assert.equal(s.nw, 100000, "400k of house less 300k of mortgage");
+  assert.equal(s.locked, 100000, "the equity, not the house");
+  assert.equal(s.spendable, 0, "netting the gross value would have left -200k");
+});
+
+test("one asset's equity can't offset another's negative equity", () => {
+  const s = sim({
+    accounts: [
+      { id: "home", type: "home", balance: 400000, rate: 0 },
+      { id: "car", type: "vehicle", balance: 10000, rate: 0 },
+    ],
+    debts: [{ id: "auto", kind: "loan", apr: 0, balance: 25000, securedBy: "car", interestFrom: "2020-01-01" }],
+    weeks: 4,
+  }).series[0];
+  /* the car is 15k underwater; the house's equity must not absorb it, or the negative
+     equity would quietly reappear as spendable money */
+  assert.equal(s.locked, 400000, "the house's full equity, and nothing clawed back from the car");
+  assert.equal(s.nw, 385000);
+  assert.equal(s.spendable, -15000, "which is exactly what being underwater on a car means");
+});
+
+test("a secured debt is outside debt-free but still gets its own payoff date", () => {
+  const shared = {
+    accounts: [{ id: "chk", type: "checking", balance: 0, rate: 0 }, { id: "home", type: "home", balance: 400000, rate: 0 }],
+    income: [{ id: "inc", name: "pay", amount: 2000, gross: 2000, grossMode: "paycheck", date: "2026-01-02", recur: "weekly", raise: 0, weekdayAdj: false, dist: [{ acctId: "chk" }] }],
+    debtPayments: [
+      { id: "p1", amount: 400, date: "2026-01-02", recur: "monthly", fromAcct: "chk", toDebt: "ln" },
+      { id: "p2", amount: 3000, date: "2026-01-02", recur: "monthly", fromAcct: "chk", toDebt: "mtg" },
+    ],
+    settings: { withdrawalRate: 4, redirect: false },
+    weeks: 520,
+  };
+  const loan = { id: "ln", kind: "loan", apr: 0, balance: 5000, interestFrom: "2020-01-01" };
+  const mtg = { id: "mtg", kind: "loan", apr: 0, balance: 60000, securedBy: "home", interestFrom: "2020-01-01" };
+
+  const both = sim({ ...shared, debts: [loan, mtg] });
+  assert.equal(both.debtFree, both.payoffWeek.ln,
+    "debt-free is the week the consumer loan clears, with the mortgage still outstanding");
+  assert.ok(both.series[both.debtFree].securedDebt > 0, "which is to say: still owing on the house");
+  assert.ok(both.payoffWeek.mtg > both.debtFree, "yet the mortgage does clear, later, on its own date");
+  assert.ok(both.series[0].securedDebt === 60000 && both.series[0].unsecuredDebt === 5000);
+  assert.equal(both.series[0].debt, 65000, "and both still count as debt against net worth");
+});
+
+test("a mortgage on its own leaves nothing for debt-free to report", () => {
+  const s = sim({
+    accounts: [{ id: "home", type: "home", balance: 400000, rate: 0 }],
+    debts: [{ id: "mtg", kind: "loan", apr: 0, balance: 60000, securedBy: "home", interestFrom: "2020-01-01" }],
+    weeks: 60,
+  });
+  assert.equal(s.debtFree, null, "there is no consumer debt to be free of, so no date is claimed");
+});
+
+test("a securedBy pointing at an account that isn't there falls back to ordinary debt", () => {
+  /* deleting the asset doesn't cascade. The conservative reading is that the loan goes back
+     to counting — quietly dropping it from debt-free would flatter the plan instead. */
+  const s = sim({
+    accounts: [{ id: "chk", type: "checking", balance: 0, rate: 0 }],
+    debts: [{ id: "mtg", kind: "loan", apr: 0, balance: 60000, securedBy: "gone", interestFrom: "2020-01-01" }],
+    weeks: 60,
+  }).series[0];
+  assert.equal(s.securedDebt, 0);
+  assert.equal(s.unsecuredDebt, 60000);
+});
+
+test("a plan with no property is untouched by any of this", () => {
+  /* The identity guard. Every other engine test is written against plans with no illiquid
+     account, so this states directly what their continuing to pass already proves. */
+  const s = sim({
+    accounts: [
+      { id: "chk", type: "checking", balance: 5000, rate: 0 },
+      { id: "ret", type: "retirement", balance: 100000, rate: 0, taxTreatment: "traditional" },
+      { id: "other", type: "other", balance: 20000, rate: 0 },
+    ],
+    debts: [{ id: "ln", kind: "loan", apr: 0, balance: 4000, interestFrom: "2020-01-01" }],
+    settings: { withdrawalRate: 4, retireTaxRate: 20 },
+    weeks: 4,
+  }).series[0];
+  assert.equal(s.illiquid, 0);
+  assert.equal(s.locked, 0);
+  assert.equal(s.unsecuredDebt, s.loanDebt, "with nothing secured, the two totals are the same number");
+  assert.equal(s.securedDebt, 0);
+  assert.equal(s.spendable, s.nw - 100000 * 0.2, "spendable is the tax haircut and nothing else");
+  /* no birth year on file, so nothing is behind an age gate and the whole balance sheet is
+     reachable — including "other", which stays liquid on purpose */
+  assert.equal(s.reach, 125000);
+});
+
+test("the payoff rollover skips secured debt, so a mortgage can't absorb an extra payment", () => {
+  /* This is what makes excluding a mortgage from "debt-free" mean something. Under
+     avalanche the 6% mortgage outranks the 5% student loan, so without the fence the
+     extra payment would cascade into thirty years of house and the student loan — and
+     with it the debt-free date — would slip by years. */
+  const shared = {
+    accounts: [{ id: "chk", type: "checking", balance: 0, rate: 0 }, { id: "home", type: "home", balance: 400000, rate: 0 }],
+    income: [{ id: "inc", name: "pay", amount: 2000, gross: 2000, grossMode: "paycheck", date: "2026-01-02", recur: "weekly", raise: 0, weekdayAdj: false, dist: [{ acctId: "chk" }] }],
+    debtPayments: [
+      /* deliberately far more than the small loan needs, so there is spillover every month */
+      { id: "extra", amount: 2000, date: "2026-01-02", recur: "monthly", fromAcct: "chk", toDebt: "small" },
+    ],
+    settings: { withdrawalRate: 4, redirect: false, payoffOrder: "avalanche" },
+    weeks: 260,
+  };
+  const small = { id: "small", kind: "loan", apr: 4, balance: 1000, interestFrom: "2020-01-01" };
+  const student = { id: "stu", kind: "loan", apr: 5, balance: 20000, interestFrom: "2020-01-01" };
+  const mtg = { id: "mtg", kind: "loan", apr: 6, balance: 300000, securedBy: "home", interestFrom: "2020-01-01" };
+
+  const withMortgage = sim({ ...shared, debts: [small, student, mtg] });
+  const without = sim({ ...shared, debts: [small, student] });
+  assert.equal(withMortgage.debtFree, without.debtFree,
+    "the mortgage must not slow the consumer debt down, or excluding it from debt-free is cosmetic");
+  assert.equal(withMortgage.payoffWeek.stu, without.payoffWeek.stu);
+  assert.equal(withMortgage.series[withMortgage.debtFree].securedDebt > 0, true);
+
+  /* and the same fence applies to the cap sweep's rollover */
+  const swept = sim({
+    ...shared,
+    accounts: [{ id: "chk", type: "checking", balance: 0, rate: 0, cap: 0, spillTo: "small", spillEvery: "weekly" }, { id: "home", type: "home", balance: 400000, rate: 0 }],
+    debtPayments: [],
+    debts: [small, mtg],
+    weeks: 60,
+  });
+  assert.ok(swept.payoffWeek.small != null, "the sweep clears its own target");
+  assert.ok(swept.series[59].dbt.mtg >= 300000,
+    "and then stops rather than pouring into the mortgage, which only accrues");
 });

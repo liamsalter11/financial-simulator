@@ -6,6 +6,7 @@ const {
 import { AlertTriangle, Plus, Trash2 } from "../icons.js";
 import { Stat, LoanCard, Seg, Tip, ChartAlt } from "../components.js";
 import { fmtMoney, fmtBig, fmtDate, fmtDur, n0 } from "../format.js";
+import { checksFor } from "../checks.js";
 import { sampleRange } from "../useScope.js";
 
 export function DebtTab({
@@ -20,7 +21,15 @@ export function DebtTab({
             const rankBy = snowball
               ? (a, b) => n0(a.balance) - n0(b.balance) || n0(b.apr) - n0(a.apr)
               : (a, b) => n0(b.apr) - n0(a.apr) || n0(a.balance) - n0(b.balance);
-            const rankMap = {}; D.loans.filter((l) => n0(l.balance) > 0).sort(rankBy).forEach((l, i) => rankMap[l.id] = i + 1);
+            /* A secured loan is out of the payoff race as well as out of "debt-free": the
+               engine's rollover skips it, so ranking a mortgage among the rest would promise
+               a cascade that never happens. It keeps its own payment and its own date. */
+            const consumer = D.loans.filter((l) => !l.securedBy);
+            const secured = D.loans.filter((l) => l.securedBy);
+            const rankMap = {}; consumer.filter((l) => n0(l.balance) > 0).sort(rankBy).forEach((l, i) => rankMap[l.id] = i + 1);
+            const loanCard = (l) => <LoanCard key={l.id} loan={l} rank={rankMap[l.id]} payoffMonth={D.sim.payoffWeek[l.id] != null ? w2m(D.sim.payoffWeek[l.id]) : null}
+              start={start} hasPayments={hasPay(l.id)} assets={D.assets} checks={checksFor(D.checks, l.id)}
+              onField={upDebtField} onBalance={upDebtBal} onRemove={rmDebt} />;
             const origTotal = debts.reduce((s, l) => s + Math.max(n0(l.originalBalance), n0(l.balance)), 0);
             const paidDown = Math.max(0, origTotal - D.totalDebt);
             const pct = origTotal > 0 ? Math.min(100, paidDown / origTotal * 100) : 0;
@@ -91,10 +100,20 @@ export function DebtTab({
                         : <> Switching to {other} would make no meaningful difference to your plan.</>;
                     })()}
                   </div>
-                  {D.loans.map((l) => <LoanCard key={l.id} loan={l} rank={rankMap[l.id]} payoffMonth={D.sim.payoffWeek[l.id] != null ? w2m(D.sim.payoffWeek[l.id]) : null} start={start} hasPayments={hasPay(l.id)} onField={upDebtField} onBalance={upDebtBal} onRemove={rmDebt} />)}
+                  {consumer.map(loanCard)}
                   <button className="btn btn-add" onClick={addDebt}><Plus size={15} />Add a loan</button>
                   <div className="assume">Describe a loan either way — type the minimum payment and it shows how long that takes, or switch to "by term" and the payment is worked out for you. Either way the minimum here only draws the "minimums only" comparison line; what you actually pay is set in Cash flow.{D.cards.length > 0 ? " Credit cards are managed in Cash flow — they still count against your net worth." : ""} For a loan in deferment, set "interest starts" to when it kicks in — subsidised loans don't accrue while you're enrolled, unsubsidised ones do, so leave those blank.</div>
                 </div>
+
+                {secured.length > 0 && (
+                  <div className="panel rise">
+                    <div className="phead"><div className="ptitle">Secured on an asset</div><div className="psub">outside your debt-free date</div></div>
+                    <div className="caphint" style={{ marginBottom: 10 }}>
+                      A mortgage isn't the kind of debt "debt-free" is about — nobody counts a homeowner as indebted for thirty years, and letting one in would push the headline date past everything else on the plan. It still counts against your net worth, still accrues, and still has its own payoff date below.
+                    </div>
+                    {secured.map(loanCard)}
+                  </div>
+                )}
 
                 {!noDebt && (
                   <div className="panel rise">

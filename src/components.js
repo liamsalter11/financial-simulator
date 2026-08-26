@@ -146,23 +146,27 @@ export function LoanCard({
   payoffMonth,
   start,
   hasPayments,
+  assets = [],
+  checks = [],
   onField,
   onBalance,
   onRemove
 }) {
   const paid = n0(loan.balance) <= 0;
+  const securedTo = assets.find(a => a.id === loan.securedBy);
   const iFrom = loan.interestFrom ? parseDate(loan.interestFrom) : null;
   const deferred = iFrom && !isNaN(iFrom) && iFrom > start;
   const termMode = loan.payMode === "term";
   const derived = minPaymentOf(loan);
   const implied = monthsToPayoff(loan.balance, loan.apr, derived);
   return React.createElement("div", {
-    className: "loan" + (paid ? " done" : "")
+    className: "loan" + (paid ? " done" : "") + (securedTo ? " secured" : ""),
+    "data-row": loan.id
   }, React.createElement("div", {
     className: "loan-top"
   }, React.createElement("span", {
     className: "rank" + (paid ? " paid" : "")
-  }, paid ? "PAID" : "#" + (rank || "—")), React.createElement("input", {
+  }, paid ? "PAID" : securedTo ? "LIEN" : "#" + (rank || "—")), React.createElement("input", {
     className: "rname",
     value: loan.name,
     onChange: e => onField(loan.id, "name", e.target.value),
@@ -245,7 +249,27 @@ export function LoanCard({
     title: "Interest accrues from this date. Push it forward for a subsidised loan in deferment."
   }), deferred ? React.createElement("span", {
     className: "badge"
-  }, "no interest yet") : null), hasPayments && React.createElement("span", null, "from $", Math.round(n0(loan.originalBalance)).toLocaleString())));
+  }, "no interest yet") : null), hasPayments && React.createElement("span", null, "from $", Math.round(n0(loan.originalBalance)).toLocaleString())), assets.length > 0 && React.createElement("div", {
+    className: "loan-foot"
+  }, React.createElement("span", {
+    className: "endwrap"
+  }, React.createElement("span", {
+    className: "cap"
+  }, "secured by"), React.createElement("select", {
+    value: loan.securedBy || "",
+    onChange: e => onField(loan.id, "securedBy", e.target.value),
+    "aria-label": "Secured by",
+    title: "The asset this loan is a lien against \u2014 a mortgage on a home. A secured loan is left out of your debt-free date."
+  }, React.createElement("option", {
+    value: ""
+  }, "\u2014 nothing (consumer debt) \u2014"), assets.map(a => React.createElement("option", {
+    key: a.id,
+    value: a.id
+  }, a.name)))), securedTo && React.createElement("span", {
+    className: "payoff-badge"
+  }, "outside \u201Cdebt-free\u201D")), React.createElement(RowChecks, {
+    checks: checks
+  }));
 }
 export const ChartAlt = ({
   summary

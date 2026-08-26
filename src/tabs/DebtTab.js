@@ -13,6 +13,7 @@ const {
 import { AlertTriangle, Plus, Trash2 } from "../icons.js";
 import { Stat, LoanCard, Seg, Tip, ChartAlt } from "../components.js";
 import { fmtMoney, fmtBig, fmtDate, fmtDur, n0 } from "../format.js";
+import { checksFor } from "../checks.js";
 import { sampleRange } from "../useScope.js";
 export function DebtTab({
   D,
@@ -53,8 +54,23 @@ export function DebtTab({
   const covers = D.mDp > D.monthlyInterest + 1e-9;
   const snowball = settings.payoffOrder === "snowball";
   const rankBy = snowball ? (a, b) => n0(a.balance) - n0(b.balance) || n0(b.apr) - n0(a.apr) : (a, b) => n0(b.apr) - n0(a.apr) || n0(a.balance) - n0(b.balance);
+  const consumer = D.loans.filter(l => !l.securedBy);
+  const secured = D.loans.filter(l => l.securedBy);
   const rankMap = {};
-  D.loans.filter(l => n0(l.balance) > 0).sort(rankBy).forEach((l, i) => rankMap[l.id] = i + 1);
+  consumer.filter(l => n0(l.balance) > 0).sort(rankBy).forEach((l, i) => rankMap[l.id] = i + 1);
+  const loanCard = l => React.createElement(LoanCard, {
+    key: l.id,
+    loan: l,
+    rank: rankMap[l.id],
+    payoffMonth: D.sim.payoffWeek[l.id] != null ? w2m(D.sim.payoffWeek[l.id]) : null,
+    start: start,
+    hasPayments: hasPay(l.id),
+    assets: D.assets,
+    checks: checksFor(D.checks, l.id),
+    onField: upDebtField,
+    onBalance: upDebtBal,
+    onRemove: rmDebt
+  });
   const origTotal = debts.reduce((s, l) => s + Math.max(n0(l.originalBalance), n0(l.balance)), 0);
   const paidDown = Math.max(0, origTotal - D.totalDebt);
   const pct = origTotal > 0 ? Math.min(100, paidDown / origTotal * 100) : 0;
@@ -243,24 +259,27 @@ export function DebtTab({
     if (Math.abs(s.firstDelta) >= 4) bits.push(`clear your first loan ${fmtDur(w2m(Math.abs(s.firstDelta)))} ${s.firstDelta > 0 ? "later" : "sooner"}`);
     if (Math.abs(s.freeDelta) >= 4) bits.push(`finish everything ${fmtDur(w2m(Math.abs(s.freeDelta)))} ${s.freeDelta > 0 ? "later" : "sooner"}`);
     return bits.length ? React.createElement(React.Fragment, null, " Switching to ", other, " would ", bits.join(", "), ".") : React.createElement(React.Fragment, null, " Switching to ", other, " would make no meaningful difference to your plan.");
-  })()), D.loans.map(l => React.createElement(LoanCard, {
-    key: l.id,
-    loan: l,
-    rank: rankMap[l.id],
-    payoffMonth: D.sim.payoffWeek[l.id] != null ? w2m(D.sim.payoffWeek[l.id]) : null,
-    start: start,
-    hasPayments: hasPay(l.id),
-    onField: upDebtField,
-    onBalance: upDebtBal,
-    onRemove: rmDebt
-  })), React.createElement("button", {
+  })()), consumer.map(loanCard), React.createElement("button", {
     className: "btn btn-add",
     onClick: addDebt
   }, React.createElement(Plus, {
     size: 15
   }), "Add a loan"), React.createElement("div", {
     className: "assume"
-  }, "Describe a loan either way \u2014 type the minimum payment and it shows how long that takes, or switch to \"by term\" and the payment is worked out for you. Either way the minimum here only draws the \"minimums only\" comparison line; what you actually pay is set in Cash flow.", D.cards.length > 0 ? " Credit cards are managed in Cash flow — they still count against your net worth." : "", " For a loan in deferment, set \"interest starts\" to when it kicks in \u2014 subsidised loans don't accrue while you're enrolled, unsubsidised ones do, so leave those blank.")), !noDebt && React.createElement("div", {
+  }, "Describe a loan either way \u2014 type the minimum payment and it shows how long that takes, or switch to \"by term\" and the payment is worked out for you. Either way the minimum here only draws the \"minimums only\" comparison line; what you actually pay is set in Cash flow.", D.cards.length > 0 ? " Credit cards are managed in Cash flow — they still count against your net worth." : "", " For a loan in deferment, set \"interest starts\" to when it kicks in \u2014 subsidised loans don't accrue while you're enrolled, unsubsidised ones do, so leave those blank.")), secured.length > 0 && React.createElement("div", {
+    className: "panel rise"
+  }, React.createElement("div", {
+    className: "phead"
+  }, React.createElement("div", {
+    className: "ptitle"
+  }, "Secured on an asset"), React.createElement("div", {
+    className: "psub"
+  }, "outside your debt-free date")), React.createElement("div", {
+    className: "caphint",
+    style: {
+      marginBottom: 10
+    }
+  }, "A mortgage isn't the kind of debt \"debt-free\" is about \u2014 nobody counts a homeowner as indebted for thirty years, and letting one in would push the headline date past everything else on the plan. It still counts against your net worth, still accrues, and still has its own payoff date below."), secured.map(loanCard)), !noDebt && React.createElement("div", {
     className: "panel rise"
   }, React.createElement("div", {
     className: "phead"

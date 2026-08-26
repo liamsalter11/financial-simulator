@@ -1199,3 +1199,83 @@ test("the topbar survives a phone: the headline doesn't break and the toolbar do
   assert.deepEqual(consoleErrors, []);
   await ctx.close();
 });
+
+test("a house counts toward net worth without pretending it's money", async () => {
+  /* The defect this feature exists to fix. Before it, an "Other asset" typed for a house
+     landed in the cash bucket — so the runway said you could live for years off a building,
+     and the independence date came forward on money nobody can spend. */
+  const { page, consoleErrors } = await newPage();
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+  await page.locator(".nwbig").waitFor();
+  await page.waitForTimeout(900);
+
+  const stat = (label) => page.locator(".stat", { has: page.locator(`.k:text-matches("${label}")`) }).locator(".v").first();
+  const read = async () => ({
+    nw: (await page.locator(".nwbig").textContent()).trim(),
+    runway: (await stat("Cash runway").textContent()).trim(),
+    fi: (await stat("Financial indep").textContent()).trim(),
+    free: (await stat("Debt-free").textContent()).trim(),
+  });
+  const before = await read();
+
+  const addAccount = (acct) => page.evaluate((a) => {
+    const list = JSON.parse(localStorage.getItem("fin3:accounts") || "[]");
+    localStorage.setItem("fin3:accounts", JSON.stringify([...list, a]));
+  }, acct);
+  const settle = async () => {
+    await page.reload({ waitUntil: "networkidle" });
+    await page.locator(".nwbig").waitFor();
+    await page.waitForTimeout(1200);
+  };
+
+  await addAccount({ id: "housetest", name: "House", type: "home", balance: 400000, rate: 3 });
+  await settle();
+  const withHouse = await read();
+
+  assert.notEqual(withHouse.nw, before.nw, "the house is part of what you're worth");
+  assert.equal(withHouse.runway, before.runway, "but it doesn't feed you for a single extra month");
+  assert.equal(withHouse.fi, before.fi, "and it doesn't buy you a day of independence");
+
+  /* it does get its own slice of the asset mix rather than hiding inside "Cash" */
+  await page.locator(".tabbtn", { hasText: "Accounts" }).click();
+  await page.waitForTimeout(400);
+  assert.ok((await page.locator(".dl-row .nm").allTextContents()).includes("Property"),
+    "property should be its own slice of the asset mix");
+
+  /* ticking "count its equity toward independence" is what moves the date. The row is
+     found by position rather than by name: an account's name lives in an input's *value*,
+     which has-text can't see. */
+  const houseRow = page.locator(".row.acct").last();
+  assert.equal(await houseRow.locator("input.rname").inputValue(), "House");
+  await houseRow.locator(".chk input").check();
+  await page.waitForTimeout(1400);
+  await page.locator(".tabbtn", { hasText: "Overview" }).click();
+  await page.waitForTimeout(900);
+  assert.notEqual((await read()).fi, before.fi, "opting in should bring independence forward");
+  await page.locator(".tabbtn", { hasText: "Accounts" }).click();
+  await page.locator(".row.acct").last().locator(".chk input").uncheck();
+  await page.waitForTimeout(1400);
+
+  /* and a mortgage against it doesn't move the debt-free date, but does show up as its own
+     timeline entry with its own payoff */
+  await page.evaluate(() => {
+    const debts = JSON.parse(localStorage.getItem("fin3:debts") || "[]");
+    debts.push({ id: "mtgtest", name: "Mortgage", kind: "loan", balance: 300000, originalBalance: 300000, apr: 6, minPayment: 1800, securedBy: "housetest", interestFrom: new Date().toISOString().slice(0, 10) });
+    localStorage.setItem("fin3:debts", JSON.stringify(debts));
+    const pays = JSON.parse(localStorage.getItem("fin3:debtPayments") || "[]");
+    const acct = JSON.parse(localStorage.getItem("fin3:accounts") || "[]")[0];
+    pays.push({ id: "mtgpaytest", name: "Mortgage payment", amount: 1800, date: new Date().toISOString().slice(0, 10), recur: "monthly", fromAcct: acct.id, toDebt: "mtgtest" });
+    localStorage.setItem("fin3:debtPayments", JSON.stringify(pays));
+  });
+  await settle();
+  assert.equal((await read()).free, withHouse.free, "a mortgage is not what 'debt-free' is about");
+
+  await page.locator(".tabbtn", { hasText: "Debt" }).click();
+  await page.waitForTimeout(600);
+  assert.equal(await page.locator('.panel:has-text("Secured on an asset") .loan').count(), 1,
+    "the mortgage belongs apart from the consumer loans it was conflated with");
+  assert.equal(await page.locator('.panel:has-text("Secured on an asset") select[aria-label="Secured by"]').inputValue(), "housetest");
+
+  assert.deepEqual(consoleErrors, []);
+  await page.close();
+});

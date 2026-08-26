@@ -7,7 +7,7 @@ const {
   CartesianGrid,
   ReferenceLine
 } = Recharts;
-import { fmtMoney, fmtBig, fmtDate, fmtDur, fmtC, n0, weekTick, addDays, catLabel, isInvest, isSav } from "./format.js";
+import { fmtMoney, fmtBig, fmtDate, fmtDur, fmtC, n0, weekTick, addDays, catLabel, isInvest, isSav, isIlliquid } from "./format.js";
 import { minPaymentOf } from "./loan.js";
 const CHART_W = 720,
   CHART_H = 180;
@@ -52,7 +52,8 @@ export function PrintSheet({
   const cards = debts.filter(d => d.kind === "card");
   const invested = accounts.filter(a => isInvest(a.type)).reduce((s, a) => s + n0(a.balance), 0);
   const savings = accounts.filter(a => isSav(a.type)).reduce((s, a) => s + n0(a.balance), 0);
-  const cash = D.totalAssets - invested - savings;
+  const property = accounts.filter(a => isIlliquid(a.type)).reduce((s, a) => s + n0(a.balance), 0);
+  const cash = D.totalAssets - invested - savings - property;
   return React.createElement("div", {
     className: "printsheet",
     id: "printsheet"
@@ -175,6 +176,10 @@ export function PrintSheet({
     k: "Cash & other",
     v: fmtMoney(cash),
     sub: D.totalAssets > 0 ? `${Math.round(cash / D.totalAssets * 100)}%` : ""
+  }), property > 0 && React.createElement(Row, {
+    k: "Property",
+    v: fmtMoney(property),
+    sub: D.totalAssets > 0 ? `${Math.round(property / D.totalAssets * 100)}%` : ""
   })), React.createElement("div", {
     className: "pr-block"
   }, React.createElement("h3", null, "Every month"), React.createElement(Row, {

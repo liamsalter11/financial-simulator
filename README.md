@@ -321,6 +321,24 @@ portfolio only has to fund the gap — but until it starts, the target also carr
 capital to bridge those years yourself. The result is a target that slopes down toward the
 start date instead of stepping, which is why the charts draw it as a line.
 
+**A house is worth something, and it is not money.** The Home and Vehicle account types
+count toward net worth like anything else, but their equity is kept out of the cash runway
+and out of the independence date — you cannot spend the roof over your head, and a house
+sitting in the cash bucket would claim you could live for years off a building.
+Depreciation needs no special handling: a car is an account with a negative return, and
+geometric decay never quite reaches zero. If the plan really is to sell and move somewhere
+cheaper, tick "count its equity toward independence" on that account and it is treated
+like any other money. Equity is netted against that asset's own lien, so a paid-off house
+never absorbs an underwater car.
+
+**A mortgage is not what "debt-free" means.** Point a loan at an asset with "secured by"
+and it moves out of the debt-free date, the same way credit cards already were — nobody
+counts a homeowner as indebted for thirty years, and letting one in pushes the headline
+date past everything else on the plan. It still counts against net worth, still accrues,
+and still gets its own payoff date. It is also out of the payoff race: a surplus that
+outgrows one loan rolls to the next consumer loan, never into thirty years of house, which
+is what stops the exclusion from being merely cosmetic.
+
 **Debt payoff order is a choice.** Surplus from a payment rolls either to the highest-rate
 loan (avalanche, the cheapest) or to the smallest balance (snowball, which clears
 individual loans soonest). The Debt tab runs the strategy you didn't pick as a second full

@@ -174,6 +174,7 @@ export const CSS = `
 .fin .icon-btn:hover{color:var(--red);background:var(--red-soft);}
 .fin .loan{background:var(--panel2);border:1px solid var(--line);border-radius:13px;padding:14px;margin-bottom:12px;}
 .fin .loan.done{opacity:.6;}
+.fin .loan.secured{border-left:3px solid var(--slate);}
 .fin .loan-top{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;}
 .fin .rank{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--amber);background:var(--amber-soft);border:1px solid var(--amber-line);border-radius:7px;padding:3px 8px;flex:none;}
 .fin .rank.paid{color:var(--green);background:var(--green-soft);border-color:var(--green-line);}

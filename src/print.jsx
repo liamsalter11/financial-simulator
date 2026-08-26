@@ -6,7 +6,7 @@
 // Everything here is read off `D`; nothing is recomputed, so the sheet cannot disagree with
 // the tabs it summarises.
 const { ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, ReferenceLine } = Recharts;
-import { fmtMoney, fmtBig, fmtDate, fmtDur, fmtC, n0, weekTick, addDays, catLabel, isInvest, isSav } from "./format.js";
+import { fmtMoney, fmtBig, fmtDate, fmtDur, fmtC, n0, weekTick, addDays, catLabel, isInvest, isSav, isIlliquid } from "./format.js";
 import { minPaymentOf } from "./loan.js";
 
 /* Fixed pixel dimensions rather than ResponsiveContainer: the sheet is a known width in the
@@ -33,7 +33,10 @@ export function PrintSheet({ D, accounts, debts, settings, start, fireN }) {
   const cards = debts.filter((d) => d.kind === "card");
   const invested = accounts.filter((a) => isInvest(a.type)).reduce((s, a) => s + n0(a.balance), 0);
   const savings = accounts.filter((a) => isSav(a.type)).reduce((s, a) => s + n0(a.balance), 0);
-  const cash = D.totalAssets - invested - savings;
+  /* cash is the remainder, so property has to come out of it explicitly — otherwise a
+     house prints as "cash & other", which is the one place on paper it would go unnoticed */
+  const property = accounts.filter((a) => isIlliquid(a.type)).reduce((s, a) => s + n0(a.balance), 0);
+  const cash = D.totalAssets - invested - savings - property;
 
   return (
     <div className="printsheet" id="printsheet">
@@ -82,6 +85,7 @@ export function PrintSheet({ D, accounts, debts, settings, start, fireN }) {
           <Row k="Invested" v={fmtMoney(invested)} sub={D.totalAssets > 0 ? `${Math.round(invested / D.totalAssets * 100)}%` : ""} />
           <Row k="Savings" v={fmtMoney(savings)} sub={D.totalAssets > 0 ? `${Math.round(savings / D.totalAssets * 100)}%` : ""} />
           <Row k="Cash & other" v={fmtMoney(cash)} sub={D.totalAssets > 0 ? `${Math.round(cash / D.totalAssets * 100)}%` : ""} />
+          {property > 0 && <Row k="Property" v={fmtMoney(property)} sub={D.totalAssets > 0 ? `${Math.round(property / D.totalAssets * 100)}%` : ""} />}
         </div>
         <div className="pr-block">
           <h3>Every month</h3>

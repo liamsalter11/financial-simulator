@@ -136,6 +136,37 @@ export function runChecks(plan = {}, facts = {}) {
   }
 
   /* ---------------------------------------------------------------- */
+  /*  Property and the debt against it                                 */
+  /* ---------------------------------------------------------------- */
+  for (const dbt of debts) {
+    if (!dbt.securedBy) continue;
+    const asset = accounts.find((x) => x.id === dbt.securedBy);
+    if (!asset) {
+      add("error", "debt", dbt.id, `orphan:${dbt.id}:securedBy`,
+        `“${dbt.name || "Debt"}” is secured on an asset that no longer exists`,
+        "The account it was a lien against was deleted, so it counts as ordinary debt again — which pushes your debt-free date out.",
+        "Point it at an asset you still have, or clear the link.");
+      continue;
+    }
+    if (n0(dbt.balance) > n0(asset.balance)) {
+      add("warn", "debt", dbt.id, `underwater:${dbt.id}`,
+        `“${dbt.name || "Debt"}” is worth more than “${asset.name}”`,
+        `The balance is ${fmt(n0(dbt.balance))} against an asset valued at ${fmt(n0(asset.balance))}, so selling it wouldn't clear the debt.`,
+        "Check both figures — an asset entered at its purchase price rather than today's value is the usual cause.");
+    }
+  }
+  for (const a of accounts) {
+    /* the whole point of the vehicle type is that it goes down; a positive rate here is
+       nearly always a rate typed without its minus sign */
+    if (a.type === "vehicle" && num(a.rate) > 0) {
+      add("warn", "accounts", a.id, `appreciating:${a.id}`,
+        `“${a.name}” is set to gain value every year`,
+        `Vehicles depreciate — at ${num(a.rate)}% a year this one grows instead, which flatters every figure it feeds.`,
+        "Enter the rate as a negative number, around -12% for a typical car.");
+    }
+  }
+
+  /* ---------------------------------------------------------------- */
   /*  Accounts                                                         */
   /* ---------------------------------------------------------------- */
   for (const a of accounts) {

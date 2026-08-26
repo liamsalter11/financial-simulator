@@ -10,7 +10,7 @@ import { Modal } from "./components.js";
 import {
   n0, num, uid, todayISO, nextFirstISO, firstOfYear, isoDate, addMonths, parseDate, addDays,
   fmtMoney, fmtBig, fmtC, weekTick, r2, parse, OPY, RECUR, ACCT_TYPES,
-  isInvest, isSav, isCash, BUCKET_COLOR, PAL, CATEGORIES, acctColor, debtColor, dashFor, inflFactor,
+  isInvest, isSav, isCash, isIlliquid, BUCKET_COLOR, PAL, CATEGORIES, acctColor, debtColor, dashFor, inflFactor,
 } from "./format.js";
 import { firesInWeek } from "./recurrence.js";
 import { payrollOf, bonusOf, effectiveTaxRate, isDerived, takeHomeOf } from "./payroll.js";
@@ -683,7 +683,7 @@ export function FinancialSimulator() {
       const f = nomAt(s.w);
       const acct = {}; for (const k in s.acct) acct[k] = r2(s.acct[k] * f);
       const dbt = {}; for (const k in s.dbt) dbt[k] = r2(s.dbt[k] * f);
-      return { ...s, nw: r2(s.nw * f), debt: r2(s.debt * f), loanDebt: r2(s.loanDebt * f), invest: r2(s.invest * f), basis: r2(s.basis * f), spendable: r2(s.spendable * f), reach: r2(s.reach * f), fi: r2(s.fi * f), acct, dbt };
+      return { ...s, nw: r2(s.nw * f), debt: r2(s.debt * f), loanDebt: r2(s.loanDebt * f), unsecuredDebt: r2(s.unsecuredDebt * f), securedDebt: r2(s.securedDebt * f), invest: r2(s.invest * f), basis: r2(s.basis * f), illiquid: r2(s.illiquid * f), locked: r2(s.locked * f), spendable: r2(s.spendable * f), reach: r2(s.reach * f), fi: r2(s.fi * f), acct, dbt };
     };
     /* the saved scenario's own net worth, carried on the same rows so the chart can draw it
        as a ghost line without a second data pass */
@@ -708,10 +708,18 @@ export function FinancialSimulator() {
     const bInv = accounts.filter((a) => isInvest(a.type)).reduce((s, a) => s + n0(a.balance), 0);
     const bSav = accounts.filter((a) => isSav(a.type)).reduce((s, a) => s + n0(a.balance), 0);
     const bCash = accounts.filter((a) => isCash(a.type)).reduce((s, a) => s + n0(a.balance), 0);
+    /* property is its own slice rather than part of "cash & other": a house in the cash
+       bucket is what made the runway figure claim you could live off your kitchen */
+    const assets = accounts.filter((a) => isIlliquid(a.type));
+    const bProp = assets.reduce((s, a) => s + n0(a.balance), 0);
+    /* what each asset has borrowed against it, which is what turns a value into equity */
+    const securedOn = {};
+    for (const x of debts) if (x.securedBy) securedOn[x.securedBy] = (securedOn[x.securedBy] || 0) + Math.max(0, n0(x.balance));
     const alloc = [
       { name: "Investments", value: bInv, color: BUCKET_COLOR.Investments },
       { name: "Savings", value: bSav, color: BUCKET_COLOR.Savings },
       { name: "Cash", value: bCash, color: BUCKET_COLOR.Cash },
+      { name: "Property", value: bProp, color: BUCKET_COLOR.Property },
     ].filter((x) => x.value > 0);
     const spend = expenses.map((e) => ({ ...e, monthly: n0(e.amount) * OPY[e.recur] / 12 })).filter((e) => e.monthly > 0).sort((a, b) => b.monthly - a.monthly).map((e, i) => ({ ...e, color: PAL[i % PAL.length] }));
     /* the same spending rolled up, which is the whole point of categories being a fixed
@@ -724,7 +732,9 @@ export function FinancialSimulator() {
     let negAcct = null, negAcctId = null;
     for (let w = 0; w < Math.min(sim.series.length, 312) && !negAcct; w++) { const m = sim.series[w].acct; for (const a of accounts) if (m[a.id] < -1) { negAcct = a.name; negAcctId = a.id; break; } }
 
-    /* how long the money you can actually reach this week would last with no income at all */
+    /* how long the money you can actually reach this week would last with no income at all.
+       Property is deliberately absent — selling the house is not a way to buy groceries
+       next month, and counting it here was the single most misleading figure in the app. */
     const liquid = bCash + bSav;
     const runway = mExp > 0 ? liquid / mExp : null;
 
@@ -778,7 +788,7 @@ export function FinancialSimulator() {
       nwGap: sim.series[Math.min(maxW, sim.series.length - 1)].nw - P.compare.sim.series[Math.min(maxW, P.compare.sim.series.length - 1)].nw,
     } : null;
 
-    return { totalAssets, totalDebt, totalLoans, netWorth, loans, cards, mInc, mExp, mTr, mDp, mPreTax, mBonusNet, surplus, savingsRate, leftover, monthlyInterest, sim, simWith, simWithout, hasHypo, hypoOn, nwGapAt, minW, maxW, mc: mcView, mcReturn, interestSaved, wksSaved, acctColors, acctDashes, debtColors, names, cf, debtCurve, alloc, spend, spendCat, bInv, negAcct, nextCardPay, loansNoPayment, chargedTo, worstMonthOut, avgSweep, capped, infl, showNom, nomAt, viewSeries, strategy, liquid, runway, deferralNotes, fiSloped, bridge: sim.bridge, retireWeek, horizonWeeks, busy, timeline, compare, actuals, drift, negAcctId, checks, checkCount: countByLevel(checks) };
+    return { totalAssets, totalDebt, totalLoans, netWorth, loans, cards, mInc, mExp, mTr, mDp, mPreTax, mBonusNet, surplus, savingsRate, leftover, monthlyInterest, sim, simWith, simWithout, hasHypo, hypoOn, nwGapAt, minW, maxW, mc: mcView, mcReturn, interestSaved, wksSaved, acctColors, acctDashes, debtColors, names, cf, debtCurve, alloc, spend, spendCat, bInv, negAcct, nextCardPay, loansNoPayment, chargedTo, worstMonthOut, avgSweep, capped, infl, showNom, nomAt, viewSeries, strategy, liquid, runway, assets, securedOn, bProp, deferralNotes, fiSloped, bridge: sim.bridge, retireWeek, horizonWeeks, busy, timeline, compare, actuals, drift, negAcctId, checks, checkCount: countByLevel(checks) };
   }, [accounts, debts, income, expenses, transfers, debtPayments, settings, start, P, busy, compareScenario, snapshots]);
 
   const maxW = D ? D.maxW : 520;
