@@ -6,13 +6,13 @@ const {
 } = Recharts;
 import { Plus, Trash2, ArrowRight } from "../icons.js";
 import { Stat, NumField, Seg, EndDate, Tip } from "../components.js";
-import { fmtMoney, n0, num, OPY, parseDate, RECUR, recurLabel } from "../format.js";
+import { fmtMoney, fmtDate, n0, num, OPY, parseDate, RECUR, recurLabel } from "../format.js";
 import { payrollOf, bonusOf, perCheck, effectiveTaxRate } from "../payroll.js";
 import { isCard } from "../seeds.js";
 import { sampleRange } from "../useScope.js";
 
 export function CashFlowTab({
-  D, chart, scCF, income, accounts, expenses, debts, debtPayments, transfers,
+  D, chart, scCF, settings, setS, income, accounts, expenses, debts, debtPayments, transfers,
   upInc, rmInc, addInc, addSplit, upSplit, rmSplit, addPreTax, upPreTax, rmPreTax,
   setMatch, upMatch, setBonus, upBonus, addChange, upChange, rmChange,
   upExp, rmExp, addExp, upDebtField, upDebtBal, rmDebt, addCardWithPayment,
@@ -149,10 +149,27 @@ export function CashFlowTab({
                                   <div className="pctbox"><input type="number" inputMode="decimal" value={pt.value} onChange={(e) => upPreTax(inc.id, pt.id, "value", e.target.value)} aria-label="Value" /><span className="u">{pt.mode === "pct" ? "%" : "$"}</span></div>
                                   <select value={pt.toAcct} onChange={(e) => upPreTax(inc.id, pt.id, "toAcct", e.target.value)} aria-label="Into account" style={{ flex: 1, minWidth: 90 }}>{accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
                                   <button className="icon-btn" onClick={() => rmPreTax(inc.id, pt.id)} aria-label="Remove"><Trash2 size={14} /></button>
+                                  <label className="chk" title="Uncheck for a deduction outside the 401k/403b elective limit — an HSA, or insurance premiums">
+                                    <input type="checkbox" checked={pt.capped !== false} onChange={(e) => upPreTax(inc.id, pt.id, "capped", e.target.checked)} />
+                                    counts toward the annual limit
+                                  </label>
                                   {pt.mode === "pct" && pay.gross > 0 && <div className="caphint">{num(pt.value)}% of {fmtMoney(pay.gross)} = <b style={{ color: "var(--green)" }}>{fmtMoney(pt.amount)}</b> per paycheck, {fmtMoney(pt.amount * perYear)}/yr</div>}
                                 </div>
                               ))}
                               <button className="dist-add" onClick={() => addPreTax(inc.id)}>+ Add a contribution</button>
+                              <div className="dist-row" style={{ marginTop: 8 }}>
+                                <span className="cap" style={{ flex: 1, minWidth: 120 }}>Annual limit on those contributions</span>
+                                <div className="pctbox" style={{ width: 104 }}><span className="u" style={{ marginLeft: 0, marginRight: 3 }}>$</span><input type="number" inputMode="decimal" value={settings.deferralLimit} onChange={(e) => setS("deferralLimit", n0(e.target.value))} aria-label="Annual deferral limit" /></div>
+                              </div>
+                              {(() => {
+                                const note = D.deferralNotes.find((x) => x.id === inc.id);
+                                if (n0(settings.deferralLimit) <= 0) return <div className="caphint">No limit applied. The IRS caps elective 401k/403b contributions each year — set one here and contributions stop when they reach it.</div>;
+                                if (!note) return <div className="caphint">Contributions stop for the rest of the calendar year once they reach this, then start again in January. Applies per income source, and counts from today — it doesn't know what you've already put in earlier this year. The IRS raises the figure most years, so it's editable, and the projection treats it as holding its value in today's money.</div>;
+                                return (<div className="caphint warn-txt">
+                                  Hits the {fmtMoney(n0(settings.deferralLimit))} limit around {fmtDate(note.date)}, and contributions stop until January.
+                                  {note.lostMatch > 0.5 ? ` Because the match rides on each paycheck's contribution, that leaves about ${fmtMoney(note.lostMatch)} of employer match unclaimed that year — spreading the same total across all 12 months would capture it, unless your plan trues up.` : ""}
+                                </div>);
+                              })()}
 
                               <div className="dist-lbl" style={{ marginTop: 12 }}><span>Employer match</span>
                                 <label className="chk"><input type="checkbox" checked={!!inc.match} onChange={(e) => setMatch(inc.id, e.target.checked)} />offered</label>

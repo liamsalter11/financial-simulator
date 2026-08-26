@@ -1,13 +1,16 @@
 // Small, reusable presentational pieces shared across tabs.
 const { PieChart, Pie, Cell, ResponsiveContainer } = Recharts;
 import { X, Trash2, Check } from "./icons.js";
-import { fmtBig, fmtMoney, fmtDate, n0, parseDate, addMonths, addDays } from "./format.js";
+import { fmtBig, fmtMoney, fmtDate, fmtDur, n0, parseDate, addMonths, addDays } from "./format.js";
+import { minPaymentOf, monthsToPayoff } from "./loan.js";
 
 export const Stat = ({ k, v, accent }) => (<div className="stat"><div className="k" dangerouslySetInnerHTML={{ __html: k }} /><div className={"v mono " + (accent || "")}>{v}</div></div>);
+/* the <label> sits beside the input rather than wrapping it, so it names nothing on its
+   own — aria-label is what actually gives each of these fields an accessible name */
 export function NumField({ label, value, onChange, prefix, suffix, cls, readOnly }) {
   return (<div className={"field " + (cls || "")}><label>{label}</label>
     <div className="inp">{prefix && <span className="u">{prefix}</span>}
-      <input type="number" inputMode="decimal" value={value} readOnly={readOnly} onChange={(e) => onChange && onChange(e.target.value)} />
+      <input type="number" inputMode="decimal" value={value} readOnly={readOnly} aria-label={label} onChange={(e) => onChange && onChange(e.target.value)} />
       {suffix && <span className="u">{suffix}</span>}</div></div>);
 }
 export const Seg = ({ value, options, onChange, cls }) => (
@@ -38,6 +41,11 @@ export function LoanCard({ loan, rank, payoffMonth, start, hasPayments, onField,
   const paid = n0(loan.balance) <= 0;
   const iFrom = loan.interestFrom ? parseDate(loan.interestFrom) : null;
   const deferred = iFrom && !isNaN(iFrom) && iFrom > start;
+  /* a loan can be described by what it costs a month or by how long it runs — the two are
+     the same equation from either end, so entering one shows the other */
+  const termMode = loan.payMode === "term";
+  const derived = minPaymentOf(loan);
+  const implied = monthsToPayoff(loan.balance, loan.apr, derived);
   return (<div className={"loan" + (paid ? " done" : "")}>
     <div className="loan-top"><span className={"rank" + (paid ? " paid" : "")}>{paid ? "PAID" : "#" + (rank || "—")}</span>
       <input className="rname" value={loan.name} onChange={(e) => onField(loan.id, "name", e.target.value)} aria-label="Loan name" />
@@ -45,7 +53,17 @@ export function LoanCard({ loan, rank, payoffMonth, start, hasPayments, onField,
     <div className="fields3">
       <NumField label="Balance" prefix="$" value={loan.balance} onChange={(v) => onBalance(loan.id, v)} />
       <NumField label="Rate" suffix="%" value={loan.apr} onChange={(v) => onField(loan.id, "apr", v)} />
-      <NumField label="Min / mo" prefix="$" value={loan.minPayment} onChange={(v) => onField(loan.id, "minPayment", v)} /></div>
+      {termMode
+        ? <NumField label="Term" suffix="mo" value={loan.termMonths} onChange={(v) => onField(loan.id, "termMonths", v)} />
+        : <NumField label="Min / mo" prefix="$" value={loan.minPayment} onChange={(v) => onField(loan.id, "minPayment", v)} />}</div>
+    {!paid && (<div className="loan-foot">
+      <Seg value={termMode ? "term" : "payment"} options={[{ v: "payment", label: "by payment" }, { v: "term", label: "by term" }]} onChange={(v) => onField(loan.id, "payMode", v)} />
+      {termMode
+        ? <span className="payoff-badge">minimum <b>{fmtMoney(derived)}</b>/mo</span>
+        : implied == null
+          ? <span className="payoff-badge" style={{ color: "var(--red)" }}>never clears at this minimum</span>
+          : <span className="payoff-badge">runs <b>{fmtDur(implied)}</b> at this minimum</span>}
+    </div>)}
     <div className="loan-foot">
       {paid ? <span className="payoff-badge paid"><Check size={12} style={{ verticalAlign: -2, marginRight: 4 }} />Cleared</span>
         : payoffMonth != null ? <span className="payoff-badge">Clears <b>{fmtDate(addMonths(start, payoffMonth))}</b></span>

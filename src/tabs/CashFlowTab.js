@@ -14,7 +14,7 @@ const {
 } = Recharts;
 import { Plus, Trash2, ArrowRight } from "../icons.js";
 import { Stat, NumField, Seg, EndDate, Tip } from "../components.js";
-import { fmtMoney, n0, num, OPY, parseDate, RECUR, recurLabel } from "../format.js";
+import { fmtMoney, fmtDate, n0, num, OPY, parseDate, RECUR, recurLabel } from "../format.js";
 import { payrollOf, bonusOf, perCheck, effectiveTaxRate } from "../payroll.js";
 import { isCard } from "../seeds.js";
 import { sampleRange } from "../useScope.js";
@@ -22,6 +22,8 @@ export function CashFlowTab({
   D,
   chart,
   scCF,
+  settings,
+  setS,
   income,
   accounts,
   expenses,
@@ -531,7 +533,14 @@ export function CashFlowTab({
         "aria-label": "Remove"
       }, React.createElement(Trash2, {
         size: 14
-      })), pt.mode === "pct" && pay.gross > 0 && React.createElement("div", {
+      })), React.createElement("label", {
+        className: "chk",
+        title: "Uncheck for a deduction outside the 401k/403b elective limit \u2014 an HSA, or insurance premiums"
+      }, React.createElement("input", {
+        type: "checkbox",
+        checked: pt.capped !== false,
+        onChange: e => upPreTax(inc.id, pt.id, "capped", e.target.checked)
+      }), "counts toward the annual limit"), pt.mode === "pct" && pay.gross > 0 && React.createElement("div", {
         className: "caphint"
       }, num(pt.value), "% of ", fmtMoney(pay.gross), " = ", React.createElement("b", {
         style: {
@@ -541,6 +550,45 @@ export function CashFlowTab({
         className: "dist-add",
         onClick: () => addPreTax(inc.id)
       }, "+ Add a contribution"), React.createElement("div", {
+        className: "dist-row",
+        style: {
+          marginTop: 8
+        }
+      }, React.createElement("span", {
+        className: "cap",
+        style: {
+          flex: 1,
+          minWidth: 120
+        }
+      }, "Annual limit on those contributions"), React.createElement("div", {
+        className: "pctbox",
+        style: {
+          width: 104
+        }
+      }, React.createElement("span", {
+        className: "u",
+        style: {
+          marginLeft: 0,
+          marginRight: 3
+        }
+      }, "$"), React.createElement("input", {
+        type: "number",
+        inputMode: "decimal",
+        value: settings.deferralLimit,
+        onChange: e => setS("deferralLimit", n0(e.target.value)),
+        "aria-label": "Annual deferral limit"
+      }))), (() => {
+        const note = D.deferralNotes.find(x => x.id === inc.id);
+        if (n0(settings.deferralLimit) <= 0) return React.createElement("div", {
+          className: "caphint"
+        }, "No limit applied. The IRS caps elective 401k/403b contributions each year \u2014 set one here and contributions stop when they reach it.");
+        if (!note) return React.createElement("div", {
+          className: "caphint"
+        }, "Contributions stop for the rest of the calendar year once they reach this, then start again in January. Applies per income source, and counts from today \u2014 it doesn't know what you've already put in earlier this year. The IRS raises the figure most years, so it's editable, and the projection treats it as holding its value in today's money.");
+        return React.createElement("div", {
+          className: "caphint warn-txt"
+        }, "Hits the ", fmtMoney(n0(settings.deferralLimit)), " limit around ", fmtDate(note.date), ", and contributions stop until January.", note.lostMatch > 0.5 ? ` Because the match rides on each paycheck's contribution, that leaves about ${fmtMoney(note.lostMatch)} of employer match unclaimed that year — spreading the same total across all 12 months would capture it, unless your plan trues up.` : "");
+      })(), React.createElement("div", {
         className: "dist-lbl",
         style: {
           marginTop: 12

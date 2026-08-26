@@ -9,7 +9,7 @@ import { Modal } from "./components.js";
 import {
   n0, num, uid, todayISO, nextFirstISO, firstOfYear, isoDate, addMonths, parseDate, addDays,
   fmtMoney, fmtBig, fmtC, weekTick, r2, parse, OPY, ACCT_TYPES,
-  isInvest, isSav, isCash, BUCKET_COLOR, PAL, acctColor, debtColor,
+  isInvest, isSav, isCash, BUCKET_COLOR, PAL, acctColor, debtColor, toReal, inflFactor,
 } from "./format.js";
 import { firesInWeek } from "./recurrence.js";
 import { payrollOf, bonusOf, effectiveTaxRate, hasPromotions, withoutPromotions } from "./payroll.js";
@@ -147,7 +147,7 @@ export function FinancialSimulator() {
   const addTr = () => { const id = pickIds(accounts, debts); setTransfers((p) => [...p, { id: uid(), name: "New transfer", amount: 0, date: todayISO(), recur: "monthly", fromAcct: id.chk, toAcct: id.brk }]); };
   const rmTr = (id) => setTransfers((p) => p.filter((x) => x.id !== id));
   const upDp = (id, k, v) => setDebtPayments((p) => p.map((x) => x.id === id ? { ...x, [k]: v } : x));
-  const addDp = (recur) => { const id = pickIds(accounts, debts); setDebtPayments((p) => [...p, { id: uid(), name: recur === "once" ? "Extra payment" : "New payment", amount: 0, date: recur === "once" ? todayISO() : nextFirstISO(), recur, fromAcct: id.chk, toDebt: id.hiDebt }]); };
+  const addDp = (recur) => { const id = pickIds(accounts, debts, settings.payoffOrder); setDebtPayments((p) => [...p, { id: uid(), name: recur === "once" ? "Extra payment" : "New payment", amount: 0, date: recur === "once" ? todayISO() : nextFirstISO(), recur, fromAcct: id.chk, toDebt: id.hiDebt }]); };
   const rmDp = (id) => setDebtPayments((p) => p.filter((x) => x.id !== id));
   const addPayment = () => { const amt = n0(logAmt); if (!logLoan || amt <= 0) return; setPayments((p) => [{ id: uid(), loanId: logLoan, amount: amt, date: logDate }, ...p]); setLogAmt(""); };
   const rmPayment = (id) => setPayments((p) => p.filter((x) => x.id !== id));
@@ -258,10 +258,26 @@ export function FinancialSimulator() {
       const i = Math.max(0, Math.min(Math.round(w), simWith.series.length - 1, simWithout.series.length - 1));
       return simWith.series[i].nw - simWithout.series[i].nw;
     };
-    const minW = projectMinWeekly(debts, start, WEEKS);
+    const minW = projectMinWeekly(debts, start, WEEKS, settings.inflation);
     const maxW = Math.min(WEEKS, Math.max(sim.fire || 520, (sim.debtFree || 260) + 130, 260) + 60);
     const interestSaved = Math.max(0, minW.interest - sim.interest);
     const wksSaved = Math.max(0, (minW.clearedWeek == null ? WEEKS : minW.clearedWeek) - (sim.debtFree == null ? WEEKS : sim.debtFree));
+
+    /* the other payoff strategy, run the same way the promotions comparison is, so the
+       Debt tab can say what choosing this one costs or buys. Only worth the third full
+       simulation when there's more than one loan for an order to matter. */
+    const otherOrder = settings.payoffOrder === "snowball" ? "avalanche" : "snowball";
+    const canCompare = loans.filter((l) => n0(l.balance) > 0).length > 1;
+    const simAlt = canCompare ? simulateWeekly({ ...simCfg, income: hypoOn ? income : withoutPromotions(income), settings: { ...settings, payoffOrder: otherOrder } }) : null;
+    /* when each strategy clears its first loan — snowball's whole appeal is that this
+       comes sooner, which total-interest alone never shows */
+    const firstClear = (s) => { const ws = Object.values(s.payoffWeek).filter((w) => w != null); return ws.length ? Math.min(...ws) : null; };
+    const strategy = simAlt ? {
+      order: settings.payoffOrder, other: otherOrder,
+      interestDelta: simAlt.interest - sim.interest,          /* >0: this plan is cheaper */
+      freeDelta: (simAlt.debtFree == null ? WEEKS : simAlt.debtFree) - (sim.debtFree == null ? WEEKS : sim.debtFree),
+      firstDelta: (firstClear(simAlt) == null ? WEEKS : firstClear(simAlt)) - (firstClear(sim) == null ? WEEKS : firstClear(sim)),
+    } : null;
 
     /* Monte Carlo: reuses the deterministic sim's own contribution schedule (basis
        growth), randomizing only the returns on top of it — see montecarlo.js. The
@@ -270,9 +286,13 @@ export function FinancialSimulator() {
        would overstate diversification that may not really be there. */
     const investAccts = accounts.filter((a) => isInvest(a.type));
     const investBalTotal = investAccts.reduce((s, a) => s + n0(a.balance), 0);
-    const mcReturn = investBalTotal > 0
-      ? investAccts.reduce((s, a) => s + n0(a.rate) * n0(a.balance), 0) / investBalTotal / 100
-      : 0.07;
+    /* real, like everything else the engine produces — the contributions it rides on are
+       already in today's dollars, so a nominal return here would compound a currency the
+       rest of the chart doesn't use */
+    const mcNominal = investBalTotal > 0
+      ? investAccts.reduce((s, a) => s + n0(a.rate) * n0(a.balance), 0) / investBalTotal
+      : 7;
+    const mcReturn = toReal(mcNominal, settings.inflation) / 100;
     const mc = runMonteCarlo({
       series: sim.series, weeks: maxW, annualReturn: mcReturn,
       annualVolatility: n0(settings.mcVolatility) / 100, fireNumber: sim.fireNumber,
@@ -316,15 +336,31 @@ export function FinancialSimulator() {
     const debtColors = {}; debts.forEach((l, i) => { debtColors[l.id] = debtColor(i); names[l.id] = l.name; });
     names.nw = "Net worth";
 
+    /* Display only. The simulation is entirely in today's dollars; this scales what's drawn
+       back up into the money of the week it lands in, for anyone who'd rather see the
+       number their statement will actually show. Milestone dates don't move — the FI target
+       inflates at exactly the same rate the balances do, so the crossing point is identical,
+       which is why the target is drawn as a rising line rather than a flat one here. */
+    const infl = num(settings.inflation);
+    const showNom = !!settings.showNominal && infl !== 0;
+    const nomAt = (w) => (showNom ? inflFactor(infl, w) : 1);
+    const scaleSnap = (s) => {
+      const f = nomAt(s.w);
+      const acct = {}; for (const k in s.acct) acct[k] = r2(s.acct[k] * f);
+      const dbt = {}; for (const k in s.dbt) dbt[k] = r2(s.dbt[k] * f);
+      return { ...s, nw: r2(s.nw * f), debt: r2(s.debt * f), loanDebt: r2(s.loanDebt * f), invest: r2(s.invest * f), basis: r2(s.basis * f), acct, dbt, fi: r2(sim.fireNumber * f) };
+    };
+    const viewSeries = showNom ? sim.series.map(scaleSnap) : sim.series.map((s) => ({ ...s, fi: sim.fireNumber }));
+
     const cf = [];
     const cfMax = Math.min(sim.series.length - 1, 312);
-    for (let w = 0; w <= cfMax; w++) { const s = sim.series[w]; cf.push({ w, income: s.inflow, spend: s.outflow, net: r2(s.inflow - s.outflow) }); }
+    for (let w = 0; w <= cfMax; w++) { const s = sim.series[w], f = nomAt(w); cf.push({ w, income: r2(s.inflow * f), spend: r2(s.outflow * f), net: r2((s.inflow - s.outflow) * f) }); }
     for (let i = 0; i < cf.length; i++) {
       let sum = 0, cnt = 0;
       for (let j = i - 2; j <= i + 2; j++) if (j >= 0 && j < cf.length) { sum += cf[j].net; cnt++; }
       cf[i].smooth = r2(sum / cnt);
     }
-    const debtCurve = sim.series.map((s) => ({ w: s.w, plan: s.loanDebt, min: minW.series[s.w] }));
+    const debtCurve = sim.series.map((s) => { const f = nomAt(s.w); return { w: s.w, plan: r2(s.loanDebt * f), min: r2(minW.series[s.w] * f) }; });
 
     const bInv = accounts.filter((a) => isInvest(a.type)).reduce((s, a) => s + n0(a.balance), 0);
     const bSav = accounts.filter((a) => isSav(a.type)).reduce((s, a) => s + n0(a.balance), 0);
@@ -339,7 +375,19 @@ export function FinancialSimulator() {
     let negAcct = null;
     for (let w = 0; w < Math.min(sim.series.length, 312) && !negAcct; w++) { const m = sim.series[w].acct; for (const a of accounts) if (m[a.id] < -1) { negAcct = a.name; break; } }
 
-    return { totalAssets, totalDebt, totalLoans, netWorth, loans, cards, mInc, mExp, mTr, mDp, mPreTax, mBonusNet, surplus, savingsRate, leftover, monthlyInterest, sim, simWith, simWithout, hasHypo, hypoOn, nwGapAt, minW, maxW, mc, mcReturn, interestSaved, wksSaved, acctColors, debtColors, names, cf, debtCurve, alloc, spend, bInv, negAcct, nextCardPay, loansNoPayment, chargedTo, worstMonthOut, avgSweep, capped };
+    /* how long the money you can actually reach this week would last with no income at all */
+    const liquid = bCash + bSav;
+    const runway = mExp > 0 ? liquid / mExp : null;
+
+    /* which income sources run into the annual deferral cap, and what it costs them */
+    const deferralNotes = income.map((inc) => {
+      const ci = sim.capInfo && sim.capInfo[inc.id];
+      return ci ? { id: inc.id, name: inc.name, date: addDays(start, ci.week * 7), lostMatch: ci.lostMatch } : null;
+    }).filter(Boolean);
+
+    const mcView = showNom ? { ...mc, bands: mc.bands.map((b) => { const f = nomAt(b.w); return { ...b, p10: b.p10 * f, p25: b.p25 * f, p50: b.p50 * f, p75: b.p75 * f, p90: b.p90 * f }; }) } : mc;
+
+    return { totalAssets, totalDebt, totalLoans, netWorth, loans, cards, mInc, mExp, mTr, mDp, mPreTax, mBonusNet, surplus, savingsRate, leftover, monthlyInterest, sim, simWith, simWithout, hasHypo, hypoOn, nwGapAt, minW, maxW, mc: mcView, mcReturn, interestSaved, wksSaved, acctColors, debtColors, names, cf, debtCurve, alloc, spend, bInv, negAcct, nextCardPay, loansNoPayment, chargedTo, worstMonthOut, avgSweep, capped, infl, showNom, nomAt, viewSeries, strategy, liquid, runway, deferralNotes };
   }, [accounts, debts, income, expenses, transfers, debtPayments, settings, start]);
 
   const maxW = D ? D.maxW : 520;
@@ -468,7 +516,7 @@ export function FinancialSimulator() {
 
           {/* ============================ CASH FLOW ============================ */}
           {tab === "cashflow" && (
-            <CashFlowTab D={D} chart={chartProps} scCF={scCF}
+            <CashFlowTab D={D} chart={chartProps} scCF={scCF} settings={settings} setS={setS}
               income={income} accounts={accounts} expenses={expenses} debts={debts} debtPayments={debtPayments} transfers={transfers}
               upInc={upInc} rmInc={rmInc} addInc={addInc} addSplit={addSplit} upSplit={upSplit} rmSplit={rmSplit}
               addPreTax={addPreTax} upPreTax={upPreTax} rmPreTax={rmPreTax}
@@ -481,7 +529,7 @@ export function FinancialSimulator() {
 
           {/* ============================ DEBT ============================ */}
           {tab === "debt" && (
-            <DebtTab D={D} chart={chartProps} scDebt={scDebt}
+            <DebtTab D={D} chart={chartProps} scDebt={scDebt} settings={settings} setS={setS}
               debts={debts} debtPayments={debtPayments} payments={payments}
               hasPay={hasPay} upDebtField={upDebtField} upDebtBal={upDebtBal} rmDebt={rmDebt} addDebt={addDebt}
               logLoan={logLoan} setLogLoan={setLogLoan} logAmt={logAmt} setLogAmt={setLogAmt}

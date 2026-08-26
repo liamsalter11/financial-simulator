@@ -11,13 +11,15 @@ const {
   ReferenceLine
 } = Recharts;
 import { AlertTriangle, Plus, Trash2 } from "../icons.js";
-import { Stat, LoanCard, Tip } from "../components.js";
+import { Stat, LoanCard, Seg, Tip } from "../components.js";
 import { fmtMoney, fmtBig, fmtDate, fmtDur, n0 } from "../format.js";
 import { sampleRange } from "../useScope.js";
 export function DebtTab({
   D,
   chart,
   scDebt,
+  settings,
+  setS,
   debts,
   debtPayments,
   payments,
@@ -47,8 +49,10 @@ export function DebtTab({
   } = chart;
   const noDebt = D.totalLoans <= 0;
   const covers = D.mDp > D.monthlyInterest + 1e-9;
+  const snowball = settings.payoffOrder === "snowball";
+  const rankBy = snowball ? (a, b) => n0(a.balance) - n0(b.balance) || n0(b.apr) - n0(a.apr) : (a, b) => n0(b.apr) - n0(a.apr) || n0(a.balance) - n0(b.balance);
   const rankMap = {};
-  D.loans.filter(l => n0(l.balance) > 0).sort((a, b) => n0(b.apr) - n0(a.apr) || n0(a.balance) - n0(b.balance)).forEach((l, i) => rankMap[l.id] = i + 1);
+  D.loans.filter(l => n0(l.balance) > 0).sort(rankBy).forEach((l, i) => rankMap[l.id] = i + 1);
   const origTotal = debts.reduce((s, l) => s + Math.max(n0(l.originalBalance), n0(l.balance)), 0);
   const paidDown = Math.max(0, origTotal - D.totalDebt);
   const pct = origTotal > 0 ? Math.min(100, paidDown / origTotal * 100) : 0;
@@ -209,9 +213,30 @@ export function DebtTab({
     className: "phead"
   }, React.createElement("div", {
     className: "ptitle"
-  }, "Loans \xB7 payoff order"), React.createElement("div", {
-    className: "psub"
-  }, "highest rate first")), D.loans.map(l => React.createElement(LoanCard, {
+  }, "Loans \xB7 payoff order"), React.createElement(Seg, {
+    value: snowball ? "snowball" : "avalanche",
+    options: [{
+      v: "avalanche",
+      label: "Highest rate"
+    }, {
+      v: "snowball",
+      label: "Smallest first"
+    }],
+    onChange: v => setS("payoffOrder", v)
+  })), React.createElement("div", {
+    className: "caphint",
+    style: {
+      marginBottom: 10
+    }
+  }, snowball ? "Snowball: whatever a payment doesn't need rolls to your smallest remaining balance, so loans disappear one by one." : "Avalanche: whatever a payment doesn't need rolls to your highest-rate remaining loan, which costs the least interest overall.", D.strategy && (() => {
+    const s = D.strategy,
+      other = s.other === "snowball" ? "smallest-balance-first" : "highest-rate-first";
+    const bits = [];
+    if (Math.abs(s.interestDelta) > 1) bits.push(`${s.interestDelta > 0 ? "cost" : "save"} ${fmtMoney(Math.abs(s.interestDelta))} in interest`);
+    if (Math.abs(s.firstDelta) >= 4) bits.push(`clear your first loan ${fmtDur(w2m(Math.abs(s.firstDelta)))} ${s.firstDelta > 0 ? "later" : "sooner"}`);
+    if (Math.abs(s.freeDelta) >= 4) bits.push(`finish everything ${fmtDur(w2m(Math.abs(s.freeDelta)))} ${s.freeDelta > 0 ? "later" : "sooner"}`);
+    return bits.length ? React.createElement(React.Fragment, null, " Switching to ", other, " would ", bits.join(", "), ".") : React.createElement(React.Fragment, null, " Switching to ", other, " would make no meaningful difference to your plan.");
+  })()), D.loans.map(l => React.createElement(LoanCard, {
     key: l.id,
     loan: l,
     rank: rankMap[l.id],
@@ -228,7 +253,7 @@ export function DebtTab({
     size: 15
   }), "Add a loan"), React.createElement("div", {
     className: "assume"
-  }, "Minimum payment here is only used to draw the \"minimums only\" comparison line. What you actually pay is set in Cash flow.", D.cards.length > 0 ? " Credit cards are managed in Cash flow — they still count against your net worth." : "", " For a loan in deferment, set \"interest starts\" to when it kicks in \u2014 subsidised loans don't accrue while you're enrolled, unsubsidised ones do, so leave those blank.")), !noDebt && React.createElement("div", {
+  }, "Describe a loan either way \u2014 type the minimum payment and it shows how long that takes, or switch to \"by term\" and the payment is worked out for you. Either way the minimum here only draws the \"minimums only\" comparison line; what you actually pay is set in Cash flow.", D.cards.length > 0 ? " Credit cards are managed in Cash flow — they still count against your net worth." : "", " For a loan in deferment, set \"interest starts\" to when it kicks in \u2014 subsidised loans don't accrue while you're enrolled, unsubsidised ones do, so leave those blank.")), !noDebt && React.createElement("div", {
     className: "panel rise"
   }, React.createElement("div", {
     className: "phead"
