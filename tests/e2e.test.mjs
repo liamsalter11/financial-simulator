@@ -829,3 +829,147 @@ test("a CSV statement becomes a review table, and only ticked rows are created",
   assert.deepEqual(consoleErrors, []);
   await page.close();
 });
+
+/* Contrast, computed from what the browser actually paints — the palettes are two lists of
+   hex values, and nothing but arithmetic will tell you one of them stopped being readable. */
+const CONTRAST_SRC = `(fg, bg) => {
+  const lin = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+  const L = (s) => { const [r, g, b] = s.match(/[\\d.]+/g).map(Number); return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b); };
+  const a = L(fg), b = L(bg);
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}`;
+const TOKENS = ["--text", "--muted", "--faint", "--amber", "--cyan", "--green", "--red", "--violet",
+  "--gold", "--blue", "--teal", "--pink", "--slate", "--clay", "--sky", "--lilac"];
+
+async function contrasts(page) {
+  return page.evaluate(([src, tokens]) => {
+    const contrast = eval("(" + src + ")");
+    const fin = document.querySelector(".fin");
+    const panel = document.querySelector(".panel") || fin;
+    const panelBg = getComputedStyle(panel).backgroundColor;
+    const out = {};
+    for (const t of tokens) {
+      const d = document.createElement("div");
+      d.style.color = `var(${t})`;
+      panel.appendChild(d);
+      out[t] = contrast(getComputedStyle(d).color, panelBg);
+      d.remove();
+    }
+    return out;
+  }, [CONTRAST_SRC, TOKENS]);
+}
+
+test("the theme follows the system, can be pinned, and survives a reload", async () => {
+  const ctx = await browser.newContext({ colorScheme: "light", viewport: { width: 1280, height: 900 } });
+  const page = await ctx.newPage();
+  const consoleErrors = [];
+  page.on("pageerror", (e) => consoleErrors.push(e.message));
+  page.on("console", (m) => { if (m.type() === "error" && !m.text().includes("favicon")) consoleErrors.push(m.text()); });
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+  await page.locator(".nwbig").waitFor();
+
+  const fin = page.locator(".fin");
+  const bg = () => page.evaluate(() => getComputedStyle(document.querySelector(".fin")).backgroundColor);
+  assert.equal(await fin.getAttribute("data-theme"), "auto", "auto by default");
+  const lightBg = await bg();
+
+  await page.emulateMedia({ colorScheme: "dark" });
+  assert.notEqual(await bg(), lightBg, "on auto, the OS decides");
+
+  /* pin it light and the OS should stop mattering */
+  const themeBtn = page.locator(".tbtn.icon-only");
+  await themeBtn.click();
+  assert.equal(await fin.getAttribute("data-theme"), "light");
+  assert.equal(await bg(), lightBg, "pinned light stays light on a dark system");
+
+  await page.reload({ waitUntil: "networkidle" });
+  await page.locator(".nwbig").waitFor();
+  await page.waitForTimeout(400);
+  assert.equal(await fin.getAttribute("data-theme"), "light", "the choice survives a reload");
+
+  /* and it is not part of the plan — a share link must not carry someone's reading preference */
+  const shared = await page.evaluate(async () => {
+    const { encodePlan, decodePlan } = await import("./src/share.js");
+    const plan = JSON.parse(localStorage.getItem("fin3:settings") || "{}");
+    return await decodePlan(await encodePlan({ accounts: [{ id: "a" }], settings: plan }));
+  });
+  assert.ok(!("theme" in (shared.settings || {})), "theme must not live in settings");
+
+  assert.deepEqual(consoleErrors, []);
+  await ctx.close();
+});
+
+test("both palettes clear the contrast bar for text", async () => {
+  for (const [scheme, clicks] of [["dark", 0], ["light", 0]]) {
+    const ctx = await browser.newContext({ colorScheme: scheme, viewport: { width: 1280, height: 900 } });
+    const page = await ctx.newPage();
+    await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+    await page.locator(".nwbig").waitFor();
+    for (let i = 0; i < clicks; i++) await page.locator(".tbtn.icon-only").click();
+    await page.waitForTimeout(300);
+    const c = await contrasts(page);
+    for (const [token, ratio] of Object.entries(c)) {
+      assert.ok(ratio >= 4.5, `${token} is ${ratio.toFixed(2)}:1 on the panel in ${scheme} — under the 4.5:1 bar`);
+    }
+    await ctx.close();
+  }
+});
+
+test("chart colours actually resolve — a mistyped token would paint nothing", async () => {
+  for (const scheme of ["dark", "light"]) {
+    const ctx = await browser.newContext({ colorScheme: scheme, viewport: { width: 1280, height: 900 } });
+    const page = await ctx.newPage();
+    await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+    await page.locator(".recharts-line-curve").first().waitFor();
+    await page.waitForTimeout(400);
+    const strokes = await page.locator(".recharts-line-curve").evaluateAll((els) => els.map((e) => getComputedStyle(e).stroke));
+    assert.ok(strokes.length > 0, "expected chart lines");
+    for (const s of strokes) {
+      assert.match(s, /^rgba?\(/, `a chart line resolved to "${s}" — the token doesn't exist`);
+      assert.ok(!/rgba\(0, 0, 0, 0\)/.test(s), "a chart line is fully transparent");
+    }
+    await ctx.close();
+  }
+});
+
+test("the print summary renders a real chart and takes over the page", async () => {
+  const { page, consoleErrors } = await newPage();
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+  await page.locator(".nwbig").waitFor();
+  await page.waitForTimeout(600);
+
+  await page.locator(".tbtn", { hasText: "Print" }).click();
+  const sheet = page.locator("#printsheet");
+  await sheet.waitFor();
+
+  /* the reason the sheet is previewed rather than living only inside @media print: a chart
+     in a hidden container measures nothing and prints nothing */
+  const box = await sheet.locator("svg.recharts-surface").first().boundingBox();
+  assert.ok(box && box.width > 400 && box.height > 100, `expected a rendered chart, got ${JSON.stringify(box)}`);
+
+  /* the headline figures must agree with the app they summarise */
+  const nw = await page.locator(".pr-nw b").textContent();
+  assert.equal(nw, await page.locator(".nwbig").textContent());
+
+  await page.emulateMedia({ media: "print" });
+  const printed = await page.evaluate(() => ({
+    tabs: getComputedStyle(document.querySelector(".tabs")).display,
+    topbar: getComputedStyle(document.querySelector(".topbar")).display,
+    /* the toolbar's own `display` stays `flex` — it's the topbar around it that's hidden,
+       so ask for a layout box rather than a computed style */
+    toolbarBoxes: document.querySelector(".toolbar").getClientRects().length,
+    modal: getComputedStyle(document.querySelector(".modal")).position,
+    bg: getComputedStyle(document.querySelector(".fin")).backgroundColor,
+    sheet: getComputedStyle(document.querySelector("#printsheet")).display,
+  }));
+  assert.equal(printed.tabs, "none");
+  assert.equal(printed.topbar, "none");
+  assert.equal(printed.toolbarBoxes, 0, "the toolbar must not lay out on paper");
+  assert.equal(printed.modal, "static", "the modal becomes the page rather than floating over it");
+  assert.equal(printed.bg, "rgb(255, 255, 255)", "paper is white whatever theme is on screen");
+  assert.notEqual(printed.sheet, "none");
+  await page.emulateMedia({ media: "screen" });
+
+  assert.deepEqual(consoleErrors, []);
+  await page.close();
+});

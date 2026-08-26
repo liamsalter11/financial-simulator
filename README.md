@@ -41,7 +41,8 @@ needed to read them) are both the source and the shipped file.
 | `src/sample.js` | `sampleRange`, the chart series downsampler — pure, and kept separate from `useScope.js` so it's importable in Node tests. |
 | `src/icons.jsx`, `src/components.jsx` | Inline icon set, and small shared UI pieces (`Stat`, `NumField`, `Modal`, `Donut`, `LoanCard`, ...). |
 | `src/help-content.js` | The per-tab Help panel copy. |
-| `src/styles.js` | The app's CSS, as a template string injected via a `<style>` tag. |
+| `src/styles.js` | The app's CSS, as a template string — both colour palettes included. |
+| `src/print.jsx` | The one-page print summary. |
 | `vendor/` | Pinned copies of React, ReactDOM, PropTypes and Recharts. |
 | `tests/` | Sync, engine, and end-to-end tests — see [Tests](#tests) below. |
 | `package.json`, `build.mjs`, `preview.mjs` | Dev tooling only (rebuilding `.js` from `.jsx`, running tests, packaging a preview). Not shipped to the browser. |
@@ -113,6 +114,10 @@ npm run test:all       # everything
 - **`tests/history.test.mjs`** — the undo coalescing rules (one gesture is one
   step; a deleted row is never folded into the previous edit) and the daily
   snapshot list.
+- **`tests/tokens.test.mjs`** — a static guard over the colour layer: every CSS
+  variable the chart palettes name is defined in *both* themes, the two define
+  the same set of names, and no raw hex survives outside them. A mistyped token
+  paints nothing at all, so nothing else would catch it.
 - **`tests/share.test.mjs`**, **`tests/csv.test.mjs`** — a plan surviving encode
   → decode into a URL fragment (and a corrupt one returning null rather than
   throwing), and the statement reader: quoted CSV, every shape a bank writes an
@@ -217,6 +222,22 @@ on the seed plan a point of inflation costs 18 months while $200/mo more investe
 **Scenarios are the same shape as an export.** Save the plan under a name, pick one to
 compare against, and the worker runs it alongside the live one — a ghost line on the net
 worth chart and a table of how far apart the two put each milestone.
+
+**One palette per theme, defined in one place.** The chart colours used to be hex
+literals in `format.js`, handed to Recharts as strings — which meant no theme could reach
+them. They're CSS variables now (`"var(--cyan)"`), because SVG resolves `var()` the same way
+CSS does, so the tabs need no knowledge of which theme is on. Light is a genuinely different
+set of values rather than the dark one on a white card: a hue that reads on a dark panel is
+unreadable on white, and every token in both palettes clears 4.5:1 against what it sits on —
+asserted numerically in the browser, not eyeballed. The theme button cycles Auto → Light →
+Dark, and the choice is stored apart from the plan so it never travels in an export or a
+share link.
+
+**Print shows you the page first.** That's not politeness: a `ResponsiveContainer` measures
+its parent, so a chart that exists only inside `@media print` measures zero and prints
+nothing. The summary sheet renders on screen with fixed chart dimensions, and print then
+hides everything else — one page for a typical plan, always on white whatever theme you're
+reading in.
 
 **A plan fits in a link.** Share copies a URL with the whole plan compressed into its
 fragment — around 1.4 KB for the example data, via the browser's own `CompressionStream`,

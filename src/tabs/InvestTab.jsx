@@ -45,7 +45,7 @@ export function InvestTab({ D, chart, scInv, scMC, fireN, settings, setS, accoun
                   <div className="scope-wrap" ref={scInv.ref} {...scInv.handlers}>
                     <ResponsiveContainer width="100%" height={286}>
                       <ComposedChart data={sampleRange(D.viewSeries, scInv.lo, scInv.hi, 320).map((s) => ({ w: s.w, value: s.invest, basis: s.basis, fi: s.fi }))} margin={{ top: 16, right: 12, bottom: 0, left: 6 }}>
-                        <defs><linearGradient id="ivFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#5CCB8B" stopOpacity={0.24} /><stop offset="100%" stopColor="#5CCB8B" stopOpacity={0} /></linearGradient></defs>
+                        <defs><linearGradient id="ivFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--green)" stopOpacity={0.24} /><stop offset="100%" stopColor="var(--green)" stopOpacity={0} /></linearGradient></defs>
                         <CartesianGrid stroke="var(--line)" strokeDasharray="2 4" />
                         <XAxis {...axisProps(scInv)} />
                         <YAxis {...yProps} />
@@ -102,9 +102,9 @@ export function InvestTab({ D, chart, scInv, scMC, fireN, settings, setS, accoun
                         {fireN > 0 && D.fiSloped && <Line type="monotone" dataKey="fi" stroke="var(--amber)" strokeWidth={1.2} strokeDasharray="3 3" dot={false} isAnimationActive={false} />}
                         {retires && <ReferenceLine x={D.retireWeek} stroke="var(--cyan)" strokeDasharray="2 3" strokeOpacity={0.7} label={{ value: "RETIRE", position: "top", fill: "var(--cyan)", fontSize: 9, fontFamily: "var(--mono)" }} />}
                         <Area dataKey="p10" stackId="mc" stroke="none" fill="transparent" isAnimationActive={false} />
-                        <Area dataKey="p10to25" stackId="mc" stroke="none" fill="rgba(92,203,139,0.10)" isAnimationActive={false} />
-                        <Area dataKey="p25to75" stackId="mc" stroke="none" fill="rgba(92,203,139,0.22)" isAnimationActive={false} />
-                        <Area dataKey="p75to90" stackId="mc" stroke="none" fill="rgba(92,203,139,0.10)" isAnimationActive={false} />
+                        <Area dataKey="p10to25" stackId="mc" stroke="none" fill="var(--band-edge)" isAnimationActive={false} />
+                        <Area dataKey="p25to75" stackId="mc" stroke="none" fill="var(--band-core)" isAnimationActive={false} />
+                        <Area dataKey="p75to90" stackId="mc" stroke="none" fill="var(--band-edge)" isAnimationActive={false} />
                         <Line type="monotone" dataKey="p50" stroke="var(--green)" strokeWidth={2.2} dot={false} isAnimationActive={false} />
                       </ComposedChart>
                     </ResponsiveContainer>
@@ -112,7 +112,7 @@ export function InvestTab({ D, chart, scInv, scMC, fireN, settings, setS, accoun
                   {ZHINT}
                   <div className="legend" style={{ marginTop: 8 }}>
                     <span className="lg"><span className="swatch" style={{ borderTopColor: "var(--green)", borderTopWidth: 3 }} />Median</span>
-                    <span className="lg"><span className="dot" style={{ background: "rgba(92,203,139,0.5)" }} />Middle 50% / 80% of outcomes</span>
+                    <span className="lg"><span className="dot" style={{ background: "var(--band-core)" }} />Middle 50% / 80% of outcomes</span>
                   </div>
                   <div className="assume">Same contributions as the chart above until the retirement date, then they stop and withdrawals begin — only the returns are randomized, {D.mc.trials} times, as one blended portfolio at your accounts' balance-weighted expected return, after inflation ({(D.mcReturn * 100).toFixed(2)}% real).
                     <br /><br />

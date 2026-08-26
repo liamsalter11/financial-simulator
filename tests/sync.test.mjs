@@ -12,17 +12,18 @@ import babel from "@babel/core";
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
 
-function findJsxFiles(dir) {
+function walk(dir) {
   const out = [];
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
-    if (statSync(full).isDirectory()) out.push(...findJsxFiles(full));
-    else if (entry.endsWith(".jsx")) out.push(full);
+    if (statSync(full).isDirectory()) out.push(...walk(full));
+    else out.push(full);
   }
   return out;
 }
 
-const jsxFiles = findJsxFiles(join(root, "src"));
+const srcFiles = walk(join(root, "src"));
+const jsxFiles = srcFiles.filter((p) => p.endsWith(".jsx"));
 
 test("every src/**/*.jsx file has at least one compiled counterpart to check", () => {
   assert.ok(jsxFiles.length > 0, "expected to find .jsx source files under src/");
@@ -55,5 +56,19 @@ for (const jsxPath of jsxFiles) {
     assert.doesNotThrow(() => {
       execFileSync(process.execPath, ["--check", jsPath]);
     });
+  });
+}
+
+/* The pairs above cover every file the build writes. The hand-written `.js` modules — the
+   pure-logic ones, and `styles.js`, which is a stylesheet inside a template literal — are
+   never compiled, so nothing else parses them until a browser does. `styles.js` in
+   particular is a JS file that mostly isn't JS: a stray backtick in a CSS comment ends the
+   template and turns the next line into an expression, and the page dies on load with the
+   whole suite of unit tests still green. */
+const plainJs = srcFiles.filter((p) => p.endsWith(".js") && !jsxFiles.includes(p.replace(/\.js$/, ".jsx")));
+
+for (const jsPath of plainJs) {
+  test(`${relative(root, jsPath)} is syntactically valid JavaScript`, () => {
+    assert.doesNotThrow(() => execFileSync(process.execPath, ["--check", jsPath]));
   });
 }

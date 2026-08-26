@@ -68,7 +68,7 @@ export function OverviewTab({ D, accounts, debts, chart, scNW, scBal, fireN, set
                 <div className="scope-wrap" ref={scNW.ref} {...scNW.handlers}>
                   <ResponsiveContainer width="100%" height={286}>
                     <ComposedChart data={sampleRange(D.viewSeries, scNW.lo, scNW.hi, 320).map((s) => ({ w: s.w, nw: s.nw, debt: s.debt, invest: s.invest, fi: s.fi, cmp: s.cmp }))} margin={{ top: 16, right: 12, bottom: 0, left: 6 }}>
-                      <defs><linearGradient id="nwFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#F5A623" stopOpacity={0.26} /><stop offset="100%" stopColor="#F5A623" stopOpacity={0} /></linearGradient></defs>
+                      <defs><linearGradient id="nwFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--amber)" stopOpacity={0.26} /><stop offset="100%" stopColor="var(--amber)" stopOpacity={0} /></linearGradient></defs>
                       <CartesianGrid stroke="var(--line)" strokeDasharray="2 4" />
                       <XAxis {...axisProps(scNW)} />
                       <YAxis {...yProps} />

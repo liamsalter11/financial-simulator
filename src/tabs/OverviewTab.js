@@ -171,11 +171,11 @@ export function OverviewTab({
     y2: "1"
   }, React.createElement("stop", {
     offset: "0%",
-    stopColor: "#F5A623",
+    stopColor: "var(--amber)",
     stopOpacity: 0.26
   }), React.createElement("stop", {
     offset: "100%",
-    stopColor: "#F5A623",
+    stopColor: "var(--amber)",
     stopOpacity: 0
   }))), React.createElement(CartesianGrid, {
     stroke: "var(--line)",

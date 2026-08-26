@@ -122,6 +122,50 @@ export const X = p => React.createElement(IconBase, p, React.createElement("path
 }), React.createElement("path", {
   d: "m6 6 12 12"
 }));
+export const Sun = p => React.createElement(IconBase, p, React.createElement("circle", {
+  cx: "12",
+  cy: "12",
+  r: "4"
+}), React.createElement("path", {
+  d: "M12 2v2"
+}), React.createElement("path", {
+  d: "M12 20v2"
+}), React.createElement("path", {
+  d: "m4.93 4.93 1.41 1.41"
+}), React.createElement("path", {
+  d: "m17.66 17.66 1.41 1.41"
+}), React.createElement("path", {
+  d: "M2 12h2"
+}), React.createElement("path", {
+  d: "M20 12h2"
+}), React.createElement("path", {
+  d: "m6.34 17.66-1.41 1.41"
+}), React.createElement("path", {
+  d: "m19.07 4.93-1.41 1.41"
+}));
+export const Moon = p => React.createElement(IconBase, p, React.createElement("path", {
+  d: "M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9"
+}));
+export const Contrast = p => React.createElement(IconBase, p, React.createElement("circle", {
+  cx: "12",
+  cy: "12",
+  r: "9"
+}), React.createElement("path", {
+  d: "M12 3a9 9 0 0 1 0 18z",
+  fill: "currentColor",
+  stroke: "none"
+}));
+export const Printer = p => React.createElement(IconBase, p, React.createElement("path", {
+  d: "M6 9V3h12v6"
+}), React.createElement("path", {
+  d: "M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"
+}), React.createElement("rect", {
+  x: "6",
+  y: "14",
+  width: "12",
+  height: "8",
+  rx: "1"
+}));
 export const Link2 = p => React.createElement(IconBase, p, React.createElement("path", {
   d: "M9 17H7A5 5 0 0 1 7 7h2"
 }), React.createElement("path", {
