@@ -43,6 +43,8 @@ needed to read them) are both the source and the shipped file.
 | `src/help-content.js` | The per-tab Help panel copy. |
 | `src/styles.js` | The app's CSS, as a template string — both colour palettes included. |
 | `src/print.jsx` | The one-page print summary. |
+| `src/checks.js` | Every validation condition, as one pure function — no React. |
+| `src/datatable.jsx` | The Numbers view: the projection's series as a table. |
 | `vendor/` | Pinned copies of React, ReactDOM, PropTypes and Recharts. |
 | `tests/` | Sync, engine, and end-to-end tests — see [Tests](#tests) below. |
 | `package.json`, `build.mjs`, `preview.mjs` | Dev tooling only (rebuilding `.js` from `.jsx`, running tests, packaging a preview). Not shipped to the browser. |
@@ -114,6 +116,10 @@ npm run test:all       # everything
 - **`tests/history.test.mjs`** — the undo coalescing rules (one gesture is one
   step; a deleted row is never folded into the previous edit) and the daily
   snapshot list.
+- **`tests/checks.test.mjs`** — the validation module: a clean plan reports
+  nothing, each condition fires only when it should, deleting an account
+  catches every kind of row that pointed at it, and every finding names a tab
+  and a row that actually exist.
 - **`tests/tokens.test.mjs`** — a static guard over the colour layer: every CSS
   variable the chart palettes name is defined in *both* themes, the two define
   the same set of names, and no raw hex survives outside them. A mistyped token
@@ -222,6 +228,23 @@ on the seed plan a point of inflation costs 18 months while $200/mo more investe
 **Scenarios are the same shape as an export.** Save the plan under a name, pick one to
 compare against, and the worker runs it alongside the live one — a ghost line on the net
 worth chart and a table of how far apart the two put each milestone.
+
+**One module knows what's wrong.** Thirteen warnings used to live inline in whichever tab
+displayed them, each its own copy of the condition — so a problem on a tab you weren't
+looking at was invisible, and a summary and an inline warning could drift apart. They're all
+in `src/checks.js` now, and both surfaces read the same array: a count in the toolbar that
+opens the full list with "take me there", and the same finding printed on the offending row.
+It also catches what nothing caught before — deleting an account leaves every expense,
+transfer, payment and paycheck split that pointed at it holding a dead id, which is money
+silently not moving.
+
+**The charts have a text alternative.** Seven charts and, until recently, no way to read a
+figure off any of them without a mouse and a hover. "Numbers" in the toolbar is a real table
+over the same series the charts are drawn from — with a caption, column headers and CSV
+export — rather than a toggle on each chart. Every chart also carries a written summary for
+a screen reader, no series is told apart by colour alone (dash patterns cycle alongside the
+palette, which matters most past the eighth account where it repeats), and the zoom, which
+was pointer-only, now takes arrows, plus and minus, Home, End and 0.
 
 **One palette per theme, defined in one place.** The chart colours used to be hex
 literals in `format.js`, handed to Recharts as strings — which meant no theme could reach

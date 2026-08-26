@@ -1,9 +1,12 @@
 // Accounts tab: balances, expected returns, and per-account caps/sweeps.
 import { Trash2, Plus } from "../icons.js";
-import { Stat, NumField, Seg, Donut } from "../components.js";
+import { Stat, NumField, Seg, Donut, RowChecks } from "../components.js";
+import { checksFor } from "../checks.js";
 import { fmtMoney, fmtBig, n0, ACCT_TYPES } from "../format.js";
 
-export function AccountsTab({ D, accounts, settings, defaultOverflow, upAcct, upAcctType, addAcct, rmAcct }) {
+export function AccountsTab({ D, accounts, settings, defaultOverflow, upAcct, upAcctType, addAcct, rmAcct, focusId }) {
+  /* the cap warnings here used to be their own copy of the condition; they read D.checks now */
+  const rowChecks = (id) => checksFor(D.checks, id);
   return (
             <>
               <div className="sgrid rise" style={{ marginBottom: 16 }}>
@@ -20,7 +23,7 @@ export function AccountsTab({ D, accounts, settings, defaultOverflow, upAcct, up
                   const tight = capOn && n0(a.cap) < need;
                   const dest = a.spillTo ? (D.names[a.spillTo] || "—") : null;
                   return (
-                    <div className="row acct" key={a.id}>
+                    <div className={"row acct" + (focusId === a.id ? " flagged" : "")} data-row={a.id} key={a.id}>
                       <div className="acct-top">
                         <input className="rname" value={a.name} onChange={(e) => upAcct(a.id, "name", e.target.value)} aria-label="Account name" />
                         <button className="icon-btn" onClick={() => rmAcct(a.id)} aria-label="Remove"><Trash2 size={16} /></button>
@@ -72,9 +75,10 @@ export function AccountsTab({ D, accounts, settings, defaultOverflow, upAcct, up
                             {D.loans.some((l) => l.id === a.spillTo) ? ` Once ${dest} is paid off it rolls to your highest-rate remaining loan, then to ${(accounts.find((x) => x.id === settings.overflowTo) || defaultOverflow || {}).name || "investments"} when every loan is clear.` : ""}
                             {tight ? ` A heavy month draws about ${fmtMoney(need)} from here — a cap below that will overdraw it.` : ` Its heaviest month draws about ${fmtMoney(need)}, so the buffer holds.`}
                           </div>
-                          : capOn ? <div className="caphint">Pick a destination or the cap does nothing.</div>
+                          : capOn ? null
                             : <div className="caphint">Leave blank for no cap. Set one to stop cash idling here — the excess gets swept somewhere it earns or saves you more.</div>}
                       </div>
+                      <RowChecks checks={rowChecks(a.id)} />
                     </div>
                   );
                 })}

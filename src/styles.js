@@ -74,11 +74,27 @@ export const CSS = `
 .fin .wrap{max-width:1060px;margin:0 auto;}
 .fin .mono{font-family:var(--mono);font-variant-numeric:tabular-nums;}
 .fin .eyebrow{font-family:var(--mono);text-transform:uppercase;letter-spacing:.16em;font-size:11px;color:var(--faint);}
-.fin .topbar{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:16px;}
-.fin .nwbig{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:clamp(34px,9vw,52px);line-height:.96;font-weight:600;letter-spacing:-0.03em;margin-top:5px;}
+/* Stacked on a phone, side by side from tablet up. As a row at every width the toolbar
+   competes with the headline for a ~390px line, and the figure gets squeezed until it wraps
+   — which it can only do in one place, after the minus sign, leaving a lone dash above the
+   number. WebKit takes that break opportunity and Blink doesn't, which is why it only shows
+   up on a phone. Stacking gives the figure the full width; nwbig then refuses to break at
+   all, so no browser can find somewhere else to try. */
+.fin .topbar{display:flex;flex-direction:column;align-items:stretch;gap:12px;margin-bottom:16px;}
+@media(min-width:680px){.fin .topbar{flex-direction:row;align-items:flex-start;justify-content:space-between;gap:16px;}}
+.fin .nwbig{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:clamp(34px,9vw,52px);line-height:.96;font-weight:600;letter-spacing:-0.03em;margin-top:5px;white-space:nowrap;}
 .fin .nwsub{font-family:var(--mono);font-size:12px;color:var(--faint);margin-top:8px;}
 .fin .nwsub b{color:var(--muted);font-weight:600;}
-.fin .toolbar{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end;}
+.fin .toolbar{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-start;}
+@media(min-width:680px){.fin .toolbar{justify-content:flex-end;}}
+/* Below the breakpoint the buttons are their icons alone. The label isn't removed — it's
+   visually hidden, so it still names the button for a screen reader, still answers a
+   getByRole locator, and still shows in the tooltip. Twelve labelled buttons take six rows
+   and most of a phone screen before any of your money is visible; twelve icons take two.
+   The checks badge keeps its count, which is the one number that has to stay readable. */
+.fin .tbtn .tl{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0;}
+.fin .tbtn{position:relative;}
+@media(min-width:680px){.fin .tbtn .tl{position:static;width:auto;height:auto;margin:0;overflow:visible;clip:auto;}}
 .fin .tbtn{display:inline-flex;align-items:center;gap:6px;font-family:var(--sans);font-size:12px;font-weight:600;color:var(--muted);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 11px;cursor:pointer;transition:color .15s,border-color .15s;}
 .fin .tbtn:hover{color:var(--text);border-color:var(--faint);}
 .fin .tbtn.icon-only{padding:8px 9px;}
@@ -233,6 +249,42 @@ export const CSS = `
 .fin .badge.lvl-high{color:var(--green);background:var(--green-soft);border-color:var(--green-line);}
 .fin .badge.lvl-medium{color:var(--amber);background:var(--amber-soft);border-color:var(--amber-line);}
 .fin .badge.lvl-low{color:var(--faint);background:var(--slate-soft);border-color:var(--line2);}
+/* visually hidden, but read aloud — captions and chart summaries live here */
+.fin .scope-wrap:focus-visible{outline:2px solid var(--amber);outline-offset:4px;border-radius:10px;}
+.fin .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0;}
+.fin .datawrap{max-height:52vh;overflow:auto;margin-top:12px;border:1px solid var(--line);border-radius:10px;}
+.fin .datatable{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11.5px;}
+.fin .datatable th,.fin .datatable td{padding:6px 10px;border-bottom:1px solid var(--line);text-align:left;font-weight:400;}
+.fin .datatable thead th{position:sticky;top:0;background:var(--panel);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);font-weight:600;border-bottom:1px solid var(--line2);}
+.fin .datatable tbody th{color:var(--muted);white-space:nowrap;}
+.fin .datatable .num{text-align:right;font-variant-numeric:tabular-nums;}
+.fin .datatable tbody tr:hover{background:var(--panel2);}
+.fin .warn.soft{background:var(--amber-soft);border-color:var(--amber-line);}
+.fin .warn .btn{margin-left:auto;flex:none;align-self:center;padding:6px 11px;font-size:11.5px;}
+.fin .linkish{background:none;border:none;padding:0;font-family:var(--mono);font-size:11px;color:var(--amber);cursor:pointer;text-decoration:underline;text-underline-offset:3px;}
+.fin .linkish:hover{color:var(--text);}
+.fin .rowchecks{display:flex;flex-direction:column;gap:5px;margin-top:9px;width:100%;}
+.fin .rowcheck{display:flex;gap:7px;align-items:flex-start;font-family:var(--mono);font-size:10.5px;line-height:1.6;color:var(--amber);background:var(--amber-soft);border:1px solid var(--amber-line);border-radius:8px;padding:6px 9px;}
+.fin .rowcheck.error{color:var(--red);background:var(--red-soft);border-color:var(--red-line);}
+.fin .rowcheck svg{flex:none;margin-top:2px;}
+.fin .rowcheck b{font-weight:600;}
+.fin .rowcheck i{font-style:normal;color:var(--faint);}
+.fin .tbtn.checks{color:var(--amber);border-color:var(--amber-line);background:var(--amber-soft);font-variant-numeric:tabular-nums;}
+.fin .tbtn.checks.bad{color:var(--red);border-color:var(--red-line);background:var(--red-soft);}
+.fin .checklist{display:flex;flex-direction:column;gap:9px;margin-top:12px;}
+.fin .checkrow{border:1px solid var(--line);border-left:3px solid var(--amber);border-radius:10px;padding:11px 13px;background:var(--panel2);}
+.fin .checkrow.error{border-left-color:var(--red);}
+.fin .checkrow .ct{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.fin .checkrow .clevel{font-family:var(--mono);font-size:9px;letter-spacing:.11em;text-transform:uppercase;color:var(--amber);flex:none;}
+.fin .checkrow.error .clevel{color:var(--red);}
+.fin .checkrow .ctitle{font-size:13px;font-weight:600;flex:1;min-width:180px;}
+.fin .checkrow .ct .btn{padding:5px 10px;font-size:11.5px;flex:none;}
+.fin .checkrow .cd{font-size:12.5px;color:var(--muted);line-height:1.6;margin-top:6px;}
+.fin .checkrow .cf{font-family:var(--mono);font-size:11px;color:var(--faint);margin-top:6px;}
+/* the row a finding pointed at, once "take me there" has landed on its tab */
+.fin [data-row].flagged{outline:2px solid var(--amber);outline-offset:3px;border-radius:12px;}
+.fin [data-row].flagged.bad{outline-color:var(--red);}
+
 /* ---- the print summary sheet ---------------------------------------------------- */
 /* It lives on screen inside the preview modal and on paper as the only thing on the page,
    so it's sized in a fixed 720px column either way rather than filling its container. */

@@ -3,7 +3,7 @@ const {
   ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine,
 } = Recharts;
-import { Stat, NumField, Tip } from "../components.js";
+import { Stat, NumField, Tip, ChartAlt } from "../components.js";
 import { fmtMoney, fmtBig, fmtDate, fmtDur, n0, addDays } from "../format.js";
 import { sampleRange } from "../useScope.js";
 
@@ -42,7 +42,8 @@ export function InvestTab({ D, chart, scInv, scMC, fireN, settings, setS, accoun
 
                 <div className="panel rise">
                   <div className="phead"><div className="ptitle">Portfolio growth</div>{ranges(scInv, maxW)}</div>
-                  <div className="scope-wrap" ref={scInv.ref} {...scInv.handlers}>
+                  <div className="scope-wrap" ref={scInv.ref} {...scInv.handlers} role="group" aria-label="Portfolio growth">
+                    <ChartAlt summary={`Your invested balance over time, split into what you contributed and the returns earned on top, against an independence target of ${fmtBig(fireN)}.`} />
                     <ResponsiveContainer width="100%" height={286}>
                       <ComposedChart data={sampleRange(D.viewSeries, scInv.lo, scInv.hi, 320).map((s) => ({ w: s.w, value: s.invest, basis: s.basis, fi: s.fi }))} margin={{ top: 16, right: 12, bottom: 0, left: 6 }}>
                         <defs><linearGradient id="ivFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--green)" stopOpacity={0.24} /><stop offset="100%" stopColor="var(--green)" stopOpacity={0} /></linearGradient></defs>
@@ -91,7 +92,8 @@ export function InvestTab({ D, chart, scInv, scMC, fireN, settings, setS, accoun
                         : " No simulated run ran out."}
                     </div>
                   )}
-                  <div className="scope-wrap" ref={scMC.ref} {...scMC.handlers} style={{ marginTop: 12 }}>
+                  <div className="scope-wrap" ref={scMC.ref} {...scMC.handlers} style={{ marginTop: 12 }} role="group" aria-label="Range of Monte Carlo outcomes">
+                    <ChartAlt summary={`The middle 50% and 80% of several hundred randomized runs, around a median line.${D.mc && D.mc.survivalProb != null ? ` The money lasts in ${Math.round(D.mc.survivalProb * 100)}% of them.` : ""}`} />
                     <ResponsiveContainer width="100%" height={286}>
                       <ComposedChart data={mcData} margin={{ top: 16, right: 12, bottom: 0, left: 6 }}>
                         <CartesianGrid stroke="var(--line)" strokeDasharray="2 4" />

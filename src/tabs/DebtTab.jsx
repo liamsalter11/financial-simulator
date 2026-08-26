@@ -4,7 +4,7 @@ const {
   ResponsiveContainer, ReferenceLine,
 } = Recharts;
 import { AlertTriangle, Plus, Trash2 } from "../icons.js";
-import { Stat, LoanCard, Seg, Tip } from "../components.js";
+import { Stat, LoanCard, Seg, Tip, ChartAlt } from "../components.js";
 import { fmtMoney, fmtBig, fmtDate, fmtDur, n0 } from "../format.js";
 import { sampleRange } from "../useScope.js";
 
@@ -46,7 +46,8 @@ export function DebtTab({
                 {!noDebt && (
                   <div className="panel rise">
                     <div className="phead"><div className="ptitle">Balance decay</div>{ranges(scDebt, maxW)}</div>
-                    <div className="scope-wrap" ref={scDebt.ref} {...scDebt.handlers}>
+                    <div className="scope-wrap" ref={scDebt.ref} {...scDebt.handlers} role="group" aria-label="Debt balance over time">
+                      <ChartAlt summary={`Total debt from ${fmtMoney(D.totalDebt)} today under your plan, against a second line for paying only the minimums. ${D.sim.debtFree != null ? `Your plan clears it in ${fmtDate(w2date(D.sim.debtFree))}.` : "Your plan does not clear it inside the projection."}`} />
                       <ResponsiveContainer width="100%" height={278}>
                         <ComposedChart data={sampleRange(D.debtCurve, scDebt.lo, scDebt.hi, 320)} margin={{ top: 14, right: 12, bottom: 0, left: 6 }}>
                           <defs><linearGradient id="planFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--amber)" stopOpacity={0.28} /><stop offset="100%" stopColor="var(--amber)" stopOpacity={0} /></linearGradient></defs>

@@ -166,6 +166,19 @@ export const Printer = p => React.createElement(IconBase, p, React.createElement
   height: "8",
   rx: "1"
 }));
+export const TableIcon = p => React.createElement(IconBase, p, React.createElement("rect", {
+  x: "3",
+  y: "3",
+  width: "18",
+  height: "18",
+  rx: "2"
+}), React.createElement("path", {
+  d: "M3 9h18"
+}), React.createElement("path", {
+  d: "M3 15h18"
+}), React.createElement("path", {
+  d: "M9 3v18"
+}));
 export const Link2 = p => React.createElement(IconBase, p, React.createElement("path", {
   d: "M9 17H7A5 5 0 0 1 7 7h2"
 }), React.createElement("path", {

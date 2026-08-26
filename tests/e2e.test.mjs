@@ -973,3 +973,229 @@ test("the print summary renders a real chart and takes over the page", async () 
   assert.deepEqual(consoleErrors, []);
   await page.close();
 });
+
+test("deleting an account raises every row that pointed at it, and undo clears them", async () => {
+  const { page, consoleErrors } = await newPage();
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+  await page.locator(".nwbig").waitFor();
+  await page.waitForTimeout(700);
+
+  const badge = page.locator(".tbtn.checks");
+  const before = Number((await badge.textContent().catch(() => "0")).trim()) || 0;
+
+  await page.locator(".tabbtn", { hasText: "Accounts" }).click();
+  await page.locator(".row.acct").first().locator('button[aria-label="Remove"]').click();
+  await page.waitForTimeout(1200);
+
+  const after = Number((await badge.textContent()).trim());
+  assert.ok(after > before + 5, `expected the orphaned rows to be reported, badge went ${before} → ${after}`);
+
+  await badge.click();
+  const titles = await page.locator(".checkrow .ctitle").allTextContents();
+  assert.ok(titles.some((t) => /Rent.*no longer exists/.test(t)), `expected the rent expense named: ${titles[0]}`);
+  assert.ok(titles.some((t) => /split into an account that no longer exists/.test(t)), "and the paycheck split");
+
+  /* "take me there" lands on the right tab with the row marked */
+  const row = page.locator(".checkrow").filter({ hasText: "Rent" }).first();
+  await row.locator(".btn", { hasText: "Take me there" }).click();
+  await page.waitForTimeout(700);
+  assert.equal((await page.locator(".tabbtn.active").textContent()).trim(), "Cash flow");
+  assert.ok(await page.locator("[data-row].flagged").count() >= 1, "the offending row should be marked");
+  assert.ok(await page.locator(".rowcheck").count() >= 1, "and carry the finding inline");
+
+  await page.locator(".tbtn", { hasText: "Undo" }).click();
+  await page.waitForTimeout(1200);
+  assert.equal(await page.locator(".rowcheck").count(), 0, "undoing the delete clears the findings");
+  const back = Number((await badge.textContent().catch(() => "0")).trim()) || 0;
+  assert.equal(back, before, "and the badge returns to what it was");
+
+  assert.deepEqual(consoleErrors, []);
+  await page.close();
+});
+
+test("a card with no payment is reported, and adding one clears it", async () => {
+  const { page, consoleErrors } = await newPage();
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+  await page.locator(".nwbig").waitFor();
+  await page.waitForTimeout(700);
+  const badge = page.locator(".tbtn.checks");
+  const before = Number((await badge.textContent().catch(() => "0")).trim()) || 0;
+
+  /* a card created by hand, with a balance and nothing paying it */
+  await page.evaluate(() => {
+    const debts = JSON.parse(localStorage.getItem("fin3:debts") || "[]");
+    debts.push({ id: "cctest", name: "Test card", kind: "card", balance: 900, originalBalance: 900, apr: 22.99, minPayment: 0, interestFrom: new Date().toISOString().slice(0, 10) });
+    localStorage.setItem("fin3:debts", JSON.stringify(debts));
+  });
+  await page.reload({ waitUntil: "networkidle" });
+  await page.locator(".nwbig").waitFor();
+  await page.waitForTimeout(900);
+
+  await badge.click();
+  const titles = await page.locator(".checkrow .ctitle").allTextContents();
+  assert.ok(titles.some((t) => /Test card.*no payment/.test(t)), `expected the card reported: ${titles.join(" | ")}`);
+  await page.locator(".modal-head .icon-btn").click();
+
+  /* give it one, and the finding goes */
+  await page.locator(".tabbtn", { hasText: "Cash flow" }).click();
+  await page.evaluate(() => {
+    const pays = JSON.parse(localStorage.getItem("fin3:debtPayments") || "[]");
+    const acct = JSON.parse(localStorage.getItem("fin3:accounts") || "[]")[0];
+    pays.push({ id: "ptest", name: "Card payment", amount: 0, payFull: true, date: new Date().toISOString().slice(0, 10), recur: "monthly", fromAcct: acct.id, toDebt: "cctest" });
+    localStorage.setItem("fin3:debtPayments", JSON.stringify(pays));
+  });
+  await page.reload({ waitUntil: "networkidle" });
+  await page.locator(".nwbig").waitFor();
+  await page.waitForTimeout(900);
+  const after = Number((await badge.textContent().catch(() => "0")).trim()) || 0;
+  assert.equal(after, before, `the finding should be gone, badge is ${after}`);
+
+  assert.deepEqual(consoleErrors, []);
+  await page.close();
+});
+
+test("the numbers behind the charts are readable as a table, and match the app", async () => {
+  const { page, consoleErrors } = await newPage();
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+  await page.locator(".nwbig").waitFor();
+  await page.waitForTimeout(900);
+  const headline = await page.locator(".nwbig").textContent();
+
+  await page.locator(".tbtn", { hasText: "Numbers" }).click();
+  const table = page.locator('[data-testid="data-table"]');
+  await table.waitFor();
+
+  /* a real table: caption, column headers, a row header per row */
+  assert.ok((await table.locator("caption").textContent()).length > 20);
+  assert.deepEqual(await table.locator("thead th").allTextContents(),
+    ["Date", "Net worth", "Invested", "Debt", "Independence target"]);
+  assert.ok(await table.locator("tbody tr th[scope=row]").count() > 5);
+
+  /* and it agrees with the figure on screen */
+  const firstRow = await table.locator("tbody tr").first().locator("td").first().textContent();
+  assert.equal(firstRow, headline, "the first row is today, and must match the headline");
+
+  /* the granularity control changes the row count, and the series control the columns */
+  const yearly = await table.locator("tbody tr").count();
+  await page.getByLabel("How often").selectOption("monthly");
+  await page.waitForTimeout(300);
+  assert.ok(await table.locator("tbody tr").count() > yearly, "monthly gives more rows than yearly");
+  await page.getByLabel("Which numbers").selectOption("debt");
+  await page.waitForTimeout(300);
+  assert.deepEqual(await table.locator("thead th").allTextContents(), ["Date", "Your plan", "Minimums only"]);
+
+  assert.deepEqual(consoleErrors, []);
+  await page.close();
+});
+
+test("every chart carries a text alternative, and can be panned and zoomed from the keyboard", async () => {
+  const { page, consoleErrors } = await newPage();
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+  await page.locator(".nwbig").waitFor();
+  await page.waitForTimeout(900);
+
+  const groups = page.locator('.scope-wrap[role="group"]');
+  assert.ok(await groups.count() >= 2, "each chart is a labelled group");
+  const alt = await page.locator(".scope-wrap .sr-only").first().textContent();
+  assert.match(alt, /Net worth from \$/, "the alternative states the figures, not just the shape");
+  assert.match(alt, /arrow keys pan/, "and says how to drive it without a mouse");
+
+  /* the picture is decorative where a text legend already carries the meaning */
+  await page.locator(".tabbtn", { hasText: "Accounts" }).click();
+  await page.waitForTimeout(500);
+  assert.equal(await page.locator('.donut-wrap[aria-hidden="true"]').count(), 1);
+  assert.match(await page.locator(".dlegend").getAttribute("aria-label"), /assets/);
+
+  /* keyboard windowing — the whole zoom feature used to need a pointing device */
+  await page.locator(".tabbtn", { hasText: "Overview" }).click();
+  await page.waitForTimeout(700);
+  const domain = () => page.evaluate(() => {
+    const t = [...document.querySelectorAll(".recharts-xAxis .recharts-cartesian-axis-tick-value")];
+    return t.length ? t[0].textContent : null;
+  });
+  const wrap = page.locator(".scope-wrap").first();
+  await wrap.focus();
+  assert.equal(await page.evaluate(() => document.activeElement.className), "scope-wrap");
+  const start0 = await domain();
+  await page.keyboard.press("ArrowRight");
+  await page.waitForTimeout(400);
+  assert.notEqual(await domain(), start0, "arrow keys should pan the window");
+  await page.keyboard.press("Home");
+  await page.waitForTimeout(400);
+  assert.equal(await domain(), start0, "Home should return to the start");
+
+  assert.deepEqual(consoleErrors, []);
+  await page.close();
+});
+
+test("no chart series is distinguished by colour alone", async () => {
+  const { page, consoleErrors } = await newPage();
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+  await page.locator(".recharts-line-curve").first().waitFor();
+  await page.waitForTimeout(700);
+
+  /* the main projection: net worth, invested and debt used to be three identical strokes */
+  const main = await page.locator(".recharts-surface").first().locator(".recharts-line-curve")
+    .evaluateAll((els) => els.map((e) => e.getAttribute("stroke-dasharray") || "solid"));
+  assert.ok(main.length >= 2);
+  assert.equal(new Set(main).size, main.length, `each series needs its own dash: ${main.join(" / ")}`);
+
+  assert.deepEqual(consoleErrors, []);
+  await page.close();
+});
+
+test("the topbar survives a phone: the headline doesn't break and the toolbar doesn't eat the screen", async () => {
+  /* The toolbar grew from four buttons to twelve across these batches. As a flex row at
+     every width it squeezed the headline until it wrapped — and a money figure can only
+     wrap in one place, after the minus sign, which put a lone dash above the number on
+     iOS. (WebKit takes that break opportunity; Blink doesn't, so it can't be reproduced
+     here — the fix is to make the break impossible rather than to rely on either.) */
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const page = await ctx.newPage();
+  const consoleErrors = [];
+  page.on("pageerror", (e) => consoleErrors.push(e.message));
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+  await page.locator(".nwbig").waitFor();
+
+  /* a plan deep enough in the red that the headline carries a minus sign */
+  await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem("fin3:debts") || "[]");
+    d.push({ id: "mortgage", name: "Mortgage", kind: "loan", balance: 400000, originalBalance: 400000, apr: 6, minPayment: 2400, interestFrom: new Date().toISOString().slice(0, 10) });
+    localStorage.setItem("fin3:debts", JSON.stringify(d));
+  });
+  await page.reload({ waitUntil: "networkidle" });
+  await page.locator(".nwbig").waitFor();
+  await page.waitForTimeout(900);
+
+  const m = await page.evaluate(() => {
+    const nw = document.querySelector(".nwbig");
+    const cs = getComputedStyle(nw);
+    const lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.2;
+    return {
+      text: nw.textContent,
+      lines: Math.round(nw.getBoundingClientRect().height / lh),
+      whiteSpace: cs.whiteSpace,
+      stacked: getComputedStyle(document.querySelector(".topbar")).flexDirection,
+      topbarH: Math.round(document.querySelector(".topbar").getBoundingClientRect().height),
+      buttons: document.querySelectorAll(".toolbar .tbtn").length,
+      pageScrollsSideways: (window.scrollTo(500, 0), window.scrollX > 0),
+    };
+  });
+
+  assert.match(m.text, /^-\$/, "the fixture should put net worth in the red");
+  assert.equal(m.lines, 1, `the headline must stay on one line, got ${m.lines} for "${m.text}"`);
+  assert.equal(m.whiteSpace, "nowrap", "and must be unbreakable, so no browser can split the minus off");
+  assert.equal(m.stacked, "column", "the topbar stacks on a phone rather than competing for the line");
+  assert.ok(m.buttons >= 10, `expected the full toolbar, got ${m.buttons}`);
+  assert.ok(m.topbarH < 200, `${m.buttons} buttons should fit in a couple of rows, not ${m.topbarH}px of screen`);
+  assert.equal(m.pageScrollsSideways, false, "and nothing may push the page sideways");
+
+  /* icons only, but every button keeps the name it is found and announced by */
+  for (const name of ["Help", "Undo", "Export", "Numbers", "Print"]) {
+    assert.equal(await page.getByRole("button", { name, exact: false }).count(), 1,
+      `"${name}" must still be reachable by name with its label visually hidden`);
+  }
+
+  assert.deepEqual(consoleErrors, []);
+  await ctx.close();
+});

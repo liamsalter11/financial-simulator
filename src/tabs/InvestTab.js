@@ -10,7 +10,7 @@ const {
   ResponsiveContainer,
   ReferenceLine
 } = Recharts;
-import { Stat, NumField, Tip } from "../components.js";
+import { Stat, NumField, Tip, ChartAlt } from "../components.js";
 import { fmtMoney, fmtBig, fmtDate, fmtDur, n0, addDays } from "../format.js";
 import { sampleRange } from "../useScope.js";
 const McTip = ({
@@ -122,7 +122,12 @@ export function InvestTab({
   }, "Portfolio growth"), ranges(scInv, maxW)), React.createElement("div", _extends({
     className: "scope-wrap",
     ref: scInv.ref
-  }, scInv.handlers), React.createElement(ResponsiveContainer, {
+  }, scInv.handlers, {
+    role: "group",
+    "aria-label": "Portfolio growth"
+  }), React.createElement(ChartAlt, {
+    summary: `Your invested balance over time, split into what you contributed and the returns earned on top, against an independence target of ${fmtBig(fireN)}.`
+  }), React.createElement(ResponsiveContainer, {
     width: "100%",
     height: 286
   }, React.createElement(ComposedChart, {
@@ -274,7 +279,11 @@ export function InvestTab({
   }, scMC.handlers, {
     style: {
       marginTop: 12
-    }
+    },
+    role: "group",
+    "aria-label": "Range of Monte Carlo outcomes"
+  }), React.createElement(ChartAlt, {
+    summary: `The middle 50% and 80% of several hundred randomized runs, around a median line.${D.mc && D.mc.survivalProb != null ? ` The money lasts in ${Math.round(D.mc.survivalProb * 100)}% of them.` : ""}`
   }), React.createElement(ResponsiveContainer, {
     width: "100%",
     height: 286

@@ -1,5 +1,6 @@
 import { Trash2, Plus } from "../icons.js";
-import { Stat, NumField, Seg, Donut } from "../components.js";
+import { Stat, NumField, Seg, Donut, RowChecks } from "../components.js";
+import { checksFor } from "../checks.js";
 import { fmtMoney, fmtBig, n0, ACCT_TYPES } from "../format.js";
 export function AccountsTab({
   D,
@@ -9,8 +10,10 @@ export function AccountsTab({
   upAcct,
   upAcctType,
   addAcct,
-  rmAcct
+  rmAcct,
+  focusId
 }) {
+  const rowChecks = id => checksFor(D.checks, id);
   return React.createElement(React.Fragment, null, React.createElement("div", {
     className: "sgrid rise",
     style: {
@@ -46,7 +49,8 @@ export function AccountsTab({
     const tight = capOn && n0(a.cap) < need;
     const dest = a.spillTo ? D.names[a.spillTo] || "—" : null;
     return React.createElement("div", {
-      className: "row acct",
+      className: "row acct" + (focusId === a.id ? " flagged" : ""),
+      "data-row": a.id,
       key: a.id
     }, React.createElement("div", {
       className: "acct-top"
@@ -153,11 +157,11 @@ export function AccountsTab({
       onChange: v => upAcct(a.id, "spillEvery", v)
     })), capOn && a.spillTo ? React.createElement("div", {
       className: "caphint" + (tight ? " warn-txt" : "")
-    }, "Anything over ", fmtMoney(n0(a.cap)), " moves to ", dest, " at each ", a.spillEvery === "weekly" ? "week" : "month", " end.", D.loans.some(l => l.id === a.spillTo) ? ` Once ${dest} is paid off it rolls to your highest-rate remaining loan, then to ${(accounts.find(x => x.id === settings.overflowTo) || defaultOverflow || {}).name || "investments"} when every loan is clear.` : "", tight ? ` A heavy month draws about ${fmtMoney(need)} from here — a cap below that will overdraw it.` : ` Its heaviest month draws about ${fmtMoney(need)}, so the buffer holds.`) : capOn ? React.createElement("div", {
+    }, "Anything over ", fmtMoney(n0(a.cap)), " moves to ", dest, " at each ", a.spillEvery === "weekly" ? "week" : "month", " end.", D.loans.some(l => l.id === a.spillTo) ? ` Once ${dest} is paid off it rolls to your highest-rate remaining loan, then to ${(accounts.find(x => x.id === settings.overflowTo) || defaultOverflow || {}).name || "investments"} when every loan is clear.` : "", tight ? ` A heavy month draws about ${fmtMoney(need)} from here — a cap below that will overdraw it.` : ` Its heaviest month draws about ${fmtMoney(need)}, so the buffer holds.`) : capOn ? null : React.createElement("div", {
       className: "caphint"
-    }, "Pick a destination or the cap does nothing.") : React.createElement("div", {
-      className: "caphint"
-    }, "Leave blank for no cap. Set one to stop cash idling here \u2014 the excess gets swept somewhere it earns or saves you more.")));
+    }, "Leave blank for no cap. Set one to stop cash idling here \u2014 the excess gets swept somewhere it earns or saves you more.")), React.createElement(RowChecks, {
+      checks: rowChecks(a.id)
+    }));
   }), React.createElement("button", {
     className: "btn btn-add",
     onClick: addAcct

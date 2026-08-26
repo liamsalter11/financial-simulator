@@ -4,13 +4,13 @@ const { useState, useEffect, useMemo, useRef, useDeferredValue } = React;
 import {
   HelpCircle, Upload, Download, RotateCcw, Zap, AlertTriangle, Check, X,
   LayoutGrid, Wallet, Receipt, TrendingDown, InvestIcon, Trash2, RotateCw, Link2,
-  Sun, Moon, Contrast, Printer,
+  Sun, Moon, Contrast, Printer, TableIcon,
 } from "./icons.js";
 import { Modal } from "./components.js";
 import {
   n0, num, uid, todayISO, nextFirstISO, firstOfYear, isoDate, addMonths, parseDate, addDays,
   fmtMoney, fmtBig, fmtC, weekTick, r2, parse, OPY, RECUR, ACCT_TYPES,
-  isInvest, isSav, isCash, BUCKET_COLOR, PAL, CATEGORIES, acctColor, debtColor, inflFactor,
+  isInvest, isSav, isCash, BUCKET_COLOR, PAL, CATEGORIES, acctColor, debtColor, dashFor, inflFactor,
 } from "./format.js";
 import { firesInWeek } from "./recurrence.js";
 import { payrollOf, bonusOf, effectiveTaxRate, isDerived, takeHomeOf } from "./payroll.js";
@@ -22,6 +22,8 @@ import { pushUndo, dailySnapshots, previousSnapshot, actualSeries } from "./hist
 import { encodePlan, decodePlan, readHash, stripHash, shareUrl } from "./share.js";
 import { suggestExpenses, toExpense } from "./csv.js";
 import { PrintSheet } from "./print.js";
+import { runChecks, countByLevel } from "./checks.js";
+import { DataTable } from "./datatable.js";
 import {
   SEED_ACCOUNTS, SEED_DEBTS, normDebts, normIncome, normAccounts, normExpenses, isCard, pickIds,
   seedIncome, seedExpenses, seedTransfers, seedDebtPays, seedSettings,
@@ -82,6 +84,10 @@ export function FinancialSimulator() {
      to localStorage while it sits in this state */
   const [offered, setOffered] = useState(null);
   const [spendItemised, setSpendItemised] = useState(false);
+  /* the row a finding pointed at, so the tab it lands on can highlight it */
+  const [focusId, setFocusId] = useState(null);
+  const [dataView, setDataView] = useState("networth");
+  const [dataGrain, setDataGrain] = useState("yearly");
   /* Not in `settings`: settings travel inside an export and inside a #plan= share link, and
      how someone likes to read the screen is not part of somebody else's plan. Same reason
      `compareWith` has its own key. */
@@ -420,6 +426,19 @@ export function FinancialSimulator() {
     setSeedNote(false); store.set("fin3:seedNote", "0");
     showToast("Loaded the shared plan — ⌘Z puts yours back");
   };
+  const goToCheck = (c) => {
+    setModal(null);
+    setTab(c.tab);
+    setFocusId(c.targetId || null);
+    if (c.targetId) {
+      /* let the tab render before looking for the row */
+      setTimeout(() => {
+        const el = document.querySelector(`[data-row="${c.targetId}"]`);
+        if (el && el.scrollIntoView) el.scrollIntoView({ block: "center", behavior: "smooth" });
+      }, 60);
+    }
+  };
+
   /* Auto → Light → Dark → Auto. One button rather than three, because the toolbar is
      already wide and the label says which of the three you're on. */
   const THEMES = [
@@ -645,8 +664,10 @@ export function FinancialSimulator() {
     const avgSweep = sweepWks > 0 ? sweepSum / (sweepWks / 52.1775) / 12 : 0;
     const capped = accounts.filter((a) => a.cap != null && a.cap !== "" && a.spillTo);
 
-    const acctColors = {}, names = {};
-    accounts.forEach((a, i) => { acctColors[a.id] = acctColor(i); names[a.id] = a.name; });
+    const acctColors = {}, acctDashes = {}, names = {};
+    /* the dash is the second axis: past eight accounts ACCT_PAL repeats, and a ninth line in
+       the same colour as the first is indistinguishable without one */
+    accounts.forEach((a, i) => { acctColors[a.id] = acctColor(i); acctDashes[a.id] = dashFor(i); names[a.id] = a.name; });
     const debtColors = {}; debts.forEach((l, i) => { debtColors[l.id] = debtColor(i); names[l.id] = l.name; });
     names.nw = "Net worth";
 
@@ -700,8 +721,8 @@ export function FinancialSimulator() {
       return { v: c.v, name: c.label, color: c.color, monthly: rows.reduce((s, e) => s + e.monthly, 0), count: rows.length };
     }).filter((c) => c.monthly > 0).sort((a, b) => b.monthly - a.monthly);
 
-    let negAcct = null;
-    for (let w = 0; w < Math.min(sim.series.length, 312) && !negAcct; w++) { const m = sim.series[w].acct; for (const a of accounts) if (m[a.id] < -1) { negAcct = a.name; break; } }
+    let negAcct = null, negAcctId = null;
+    for (let w = 0; w < Math.min(sim.series.length, 312) && !negAcct; w++) { const m = sim.series[w].acct; for (const a of accounts) if (m[a.id] < -1) { negAcct = a.name; negAcctId = a.id; break; } }
 
     /* how long the money you can actually reach this week would last with no income at all */
     const liquid = bCash + bSav;
@@ -710,7 +731,7 @@ export function FinancialSimulator() {
     /* which income sources run into the annual deferral cap, and what it costs them */
     const deferralNotes = income.map((inc) => {
       const ci = sim.capInfo && sim.capInfo[inc.id];
-      return ci ? { id: inc.id, name: inc.name, date: addDays(start, ci.week * 7), lostMatch: ci.lostMatch } : null;
+      return ci ? { id: inc.id, name: inc.name, date: addDays(start, ci.week * 7), lostMatch: ci.lostMatch, hit: true, forfeited: ci.lostMatch } : null;
     }).filter(Boolean);
 
     const mcView = showNom ? { ...mc, bands: mc.bands.map((b) => { const f = nomAt(b.w); return { ...b, p10: b.p10 * f, p25: b.p25 * f, p50: b.p50 * f, p75: b.p75 * f, p90: b.p90 * f }; }) } : mc;
@@ -733,6 +754,19 @@ export function FinancialSimulator() {
       debtFree: prevSnap.debtFree || null,
     } : null;
 
+    /* Every warning in the app comes from here. The tabs used to each carry their own copy
+       of the condition they displayed, which is how a summary and an inline marker end up
+       disagreeing; now both read this array. */
+    const checks = runChecks(
+      { accounts, debts, income, expenses, transfers, debtPayments, settings },
+      {
+        surplus, leftover, runway, monthlyInterest, monthlyDebtPay: mDp, totalLoans,
+        negAcct, negAcctId, worstMonthOut, nextCardPay, loansNoPayment, deferralNotes,
+        survivalProb: mc && mc.survivalProb != null ? mc.survivalProb : null,
+        bridge: sim.bridge,
+      },
+    );
+
     const timeline = milestones(P, { start, debts, income, settings });
     const cmpPlan = compareScenario ? compareScenario.plan : null;
     const cmpTimeline = P.compare && cmpPlan
@@ -744,7 +778,7 @@ export function FinancialSimulator() {
       nwGap: sim.series[Math.min(maxW, sim.series.length - 1)].nw - P.compare.sim.series[Math.min(maxW, P.compare.sim.series.length - 1)].nw,
     } : null;
 
-    return { totalAssets, totalDebt, totalLoans, netWorth, loans, cards, mInc, mExp, mTr, mDp, mPreTax, mBonusNet, surplus, savingsRate, leftover, monthlyInterest, sim, simWith, simWithout, hasHypo, hypoOn, nwGapAt, minW, maxW, mc: mcView, mcReturn, interestSaved, wksSaved, acctColors, debtColors, names, cf, debtCurve, alloc, spend, spendCat, bInv, negAcct, nextCardPay, loansNoPayment, chargedTo, worstMonthOut, avgSweep, capped, infl, showNom, nomAt, viewSeries, strategy, liquid, runway, deferralNotes, fiSloped, bridge: sim.bridge, retireWeek, horizonWeeks, busy, timeline, compare, actuals, drift };
+    return { totalAssets, totalDebt, totalLoans, netWorth, loans, cards, mInc, mExp, mTr, mDp, mPreTax, mBonusNet, surplus, savingsRate, leftover, monthlyInterest, sim, simWith, simWithout, hasHypo, hypoOn, nwGapAt, minW, maxW, mc: mcView, mcReturn, interestSaved, wksSaved, acctColors, acctDashes, debtColors, names, cf, debtCurve, alloc, spend, spendCat, bInv, negAcct, nextCardPay, loansNoPayment, chargedTo, worstMonthOut, avgSweep, capped, infl, showNom, nomAt, viewSeries, strategy, liquid, runway, deferralNotes, fiSloped, bridge: sim.bridge, retireWeek, horizonWeeks, busy, timeline, compare, actuals, drift, negAcctId, checks, checkCount: countByLevel(checks) };
   }, [accounts, debts, income, expenses, transfers, debtPayments, settings, start, P, busy, compareScenario, snapshots]);
 
   const maxW = D ? D.maxW : 520;
@@ -819,18 +853,25 @@ export function FinancialSimulator() {
                 {D.busy && <span className="recalc"> · recalculating</span>}</div>
             </div>
             <div className="toolbar">
-              <button className={"tbtn" + (showHelp ? " on" : "")} onClick={() => setShowHelp((v) => !v)}
-                aria-expanded={showHelp} aria-controls="help-panel"><HelpCircle size={13} />Help</button>
-              <button className="tbtn" onClick={undo} disabled={!canUndo} title="Undo (⌘Z)" aria-label="Undo"><RotateCcw size={13} />Undo</button>
-              <button className="tbtn" onClick={redo} disabled={!canRedo} title="Redo (⌘⇧Z)" aria-label="Redo"><RotateCw size={13} />Redo</button>
+              {D.checks.length > 0 && (
+                <button className={"tbtn checks" + (D.checkCount.error ? " bad" : "")} onClick={() => setModal("checks")}
+                  title={`${D.checks.length} thing${D.checks.length === 1 ? "" : "s"} worth looking at`}>
+                  <AlertTriangle size={13} />{D.checks.length}
+                </button>
+              )}
+                            <button className={"tbtn" + (showHelp ? " on" : "")} onClick={() => setShowHelp((v) => !v)}
+                aria-expanded={showHelp} aria-controls="help-panel"><HelpCircle size={13} /><span className="tl">Help</span></button>
+              <button className="tbtn" onClick={undo} disabled={!canUndo} title="Undo (⌘Z)" aria-label="Undo"><RotateCcw size={13} /><span className="tl">Undo</span></button>
+              <button className="tbtn" onClick={redo} disabled={!canRedo} title="Redo (⌘⇧Z)" aria-label="Redo"><RotateCw size={13} /><span className="tl">Redo</span></button>
               <button className={"tbtn" + (compareScenario ? " on" : "")} onClick={() => { setScenarioName(""); setModal("scenarios"); }}
-                title={compareScenario ? `Comparing against "${compareScenario.name}"` : "Save and compare plans"}><LayoutGrid size={13} />Scenarios{scenarios.length ? ` (${scenarios.length})` : ""}</button>
-              <button className="tbtn" onClick={() => { setImportText(""); setModal("import"); }}><Upload size={13} />Import</button>
-              <button className="tbtn" onClick={shareLink} title="Copy a link with this whole plan in it"><Link2 size={13} />Share</button>
-              <button className="tbtn" onClick={openExport}><Download size={13} />Export</button>
-              <button className="tbtn" onClick={() => setModal("print")} title="A summary sheet you can print or save as PDF"><Printer size={13} />Print</button>
+                title={compareScenario ? `Comparing against "${compareScenario.name}"` : "Save and compare plans"}><LayoutGrid size={13} /><span className="tl">Scenarios{scenarios.length ? ` (${scenarios.length})` : ""}</span></button>
+              <button className="tbtn" onClick={() => { setImportText(""); setModal("import"); }}><Upload size={13} /><span className="tl">Import</span></button>
+              <button className="tbtn" onClick={shareLink} title="Copy a link with this whole plan in it"><Link2 size={13} /><span className="tl">Share</span></button>
+              <button className="tbtn" onClick={openExport}><Download size={13} /><span className="tl">Export</span></button>
+              <button className="tbtn" onClick={() => setModal("data")} title="Read the figures behind every chart as a table"><TableIcon size={13} /><span className="tl">Numbers</span></button>
+              <button className="tbtn" onClick={() => setModal("print")} title="A summary sheet you can print or save as PDF"><Printer size={13} /><span className="tl">Print</span></button>
               <button className="tbtn icon-only" onClick={cycleTheme} title={themeOpt.title} aria-label={`Theme: ${themeOpt.label}`}><themeOpt.Icon size={14} /></button>
-              <button className="tbtn" onClick={resetAll}><RotateCcw size={13} />Reset</button>
+              <button className="tbtn" onClick={resetAll}><RotateCcw size={13} /><span className="tl">Reset</span></button>
             </div>
           </div>
 
@@ -938,7 +979,32 @@ export function FinancialSimulator() {
                 <button className="btn btn-ghost" onClick={() => setModal(null)}>Cancel</button></div>
             </Modal>
           )}
-          {modal === "print" && (
+          {modal === "data" && (
+            <Modal title="The numbers behind the charts" onClose={() => setModal(null)} wide>
+              <div className="mnote">Every figure the charts are drawn from, as a table — the same series, sampled at whichever spacing you pick. Nothing here is a separate calculation, so it can't disagree with what's plotted.</div>
+              <DataTable D={D} start={start} view={dataView} setView={setDataView} grain={dataGrain} setGrain={setDataGrain}
+                onCopy={async (text) => { const ok = await copyText(text); showToast(ok ? "Copied as CSV" : "Couldn't copy — select the table and copy manually", !ok); }} />
+            </Modal>
+          )}
+                    {modal === "checks" && (
+            <Modal title={D.checkCount.error ? `${D.checkCount.error} problem${D.checkCount.error === 1 ? "" : "s"}${D.checkCount.warn ? ` and ${D.checkCount.warn} thing${D.checkCount.warn === 1 ? "" : "s"} to consider` : ""}` : `${D.checks.length} thing${D.checks.length === 1 ? "" : "s"} to consider`} onClose={() => setModal(null)}>
+              <div className="mnote">Everything the app can tell is wrong with this plan, in one place — including whatever is on a tab you aren't looking at. Nothing here is a rule about how you should live; it's the projection saying it can't do what you've asked, or that a number contradicts another one.</div>
+              <div className="checklist">
+                {D.checks.map((c) => (
+                  <div className={"checkrow " + c.level} key={c.id}>
+                    <div className="ct">
+                      <span className="clevel">{c.level === "error" ? "Problem" : "Consider"}</span>
+                      <span className="ctitle">{c.title}</span>
+                      <button className="btn btn-ghost" onClick={() => goToCheck(c)}>Take me there</button>
+                    </div>
+                    <div className="cd">{c.detail}</div>
+                    <div className="cf">{c.fix}</div>
+                  </div>
+                ))}
+              </div>
+            </Modal>
+          )}
+                    {modal === "print" && (
             <Modal title="Print summary" onClose={() => setModal(null)} wide>
               <div className="mnote">Where you stand, where the projection says you're going, and the assumptions behind it — a page, give or take, depending on how much you've entered. It prints on white whichever theme you're reading in, and this preview is exactly what will come out.</div>
               <div className="modal-row">
@@ -1006,13 +1072,14 @@ export function FinancialSimulator() {
           {/* ============================ OVERVIEW ============================ */}
           {tab === "overview" && (
             <OverviewTab D={D} accounts={accounts} debts={debts} chart={chartProps} scNW={scNW} scBal={scBal} fireN={fireN} settings={settings} setS={setS}
-              ask={ask} setAsk={setAsk} runSolve={runSolve} runTornado={runTornado} knobs={KNOBS} targets={TARGETS} openScenarios={() => { setScenarioName(""); setModal("scenarios"); }} />
+              ask={ask} setAsk={setAsk} runSolve={runSolve} runTornado={runTornado} knobs={KNOBS} targets={TARGETS} openScenarios={() => { setScenarioName(""); setModal("scenarios"); }}
+              openChecks={() => setModal("checks")} onCheck={goToCheck} />
           )}
 
           {/* ============================ ACCOUNTS ============================ */}
           {tab === "accounts" && (
             <AccountsTab D={D} accounts={accounts} settings={settings} defaultOverflow={defaultOverflow}
-              upAcct={upAcct} upAcctType={upAcctType} addAcct={addAcct} rmAcct={rmAcct} />
+              upAcct={upAcct} upAcctType={upAcctType} addAcct={addAcct} rmAcct={rmAcct} focusId={focusId} />
           )}
 
           {/* ============================ CASH FLOW ============================ */}
@@ -1026,7 +1093,7 @@ export function FinancialSimulator() {
               upExp={upExp} rmExp={rmExp} addExp={addExp}
               upDebtField={upDebtField} upDebtBal={upDebtBal} rmDebt={rmDebt} addCardWithPayment={addCardWithPayment}
               upDp={upDp} rmDp={rmDp} addDp={addDp} upTr={upTr} rmTr={rmTr} addTr={addTr}
-              openCsv={openCsv} itemised={spendItemised} setItemised={setSpendItemised} />
+              openCsv={openCsv} itemised={spendItemised} setItemised={setSpendItemised} focusId={focusId} />
           )}
 
           {/* ============================ DEBT ============================ */}

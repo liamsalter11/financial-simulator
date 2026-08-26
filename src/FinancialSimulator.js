@@ -5,9 +5,9 @@ const {
   useRef,
   useDeferredValue
 } = React;
-import { HelpCircle, Upload, Download, RotateCcw, Zap, AlertTriangle, Check, X, LayoutGrid, Wallet, Receipt, TrendingDown, InvestIcon, Trash2, RotateCw, Link2, Sun, Moon, Contrast, Printer } from "./icons.js";
+import { HelpCircle, Upload, Download, RotateCcw, Zap, AlertTriangle, Check, X, LayoutGrid, Wallet, Receipt, TrendingDown, InvestIcon, Trash2, RotateCw, Link2, Sun, Moon, Contrast, Printer, TableIcon } from "./icons.js";
 import { Modal } from "./components.js";
-import { n0, num, uid, todayISO, nextFirstISO, firstOfYear, isoDate, addMonths, parseDate, addDays, fmtMoney, fmtBig, fmtC, weekTick, r2, parse, OPY, RECUR, ACCT_TYPES, isInvest, isSav, isCash, BUCKET_COLOR, PAL, CATEGORIES, acctColor, debtColor, inflFactor } from "./format.js";
+import { n0, num, uid, todayISO, nextFirstISO, firstOfYear, isoDate, addMonths, parseDate, addDays, fmtMoney, fmtBig, fmtC, weekTick, r2, parse, OPY, RECUR, ACCT_TYPES, isInvest, isSav, isCash, BUCKET_COLOR, PAL, CATEGORIES, acctColor, debtColor, dashFor, inflFactor } from "./format.js";
 import { firesInWeek } from "./recurrence.js";
 import { payrollOf, bonusOf, effectiveTaxRate, isDerived, takeHomeOf } from "./payroll.js";
 import { WEEKS } from "./engine.js";
@@ -18,6 +18,8 @@ import { pushUndo, dailySnapshots, previousSnapshot, actualSeries } from "./hist
 import { encodePlan, decodePlan, readHash, stripHash, shareUrl } from "./share.js";
 import { suggestExpenses, toExpense } from "./csv.js";
 import { PrintSheet } from "./print.js";
+import { runChecks, countByLevel } from "./checks.js";
+import { DataTable } from "./datatable.js";
 import { SEED_ACCOUNTS, SEED_DEBTS, normDebts, normIncome, normAccounts, normExpenses, isCard, pickIds, seedIncome, seedExpenses, seedTransfers, seedDebtPays, seedSettings } from "./seeds.js";
 import { store } from "./store.js";
 import { useScope } from "./useScope.js";
@@ -73,6 +75,9 @@ export function FinancialSimulator() {
   const [compareId, setCompareId] = useState("");
   const [offered, setOffered] = useState(null);
   const [spendItemised, setSpendItemised] = useState(false);
+  const [focusId, setFocusId] = useState(null);
+  const [dataView, setDataView] = useState("networth");
+  const [dataGrain, setDataGrain] = useState("yearly");
   const [theme, setTheme] = useState(() => {
     const t = store.getNow("fin3:theme");
     return ["auto", "light", "dark"].includes(t) ? t : "auto";
@@ -768,6 +773,20 @@ export function FinancialSimulator() {
     store.set("fin3:seedNote", "0");
     showToast("Loaded the shared plan — ⌘Z puts yours back");
   };
+  const goToCheck = c => {
+    setModal(null);
+    setTab(c.tab);
+    setFocusId(c.targetId || null);
+    if (c.targetId) {
+      setTimeout(() => {
+        const el = document.querySelector(`[data-row="${c.targetId}"]`);
+        if (el && el.scrollIntoView) el.scrollIntoView({
+          block: "center",
+          behavior: "smooth"
+        });
+      }, 60);
+    }
+  };
   const THEMES = [{
     v: "auto",
     label: "Auto",
@@ -1102,9 +1121,11 @@ export function FinancialSimulator() {
     const avgSweep = sweepWks > 0 ? sweepSum / (sweepWks / 52.1775) / 12 : 0;
     const capped = accounts.filter(a => a.cap != null && a.cap !== "" && a.spillTo);
     const acctColors = {},
+      acctDashes = {},
       names = {};
     accounts.forEach((a, i) => {
       acctColors[a.id] = acctColor(i);
+      acctDashes[a.id] = dashFor(i);
       names[a.id] = a.name;
     });
     const debtColors = {};
@@ -1209,11 +1230,13 @@ export function FinancialSimulator() {
         count: rows.length
       };
     }).filter(c => c.monthly > 0).sort((a, b) => b.monthly - a.monthly);
-    let negAcct = null;
+    let negAcct = null,
+      negAcctId = null;
     for (let w = 0; w < Math.min(sim.series.length, 312) && !negAcct; w++) {
       const m = sim.series[w].acct;
       for (const a of accounts) if (m[a.id] < -1) {
         negAcct = a.name;
+        negAcctId = a.id;
         break;
       }
     }
@@ -1225,7 +1248,9 @@ export function FinancialSimulator() {
         id: inc.id,
         name: inc.name,
         date: addDays(start, ci.week * 7),
-        lostMatch: ci.lostMatch
+        lostMatch: ci.lostMatch,
+        hit: true,
+        forfeited: ci.lostMatch
       } : null;
     }).filter(Boolean);
     const mcView = showNom ? {
@@ -1251,6 +1276,30 @@ export function FinancialSimulator() {
       fire: prevSnap.fire || null,
       debtFree: prevSnap.debtFree || null
     } : null;
+    const checks = runChecks({
+      accounts,
+      debts,
+      income,
+      expenses,
+      transfers,
+      debtPayments,
+      settings
+    }, {
+      surplus,
+      leftover,
+      runway,
+      monthlyInterest,
+      monthlyDebtPay: mDp,
+      totalLoans,
+      negAcct,
+      negAcctId,
+      worstMonthOut,
+      nextCardPay,
+      loansNoPayment,
+      deferralNotes,
+      survivalProb: mc && mc.survivalProb != null ? mc.survivalProb : null,
+      bridge: sim.bridge
+    });
     const timeline = milestones(P, {
       start,
       debts,
@@ -1302,6 +1351,7 @@ export function FinancialSimulator() {
       interestSaved,
       wksSaved,
       acctColors,
+      acctDashes,
       debtColors,
       names,
       cf,
@@ -1333,7 +1383,10 @@ export function FinancialSimulator() {
       timeline,
       compare,
       actuals,
-      drift
+      drift,
+      negAcctId,
+      checks,
+      checkCount: countByLevel(checks)
     };
   }, [accounts, debts, income, expenses, transfers, debtPayments, settings, start, P, busy, compareScenario, snapshots]);
   const maxW = D ? D.maxW : 520;
@@ -1467,14 +1520,22 @@ export function FinancialSimulator() {
     className: "recalc"
   }, " \xB7 recalculating"))), React.createElement("div", {
     className: "toolbar"
-  }, React.createElement("button", {
+  }, D.checks.length > 0 && React.createElement("button", {
+    className: "tbtn checks" + (D.checkCount.error ? " bad" : ""),
+    onClick: () => setModal("checks"),
+    title: `${D.checks.length} thing${D.checks.length === 1 ? "" : "s"} worth looking at`
+  }, React.createElement(AlertTriangle, {
+    size: 13
+  }), D.checks.length), React.createElement("button", {
     className: "tbtn" + (showHelp ? " on" : ""),
     onClick: () => setShowHelp(v => !v),
     "aria-expanded": showHelp,
     "aria-controls": "help-panel"
   }, React.createElement(HelpCircle, {
     size: 13
-  }), "Help"), React.createElement("button", {
+  }), React.createElement("span", {
+    className: "tl"
+  }, "Help")), React.createElement("button", {
     className: "tbtn",
     onClick: undo,
     disabled: !canUndo,
@@ -1482,7 +1543,9 @@ export function FinancialSimulator() {
     "aria-label": "Undo"
   }, React.createElement(RotateCcw, {
     size: 13
-  }), "Undo"), React.createElement("button", {
+  }), React.createElement("span", {
+    className: "tl"
+  }, "Undo")), React.createElement("button", {
     className: "tbtn",
     onClick: redo,
     disabled: !canRedo,
@@ -1490,7 +1553,9 @@ export function FinancialSimulator() {
     "aria-label": "Redo"
   }, React.createElement(RotateCw, {
     size: 13
-  }), "Redo"), React.createElement("button", {
+  }), React.createElement("span", {
+    className: "tl"
+  }, "Redo")), React.createElement("button", {
     className: "tbtn" + (compareScenario ? " on" : ""),
     onClick: () => {
       setScenarioName("");
@@ -1499,7 +1564,9 @@ export function FinancialSimulator() {
     title: compareScenario ? `Comparing against "${compareScenario.name}"` : "Save and compare plans"
   }, React.createElement(LayoutGrid, {
     size: 13
-  }), "Scenarios", scenarios.length ? ` (${scenarios.length})` : ""), React.createElement("button", {
+  }), React.createElement("span", {
+    className: "tl"
+  }, "Scenarios", scenarios.length ? ` (${scenarios.length})` : "")), React.createElement("button", {
     className: "tbtn",
     onClick: () => {
       setImportText("");
@@ -1507,24 +1574,40 @@ export function FinancialSimulator() {
     }
   }, React.createElement(Upload, {
     size: 13
-  }), "Import"), React.createElement("button", {
+  }), React.createElement("span", {
+    className: "tl"
+  }, "Import")), React.createElement("button", {
     className: "tbtn",
     onClick: shareLink,
     title: "Copy a link with this whole plan in it"
   }, React.createElement(Link2, {
     size: 13
-  }), "Share"), React.createElement("button", {
+  }), React.createElement("span", {
+    className: "tl"
+  }, "Share")), React.createElement("button", {
     className: "tbtn",
     onClick: openExport
   }, React.createElement(Download, {
     size: 13
-  }), "Export"), React.createElement("button", {
+  }), React.createElement("span", {
+    className: "tl"
+  }, "Export")), React.createElement("button", {
+    className: "tbtn",
+    onClick: () => setModal("data"),
+    title: "Read the figures behind every chart as a table"
+  }, React.createElement(TableIcon, {
+    size: 13
+  }), React.createElement("span", {
+    className: "tl"
+  }, "Numbers")), React.createElement("button", {
     className: "tbtn",
     onClick: () => setModal("print"),
     title: "A summary sheet you can print or save as PDF"
   }, React.createElement(Printer, {
     size: 13
-  }), "Print"), React.createElement("button", {
+  }), React.createElement("span", {
+    className: "tl"
+  }, "Print")), React.createElement("button", {
     className: "tbtn icon-only",
     onClick: cycleTheme,
     title: themeOpt.title,
@@ -1536,7 +1619,9 @@ export function FinancialSimulator() {
     onClick: resetAll
   }, React.createElement(RotateCcw, {
     size: 13
-  }), "Reset"))), React.createElement("div", {
+  }), React.createElement("span", {
+    className: "tl"
+  }, "Reset")))), React.createElement("div", {
     className: "tabs rise"
   }, TABS.map(({
     id,
@@ -1782,7 +1867,47 @@ export function FinancialSimulator() {
   }), "Load data"), React.createElement("button", {
     className: "btn btn-ghost",
     onClick: () => setModal(null)
-  }, "Cancel"))), modal === "print" && React.createElement(Modal, {
+  }, "Cancel"))), modal === "data" && React.createElement(Modal, {
+    title: "The numbers behind the charts",
+    onClose: () => setModal(null),
+    wide: true
+  }, React.createElement("div", {
+    className: "mnote"
+  }, "Every figure the charts are drawn from, as a table \u2014 the same series, sampled at whichever spacing you pick. Nothing here is a separate calculation, so it can't disagree with what's plotted."), React.createElement(DataTable, {
+    D: D,
+    start: start,
+    view: dataView,
+    setView: setDataView,
+    grain: dataGrain,
+    setGrain: setDataGrain,
+    onCopy: async text => {
+      const ok = await copyText(text);
+      showToast(ok ? "Copied as CSV" : "Couldn't copy — select the table and copy manually", !ok);
+    }
+  })), modal === "checks" && React.createElement(Modal, {
+    title: D.checkCount.error ? `${D.checkCount.error} problem${D.checkCount.error === 1 ? "" : "s"}${D.checkCount.warn ? ` and ${D.checkCount.warn} thing${D.checkCount.warn === 1 ? "" : "s"} to consider` : ""}` : `${D.checks.length} thing${D.checks.length === 1 ? "" : "s"} to consider`,
+    onClose: () => setModal(null)
+  }, React.createElement("div", {
+    className: "mnote"
+  }, "Everything the app can tell is wrong with this plan, in one place \u2014 including whatever is on a tab you aren't looking at. Nothing here is a rule about how you should live; it's the projection saying it can't do what you've asked, or that a number contradicts another one."), React.createElement("div", {
+    className: "checklist"
+  }, D.checks.map(c => React.createElement("div", {
+    className: "checkrow " + c.level,
+    key: c.id
+  }, React.createElement("div", {
+    className: "ct"
+  }, React.createElement("span", {
+    className: "clevel"
+  }, c.level === "error" ? "Problem" : "Consider"), React.createElement("span", {
+    className: "ctitle"
+  }, c.title), React.createElement("button", {
+    className: "btn btn-ghost",
+    onClick: () => goToCheck(c)
+  }, "Take me there")), React.createElement("div", {
+    className: "cd"
+  }, c.detail), React.createElement("div", {
+    className: "cf"
+  }, c.fix))))), modal === "print" && React.createElement(Modal, {
     title: "Print summary",
     onClose: () => setModal(null),
     wide: true
@@ -1935,7 +2060,9 @@ export function FinancialSimulator() {
     openScenarios: () => {
       setScenarioName("");
       setModal("scenarios");
-    }
+    },
+    openChecks: () => setModal("checks"),
+    onCheck: goToCheck
   }), tab === "accounts" && React.createElement(AccountsTab, {
     D: D,
     accounts: accounts,
@@ -1944,7 +2071,8 @@ export function FinancialSimulator() {
     upAcct: upAcct,
     upAcctType: upAcctType,
     addAcct: addAcct,
-    rmAcct: rmAcct
+    rmAcct: rmAcct,
+    focusId: focusId
   }), tab === "cashflow" && React.createElement(CashFlowTab, {
     D: D,
     chart: chartProps,
@@ -1989,7 +2117,8 @@ export function FinancialSimulator() {
     addTr: addTr,
     openCsv: openCsv,
     itemised: spendItemised,
-    setItemised: setSpendItemised
+    setItemised: setSpendItemised,
+    focusId: focusId
   }), tab === "debt" && React.createElement(DebtTab, {
     D: D,
     chart: chartProps,
