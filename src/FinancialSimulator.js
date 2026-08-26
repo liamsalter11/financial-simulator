@@ -5,13 +5,15 @@ const {
   useRef,
   useDeferredValue
 } = React;
-import { HelpCircle, Upload, Download, RotateCcw, Zap, AlertTriangle, Check, X, LayoutGrid, Wallet, Receipt, TrendingDown, InvestIcon } from "./icons.js";
+import { HelpCircle, Upload, Download, RotateCcw, Zap, AlertTriangle, Check, X, LayoutGrid, Wallet, Receipt, TrendingDown, InvestIcon, Trash2 } from "./icons.js";
 import { Modal } from "./components.js";
 import { n0, num, uid, todayISO, nextFirstISO, firstOfYear, isoDate, addMonths, parseDate, addDays, fmtMoney, fmtBig, fmtC, weekTick, r2, parse, OPY, ACCT_TYPES, isInvest, isSav, isCash, BUCKET_COLOR, PAL, acctColor, debtColor, inflFactor } from "./format.js";
 import { firesInWeek } from "./recurrence.js";
 import { payrollOf, bonusOf, effectiveTaxRate, isDerived, takeHomeOf } from "./payroll.js";
 import { WEEKS } from "./engine.js";
-import { projectAll } from "./project.js";
+import { projectAll, payoffVsInvest } from "./project.js";
+import { goalSeek, tornado, KNOBS, TARGETS, knobOf, targetOf } from "./solve.js";
+import { milestones, milestoneDiff } from "./milestones.js";
 import { SEED_ACCOUNTS, SEED_DEBTS, normDebts, normIncome, normAccounts, isCard, pickIds, seedIncome, seedExpenses, seedTransfers, seedDebtPays, seedSettings } from "./seeds.js";
 import { store } from "./store.js";
 import { useScope } from "./useScope.js";
@@ -58,6 +60,9 @@ export function FinancialSimulator() {
       showToast("Your browser is blocking saved data — changes here won't be kept once you leave this page", true, 6000);
     });
   };
+  const [scenarios, setScenarios] = useState([]);
+  const [compareId, setCompareId] = useState("");
+  const [scenarioName, setScenarioName] = useState("");
   const [logLoan, setLogLoan] = useState("");
   const [logAmt, setLogAmt] = useState("");
   const [logDate, setLogDate] = useState(todayISO());
@@ -67,9 +72,12 @@ export function FinancialSimulator() {
   }, []);
   useEffect(() => {
     (async () => {
-      const K = ["fin3:accounts", "fin3:debts", "fin3:income", "fin3:expenses", "fin3:transfers", "fin3:debtPayments", "fin3:payments", "fin3:settings", "fin3:seedNote"];
+      const K = ["fin3:accounts", "fin3:debts", "fin3:income", "fin3:expenses", "fin3:transfers", "fin3:debtPayments", "fin3:payments", "fin3:settings", "fin3:seedNote", "fin3:scenarios", "fin3:compareWith"];
       const O = ["fin2:accounts", "fin2:debts", "fin2:income", "fin2:expenses", "fin2:contributions", "fin2:payments", "fin2:settings"];
-      const [a3, d3, i3, e3, t3, dp3, p3, s3, note, a2, d2, i2, e2, c2, p2, s2] = await Promise.all([...K, ...O].map(k => store.get(k)));
+      const [a3, d3, i3, e3, t3, dp3, p3, s3, note, scen, cmp, a2, d2, i2, e2, c2, p2, s2] = await Promise.all([...K, ...O].map(k => store.get(k)));
+      const savedScenarios = parse(scen, []);
+      setScenarios(Array.isArray(savedScenarios) ? savedScenarios : []);
+      if (cmp) setCompareId(cmp);
       const accts = a3 ? parse(a3, SEED_ACCOUNTS()) : a2 ? parse(a2, SEED_ACCOUNTS()) : SEED_ACCOUNTS();
       const dbts = d3 ? parse(d3, SEED_DEBTS()) : d2 ? parse(d2, SEED_DEBTS()) : SEED_DEBTS();
       const id = pickIds(accts, dbts);
@@ -136,6 +144,12 @@ export function FinancialSimulator() {
   useEffect(() => {
     if (ready) persist("fin3:settings", JSON.stringify(settings));
   }, [settings, ready]);
+  useEffect(() => {
+    if (ready) persist("fin3:scenarios", JSON.stringify(scenarios));
+  }, [scenarios, ready]);
+  useEffect(() => {
+    if (ready) persist("fin3:compareWith", compareId);
+  }, [compareId, ready]);
   const setS = (k, v) => setSettings(p => ({
     ...p,
     [k]: v
@@ -451,10 +465,7 @@ export function FinancialSimulator() {
     setSeedNote(true);
     store.set("fin3:seedNote", "1");
   };
-  const buildDump = () => JSON.stringify({
-    app: "fin-sim",
-    version: 6,
-    exportedAt: new Date().toISOString(),
+  const planNow = () => ({
     accounts,
     debts,
     income,
@@ -463,6 +474,60 @@ export function FinancialSimulator() {
     debtPayments,
     payments,
     settings
+  });
+  const applyPlan = p => {
+    if (!p) return;
+    if (Array.isArray(p.accounts)) setAccounts(normAccounts(p.accounts));
+    if (Array.isArray(p.debts)) setDebts(normDebts(p.debts));
+    const id = pickIds(p.accounts || accounts, p.debts || debts);
+    if (Array.isArray(p.income)) setIncome(normIncome(p.income, id.chk, id.ret));
+    if (Array.isArray(p.expenses)) setExpenses(p.expenses);
+    if (Array.isArray(p.transfers)) setTransfers(p.transfers);
+    if (Array.isArray(p.debtPayments)) setDebtPayments(p.debtPayments);
+    if (Array.isArray(p.payments)) setPayments(p.payments);
+    if (p.settings && typeof p.settings === "object") setSettings({
+      ...seedSettings(),
+      ...p.settings
+    });
+  };
+  const saveScenario = name => {
+    const trimmed = (name || "").trim();
+    if (!trimmed) return;
+    setScenarios(p => {
+      const existing = p.find(s => s.name.toLowerCase() === trimmed.toLowerCase());
+      const entry = {
+        id: existing ? existing.id : uid(),
+        name: trimmed,
+        savedAt: new Date().toISOString(),
+        plan: planNow()
+      };
+      return existing ? p.map(s => s.id === existing.id ? entry : s) : [...p, entry];
+    });
+    showToast(`Saved "${trimmed}"`);
+  };
+  const loadScenario = id => {
+    const s = scenarios.find(x => x.id === id);
+    if (!s) return;
+    if (!window.confirm(`Replace what's here with "${s.name}"? Save the current plan first if you want to keep it.`)) return;
+    applyPlan(s.plan);
+    setModal(null);
+    showToast(`Loaded "${s.name}"`);
+  };
+  const renameScenario = (id, name) => setScenarios(p => p.map(s => s.id === id ? {
+    ...s,
+    name
+  } : s));
+  const rmScenario = id => {
+    setScenarios(p => p.filter(s => s.id !== id));
+    setCompareId(c => c === id ? "" : c);
+  };
+  const compareScenario = scenarios.find(s => s.id === compareId) || null;
+  const buildDump = () => JSON.stringify({
+    app: "fin-sim",
+    version: 7,
+    exportedAt: new Date().toISOString(),
+    ...planNow(),
+    scenarios
   }, null, 2);
   const openExport = () => {
     setImportText(buildDump());
@@ -561,6 +626,7 @@ export function FinancialSimulator() {
       ...seedSettings(),
       ...data.settings
     });
+    if (Array.isArray(data.scenarios)) setScenarios(data.scenarios);
     setModal(null);
     setSeedNote(false);
     store.set("fin3:seedNote", "0");
@@ -577,7 +643,23 @@ export function FinancialSimulator() {
   const [busy, setBusy] = useState(true);
   const workerRef = useRef(null);
   const reqRef = useRef(0);
+  const askRef = useRef(0);
   const inputRef = useRef(null);
+  const [ask, setAsk] = useState({
+    knob: "extraDebt",
+    target: "debtFree",
+    value: "",
+    running: false,
+    solve: null,
+    tornado: null,
+    breakeven: null,
+    error: false
+  });
+  const setAskField = (k, v) => setAsk(a => ({
+    ...a,
+    [k]: v,
+    solve: k === "solve" ? v : a.solve
+  }));
   const fallback = () => {
     workerRef.current = null;
     if (inputRef.current) setP(projectAll(inputRef.current));
@@ -596,9 +678,28 @@ export function FinancialSimulator() {
     w.onmessage = e => {
       const {
         id,
+        kind = "project",
         stage,
         result
       } = e.data || {};
+      if (kind === "solve" || kind === "tornado" || kind === "breakeven") {
+        if (id !== askRef.current) return;
+        if (stage === "error") {
+          setAsk(a => ({
+            ...a,
+            running: false,
+            error: true
+          }));
+          return;
+        }
+        setAsk(a => ({
+          ...a,
+          running: false,
+          error: false,
+          [kind]: result
+        }));
+        return;
+      }
       if (id !== reqRef.current) return;
       if (stage === "error") {
         w.terminate();
@@ -609,7 +710,7 @@ export function FinancialSimulator() {
         ...(prev || {}),
         ...result
       }));
-      if (stage !== "primary") setBusy(false);
+      if (stage === "extras") setBusy(false);
     };
     w.onerror = () => {
       w.terminate();
@@ -630,8 +731,15 @@ export function FinancialSimulator() {
     debtPayments,
     settings,
     start,
-    weeks: WEEKS
-  }), [accounts, debts, income, expenses, transfers, debtPayments, settings, start]);
+    weeks: WEEKS,
+    compare: compareScenario ? {
+      ...compareScenario.plan,
+      settings: {
+        ...seedSettings(),
+        ...compareScenario.plan.settings
+      }
+    } : null
+  }), [accounts, debts, income, expenses, transfers, debtPayments, settings, start, compareScenario]);
   const deferredInput = useDeferredValue(projectionInput);
   useEffect(() => {
     if (!ready || !deferredInput.accounts) return;
@@ -642,13 +750,66 @@ export function FinancialSimulator() {
     if (w) {
       w.postMessage({
         id,
-        input: deferredInput
+        kind: "project",
+        payload: deferredInput
       });
       return;
     }
     setP(projectAll(deferredInput));
     setBusy(false);
   }, [deferredInput, ready]);
+  const runAsk = (kind, extra) => {
+    const id = ++askRef.current;
+    setAsk(a => ({
+      ...a,
+      running: true,
+      error: false,
+      [kind]: null
+    }));
+    const payload = {
+      input: {
+        ...deferredInput,
+        compare: null
+      },
+      ...extra
+    };
+    const w = workerRef.current;
+    if (w) {
+      w.postMessage({
+        id,
+        kind,
+        payload
+      });
+      return;
+    }
+    setTimeout(() => {
+      try {
+        const result = kind === "solve" ? goalSeek(payload) : kind === "breakeven" ? payoffVsInvest(payload.input, payload.amount) : tornado(payload);
+        if (id === askRef.current) setAsk(a => ({
+          ...a,
+          running: false,
+          [kind]: result
+        }));
+      } catch {
+        if (id === askRef.current) setAsk(a => ({
+          ...a,
+          running: false,
+          error: true
+        }));
+      }
+    }, 30);
+  };
+  const runSolve = () => {
+    if (ask.value) runAsk("solve", {
+      knob: ask.knob,
+      target: ask.target,
+      value: ask.value
+    });
+  };
+  const runTornado = () => runAsk("tornado", {});
+  const runBreakeven = amount => runAsk("breakeven", {
+    amount: n0(amount) || 200
+  });
   const D = useMemo(() => {
     if (!accounts || !P || !P.sim) return null;
     const per = (list, key) => list.reduce((s, x) => s + n0(x[key || "amount"]) * OPY[x.recur] / 12, 0);
@@ -780,7 +941,12 @@ export function FinancialSimulator() {
         dbt
       };
     };
-    const viewSeries = showNom ? sim.series.map(scaleSnap) : sim.series;
+    const cmpSeries = P.compare && P.compare.sim ? P.compare.sim.series : null;
+    const withCmp = s => cmpSeries && cmpSeries[s.w] ? {
+      ...s,
+      cmp: r2(cmpSeries[s.w].nw * nomAt(s.w))
+    } : s;
+    const viewSeries = (showNom ? sim.series.map(scaleSnap) : sim.series).map(withCmp);
     const cf = [];
     const cfMax = Math.min(sim.series.length - 1, 312);
     for (let w = 0; w <= cfMax; w++) {
@@ -867,6 +1033,27 @@ export function FinancialSimulator() {
       })
     } : mc;
     const fiSloped = showNom || sim.guaranteedAnnual > 0;
+    const timeline = milestones(P, {
+      start,
+      debts,
+      income,
+      settings
+    });
+    const cmpPlan = compareScenario ? compareScenario.plan : null;
+    const cmpTimeline = P.compare && cmpPlan ? milestones({
+      sim: P.compare.sim,
+      retireWeek: P.compare.retireWeek
+    }, {
+      start,
+      debts: cmpPlan.debts || [],
+      income: cmpPlan.income || [],
+      settings: cmpPlan.settings || {}
+    }) : null;
+    const compare = cmpTimeline ? {
+      name: compareScenario.name,
+      rows: milestoneDiff(timeline, cmpTimeline),
+      nwGap: sim.series[Math.min(maxW, sim.series.length - 1)].nw - P.compare.sim.series[Math.min(maxW, P.compare.sim.series.length - 1)].nw
+    } : null;
     return {
       totalAssets,
       totalDebt,
@@ -923,9 +1110,11 @@ export function FinancialSimulator() {
       bridge: sim.bridge,
       retireWeek,
       horizonWeeks,
-      busy
+      busy,
+      timeline,
+      compare
     };
-  }, [accounts, debts, income, expenses, transfers, debtPayments, settings, start, P, busy]);
+  }, [accounts, debts, income, expenses, transfers, debtPayments, settings, start, P, busy, compareScenario]);
   const maxW = D ? D.maxW : 520;
   const scNW = useScope(maxW, 260);
   const scBal = useScope(maxW, 260);
@@ -1046,6 +1235,15 @@ export function FinancialSimulator() {
   }, React.createElement(HelpCircle, {
     size: 13
   }), "Help"), React.createElement("button", {
+    className: "tbtn" + (compareScenario ? " on" : ""),
+    onClick: () => {
+      setScenarioName("");
+      setModal("scenarios");
+    },
+    title: compareScenario ? `Comparing against "${compareScenario.name}"` : "Save and compare plans"
+  }, React.createElement(LayoutGrid, {
+    size: 13
+  }), "Scenarios", scenarios.length ? ` (${scenarios.length})` : ""), React.createElement("button", {
     className: "tbtn",
     onClick: () => {
       setImportText("");
@@ -1142,7 +1340,89 @@ export function FinancialSimulator() {
   }), "Download .json"), React.createElement("button", {
     className: "btn btn-ghost",
     onClick: doCopy
-  }, "Copy to clipboard"))), modal === "import" && React.createElement(Modal, {
+  }, "Copy to clipboard"))), modal === "scenarios" && React.createElement(Modal, {
+    title: "Scenarios",
+    onClose: () => setModal(null)
+  }, React.createElement("div", {
+    className: "mnote"
+  }, "Save the whole plan under a name, then pick one to compare against \u2014 its net worth appears as a second line on the Overview, with a table of how far apart the two put each milestone. Saving doesn't change anything you're working on."), React.createElement("div", {
+    className: "modal-row"
+  }, React.createElement("input", {
+    type: "text",
+    value: scenarioName,
+    onChange: e => setScenarioName(e.target.value),
+    placeholder: "Name this plan, e.g. \u201Ccurrent\u201D",
+    "aria-label": "Scenario name",
+    style: {
+      flex: 1,
+      minWidth: 160
+    },
+    onKeyDown: e => {
+      if (e.key === "Enter") {
+        saveScenario(scenarioName);
+        setScenarioName("");
+      }
+    }
+  }), React.createElement("button", {
+    className: "btn btn-amber",
+    onClick: () => {
+      saveScenario(scenarioName);
+      setScenarioName("");
+    }
+  }, React.createElement(Check, {
+    size: 15
+  }), "Save current plan")), scenarios.length === 0 ? React.createElement("div", {
+    className: "empty",
+    style: {
+      marginTop: 14
+    }
+  }, "No saved scenarios yet.", React.createElement("br", null), "Save this plan, change something, and save it again under another name.") : React.createElement("div", {
+    style: {
+      marginTop: 14,
+      display: "flex",
+      flexDirection: "column",
+      gap: 8
+    }
+  }, scenarios.map(s => React.createElement("div", {
+    key: s.id,
+    className: "card",
+    style: {
+      background: "var(--bg)"
+    }
+  }, React.createElement("div", {
+    className: "card-r2"
+  }, React.createElement("input", {
+    type: "text",
+    value: s.name,
+    onChange: e => renameScenario(s.id, e.target.value),
+    "aria-label": "Scenario name",
+    style: {
+      flex: 1,
+      minWidth: 110
+    }
+  }), React.createElement("span", {
+    className: "cap"
+  }, String(s.savedAt || "").slice(0, 10)), React.createElement("button", {
+    className: "icon-btn",
+    onClick: () => rmScenario(s.id),
+    "aria-label": `Delete ${s.name}`
+  }, React.createElement(Trash2, {
+    size: 15
+  }))), React.createElement("div", {
+    className: "card-r2",
+    style: {
+      marginTop: 8
+    }
+  }, React.createElement("button", {
+    className: "btn btn-ghost",
+    onClick: () => loadScenario(s.id)
+  }, "Load into the editor"), React.createElement("label", {
+    className: "chk"
+  }, React.createElement("input", {
+    type: "checkbox",
+    checked: compareId === s.id,
+    onChange: e => setCompareId(e.target.checked ? s.id : "")
+  }), "compare against this")))))), modal === "import" && React.createElement(Modal, {
     title: "Load saved data",
     onClose: () => setModal(null)
   }, React.createElement("div", {
@@ -1185,7 +1465,17 @@ export function FinancialSimulator() {
     scBal: scBal,
     fireN: fireN,
     settings: settings,
-    setS: setS
+    setS: setS,
+    ask: ask,
+    setAsk: setAsk,
+    runSolve: runSolve,
+    runTornado: runTornado,
+    knobs: KNOBS,
+    targets: TARGETS,
+    openScenarios: () => {
+      setScenarioName("");
+      setModal("scenarios");
+    }
   }), tab === "accounts" && React.createElement(AccountsTab, {
     D: D,
     accounts: accounts,
@@ -1243,6 +1533,8 @@ export function FinancialSimulator() {
     scDebt: scDebt,
     settings: settings,
     setS: setS,
+    ask: ask,
+    runBreakeven: runBreakeven,
     debts: debts,
     debtPayments: debtPayments,
     payments: payments,

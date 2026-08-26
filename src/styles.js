@@ -38,6 +38,25 @@ export const CSS = `
 .fin .psub{font-family:var(--mono);font-size:11px;color:var(--faint);}
 .fin .sgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}
 @media(min-width:680px){.fin .sgrid{grid-template-columns:repeat(4,1fr);}}
+.fin .askrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.fin .timeline{display:flex;flex-direction:column;}
+.fin .tl-row{display:flex;align-items:flex-start;gap:10px;padding:7px 0;font-size:12.5px;}
+.fin .tl-date{color:var(--faint);font-size:11px;width:74px;flex:none;padding-top:1px;}
+.fin .tl-dot{width:7px;height:7px;border-radius:50%;background:var(--line2);flex:none;margin-top:5px;position:relative;}
+.fin .tl-dot::after{content:"";position:absolute;left:3px;top:12px;width:1px;height:22px;background:var(--line);}
+.fin .tl-row:last-child .tl-dot::after{display:none;}
+.fin .tl-body{color:var(--text);line-height:1.5;}
+.fin .tl-detail{color:var(--faint);}
+.fin .tl-debtFree .tl-dot,.fin .tl-fi .tl-dot{background:var(--amber);}
+.fin .tl-networth .tl-dot{background:var(--green);}
+.fin .tl-cap .tl-dot{background:var(--red);}
+.fin .tornado{display:flex;flex-direction:column;gap:6px;margin:10px 0;}
+.fin .tor-row{display:flex;align-items:center;gap:10px;font-size:12px;}
+.fin .tor-label{flex:1;min-width:130px;color:var(--muted);}
+.fin .tor-track{flex:2;min-width:120px;height:12px;background:var(--bg);border-radius:3px;position:relative;display:flex;}
+.fin .tor-track::before{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--line2);}
+.fin .tor-bar{height:100%;border-radius:2px;}
+.fin .tor-val{width:58px;text-align:right;color:var(--faint);font-size:11px;flex:none;}
 .fin .recalc{color:var(--faint);opacity:.85;animation:pulse 1.1s ease-in-out infinite;}
 @keyframes pulse{0%,100%{opacity:.35;}50%{opacity:.9;}}
 @media(prefers-reduced-motion:reduce){.fin .recalc{animation:none;}}

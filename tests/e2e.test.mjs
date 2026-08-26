@@ -562,3 +562,99 @@ test("the Monte Carlo answers whether the money lasts, and reacts to the retirem
   assert.deepEqual(consoleErrors, []);
   await page.close();
 });
+
+test("goal seek answers a question, and says so when it can't", async () => {
+  const { page, consoleErrors } = await newPage();
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+  await page.locator(".nwbig").waitFor();
+
+  const panel = page.locator(".panel", { hasText: "What would it take" });
+  const answer = () => panel.locator(".caphint").first().textContent();
+  const solve = async () => {
+    await panel.locator(".btn", { hasText: /Solve|Solving/ }).click();
+    await panel.locator(".btn", { hasText: "Solve" }).waitFor({ timeout: 60000 });
+    await page.waitForTimeout(200);
+  };
+
+  await panel.locator('input[aria-label="Target date"]').fill("2029-06-01");
+  await solve();
+  assert.match(await answer(), /You'd need \$[\d,]+\/mo/, "a reachable target gets a monthly figure");
+
+  // a date that has already passed can't be met by any amount
+  await panel.locator('input[aria-label="Target date"]').fill("2026-01-01");
+  await solve();
+  assert.match(await answer(), /No amount inside|already/, "an impossible one is said out loud, not fudged");
+
+  assert.deepEqual(consoleErrors, []);
+  await page.close();
+});
+
+test("the sensitivity sweep ranks factors and shows their direction", async () => {
+  const { page, consoleErrors } = await newPage();
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+  await page.locator(".nwbig").waitFor();
+
+  const panel = page.locator(".panel", { hasText: "What would it take" });
+  await panel.locator(".btn", { hasText: "Run sensitivity" }).click();
+  await page.locator(".tor-row").first().waitFor({ timeout: 60000 });
+
+  const labels = await page.locator(".tor-label").allTextContents();
+  assert.ok(labels.length >= 6, "every factor should get a row");
+  const values = await page.locator(".tor-val").allTextContents();
+  const months = values.map((v) => Math.abs(parseInt(v, 10)));
+  for (let i = 1; i < months.length; i++) {
+    assert.ok(months[i - 1] >= months[i], "rows are sorted by how much they move the date");
+  }
+  assert.ok(labels.some((l) => /Inflation/.test(l)) && values.some((v) => v.startsWith("+")), "some factors push the date out");
+  assert.ok(values.some((v) => v.startsWith("-")), "and some pull it in");
+
+  assert.deepEqual(consoleErrors, []);
+  await page.close();
+});
+
+test("a scenario can be saved, compared against, and survives a reload", async () => {
+  const { page, consoleErrors } = await newPage();
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+  await page.locator(".nwbig").waitFor();
+
+  await page.locator(".tbtn", { hasText: "Scenarios" }).click();
+  await page.locator('input[aria-label="Scenario name"]').fill("baseline");
+  await page.locator(".btn", { hasText: "Save current plan" }).click();
+  await page.locator(".modal-head .icon-btn").click();
+
+  // make the live plan clearly worse, then compare it against what was saved
+  await page.locator(".tabbtn", { hasText: "Cash flow" }).click();
+  await page.locator(".panel", { hasText: "Income" }).locator(".card-r1 input[aria-label='Amount']").first().fill("2200");
+  await page.waitForTimeout(900);
+  await page.locator(".tbtn", { hasText: "Scenarios" }).click();
+  await page.locator("label.chk", { hasText: "compare against this" }).locator("input").check();
+  await page.locator(".modal-head .icon-btn").click();
+  await page.locator(".tabbtn", { hasText: "Overview" }).click();
+
+  const cmp = page.locator(".panel", { hasText: "Compared with" });
+  await cmp.waitFor({ timeout: 30000 });
+  assert.match(await cmp.locator(".caphint").first().textContent(), /behind it/, "a worse plan should read as behind the saved one");
+  assert.ok(await cmp.locator(".tl-row").count() > 0, "and the milestone diff should list rows");
+
+  await page.reload({ waitUntil: "networkidle" });
+  await page.locator(".nwbig").waitFor();
+  assert.match(await page.locator(".tbtn", { hasText: "Scenarios" }).textContent(), /\(1\)/, "the saved scenario survives");
+  await page.locator(".panel", { hasText: "Compared with" }).waitFor({ timeout: 30000 });
+
+  assert.deepEqual(consoleErrors, []);
+  await page.close();
+});
+
+test("the milestone timeline agrees with the stat cards", async () => {
+  const { page, consoleErrors } = await newPage();
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+  await page.locator(".nwbig").waitFor();
+  await page.locator(".timeline").first().waitFor();
+
+  const debtFreeStat = await page.locator(".stat", { hasText: "Debt-free" }).locator(".v").textContent();
+  const row = page.locator(".tl-row", { hasText: "Debt-free" }).first();
+  assert.match(await row.textContent(), new RegExp(debtFreeStat.trim()), "the timeline and the stat card must not disagree");
+
+  assert.deepEqual(consoleErrors, []);
+  await page.close();
+});
