@@ -82,3 +82,92 @@ test("a trivially reachable target (already met at week 0) yields 100% success",
   assert.equal(r.successProb, 1);
   assert.equal(r.medianSuccessWeek, 0);
 });
+
+/* ================================================================== */
+/*  Decumulation: does the money last?                                 */
+/* ================================================================== */
+
+/* a flat series — no contributions, a fixed starting balance — so the only thing moving
+   the number is the withdrawal logic under test */
+const flat = (weeks, invest) => Array.from({ length: weeks + 1 }, (_, w) => ({ w, invest, basis: invest }));
+
+test("with zero volatility and no growth, a withdrawal run is exact arithmetic", () => {
+  // $120,000 paying out $12,000/yr with no returns lasts exactly ten years and no longer.
+  const r = runMonteCarlo({
+    series: flat(1040, 120000), weeks: 1040, annualReturn: 0, annualVolatility: 0,
+    fireNumber: 0, retireWeek: 0, annualSpend: 12000, horizonWeeks: 1040, trials: 20,
+  });
+  assert.equal(r.survivalProb, 0, "ten years of spending can't cover twenty");
+  const yearsLasted = r.medianDepletionWeek / 52.1775;
+  assert.ok(Math.abs(yearsLasted - 10) < 0.3, `expected the money to run out at ~10 years, got ${yearsLasted.toFixed(2)}`);
+});
+
+test("a portfolio that outearns its withdrawals never runs out", () => {
+  const r = runMonteCarlo({
+    series: flat(1040, 500000), weeks: 1040, annualReturn: 0.05, annualVolatility: 0,
+    fireNumber: 0, retireWeek: 0, annualSpend: 10000, horizonWeeks: 1040, trials: 20,
+  });
+  assert.equal(r.survivalProb, 1);
+  assert.equal(r.medianDepletionWeek, null, "nothing depleted, so there's no depletion date to report");
+});
+
+test("survival falls as spending rises", () => {
+  const run = (annualSpend) => runMonteCarlo({
+    series: flat(1560, 400000), weeks: 1560, annualReturn: 0.05, annualVolatility: 0.15,
+    fireNumber: 0, retireWeek: 0, annualSpend, horizonWeeks: 1560, trials: 200,
+  }).survivalProb;
+  const low = run(12000), mid = run(20000), high = run(32000);
+  assert.ok(low >= mid && mid >= high, `survival should decrease with spending: ${low}, ${mid}, ${high}`);
+  assert.ok(low > high, "and the ends should differ, not just tie");
+});
+
+test("volatility alone can sink a plan the average return would sustain", () => {
+  // This is sequence-of-returns risk, and the whole reason the panel exists: same expected
+  // return, same withdrawal, different odds — because *when* the bad years land matters.
+  const run = (annualVolatility) => runMonteCarlo({
+    series: flat(1560, 400000), weeks: 1560, annualReturn: 0.05, annualVolatility,
+    fireNumber: 0, retireWeek: 0, annualSpend: 20000, horizonWeeks: 1560, trials: 300,
+  }).survivalProb;
+  assert.equal(run(0), 1, "with no volatility this plan is comfortably sustainable");
+  assert.ok(run(0.25) < 0.95, "with volatility, some paths still fail");
+  assert.ok(run(0.25) < run(0.1), "and more of them fail the rougher the ride");
+});
+
+test("contributions stop at retirement", () => {
+  // A series whose basis keeps climbing: before the retirement week the Monte Carlo should
+  // follow those deposits, after it should ignore them entirely.
+  const series = Array.from({ length: 1041 }, (_, w) => ({ w, invest: 10000 + w * 100, basis: 10000 + w * 100 }));
+  const early = runMonteCarlo({
+    series, weeks: 1040, annualReturn: 0, annualVolatility: 0, fireNumber: 0,
+    retireWeek: 520, annualSpend: 1200, horizonWeeks: 1040, trials: 5,
+  });
+  const never = runMonteCarlo({
+    series, weeks: 1040, annualReturn: 0, annualVolatility: 0, fireNumber: 0, trials: 5,
+  });
+  const end = (r) => r.bands[r.bands.length - 1].p50;
+  assert.ok(end(early) < end(never), "deposits after the retirement week must not be counted");
+  /* deposits run for the first half only (10,000 + 520 weeks × 100), then ten years of
+     $1,200 a year comes back out of it */
+  const expected = 10000 + 520 * 100 - 12000;
+  assert.ok(Math.abs(end(early) - expected) < 2000, `expected ~${expected}, got ${end(early).toFixed(0)}`);
+});
+
+test("without a retirement in the horizon, nothing is withdrawn and survival is total", () => {
+  const r = runMonteCarlo({
+    series: flat(520, 100000), weeks: 520, annualReturn: 0.05, annualVolatility: 0.15,
+    fireNumber: 200000, retireWeek: 900, annualSpend: 40000, horizonWeeks: 520, trials: 50,
+  });
+  assert.equal(r.retires, false, "a retirement beyond the horizon isn't a retirement this run can test");
+  assert.equal(r.survivalProb, 1);
+  assert.equal(r.monthlySpend, 0);
+  assert.ok(r.successProb >= 0 && r.successProb <= 1, "and the older reach-the-target question still answers");
+});
+
+test("a retirement with nothing to spend is not a retirement", () => {
+  const r = runMonteCarlo({
+    series: flat(520, 100000), weeks: 520, annualReturn: 0.05, annualVolatility: 0.1,
+    fireNumber: 0, retireWeek: 0, annualSpend: 0, horizonWeeks: 520, trials: 10,
+  });
+  assert.equal(r.retires, false, "zero spending means there's nothing to outlive");
+  assert.equal(r.survivalProb, 1);
+});

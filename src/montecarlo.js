@@ -49,23 +49,36 @@ function percentile(sorted, p) {
  * @param {number} weeks - how many weeks of `series` to project (the Monte Carlo horizon)
  * @param {number} annualReturn - expected annual return, decimal (0.07 = 7%)
  * @param {number} annualVolatility - annual return volatility, decimal (0.15 = 15%)
- * @param {number} fireNumber - the independence target, for the success-probability stat
+ * @param {number} fireNumber - the independence target, for the reach-probability stat
+ * @param {number} [retireWeek] - the week contributions stop and withdrawals begin; null
+ *   (or beyond the horizon) runs the old accumulation-only projection
+ * @param {number} [annualSpend] - what the portfolio must pay out each year once retired,
+ *   in today's dollars. Constant in real terms — the assumption behind the 4% rule — and
+ *   no inflation term is needed because the whole engine already works in real terms.
+ * @param {number} [horizonWeeks] - how long the money has to last, from today
  * @param {number} trials - number of simulated paths
  * @param {number} seed - PRNG seed; fixed by default so results are reproducible
  */
 export function runMonteCarlo({
   series, weeks, annualReturn, annualVolatility, fireNumber,
+  retireWeek = null, annualSpend = 0, horizonWeeks = 0,
   trials = MC_TRIALS, seed = 42,
 }) {
-  const horizon = Math.max(0, Math.min(weeks, series.length - 1));
+  const horizon = Math.max(0, Math.min(Math.max(weeks, horizonWeeks), series.length - 1));
   const startValue = n0(series[0] && series[0].invest);
   const totalMonths = Math.max(0, Math.round(horizon / WEEKS_PER_MONTH));
+  /* a retirement only counts if it happens inside the horizon and costs something */
+  const retires = retireWeek != null && n0(annualSpend) > 0 && retireWeek <= horizon;
+  const monthlySpend = retires ? n0(annualSpend) / 12 : 0;
 
   // one week-index + deposit per month boundary, aggregated from the weekly series
   const monthWeek = new Array(totalMonths + 1);
   const monthDeposit = new Array(totalMonths + 1).fill(0);
   for (let m = 0; m <= totalMonths; m++) monthWeek[m] = Math.min(horizon, Math.round(m * WEEKS_PER_MONTH));
   for (let m = 1; m <= totalMonths; m++) {
+    /* contributions stop at retirement: the deterministic engine keeps earning and saving
+       forever, because it has no concept of stopping work — so the Monte Carlo imposes it */
+    if (retires && monthWeek[m] > retireWeek) continue;
     monthDeposit[m] = n0(series[monthWeek[m]].basis) - n0(series[monthWeek[m - 1]].basis);
   }
 
@@ -77,23 +90,30 @@ export function runMonteCarlo({
   // one row of trial values per month, filled in as trials run
   const rows = new Array(totalMonths + 1);
   for (let m = 0; m <= totalMonths; m++) rows[m] = new Array(trials);
-  let successes = 0;
+  let successes = 0, survivors = 0;
   const successWeeks = [];
+  const depletionWeeks = [];
 
   const rng = mulberry32(seed);
   for (let t = 0; t < trials; t++) {
     let value = startValue;
-    let successWeek = null;
+    let successWeek = null, depletedWeek = null;
     rows[0][t] = value;
     if (fireNumber > 0 && value >= fireNumber) successWeek = monthWeek[0];
     for (let m = 1; m <= totalMonths; m++) {
       const z = sampleNormal(rng);
       const monthlyReturn = Math.exp(drift + volStep * z) - 1;
-      value = Math.max(0, value * (1 + monthlyReturn) + monthDeposit[m]);
+      /* withdraw after the return, which is the conventional end-of-period convention and
+         the slightly pessimistic one — a bad month hits the whole balance, not what's left */
+      const draw = retires && monthWeek[m] > retireWeek ? monthlySpend : 0;
+      value = Math.max(0, value * (1 + monthlyReturn) + monthDeposit[m] - draw);
       rows[m][t] = value;
       if (successWeek === null && fireNumber > 0 && value >= fireNumber) successWeek = monthWeek[m];
+      /* out of money, and it stays out — nothing refills a portfolio after retirement */
+      if (depletedWeek === null && retires && value <= 0 && monthWeek[m] > retireWeek) depletedWeek = monthWeek[m];
     }
     if (successWeek != null) { successes++; successWeeks.push(successWeek); }
+    if (depletedWeek != null) depletionWeeks.push(depletedWeek); else survivors++;
   }
 
   const bands = monthWeek.map((w, m) => {
@@ -112,11 +132,24 @@ export function runMonteCarlo({
   const medianSuccessWeek = successWeeks.length
     ? successWeeks[Math.floor((successWeeks.length - 1) / 2)]
     : null;
+  depletionWeeks.sort((a, b) => a - b);
+  const medianDepletionWeek = depletionWeeks.length
+    ? depletionWeeks[Math.floor((depletionWeeks.length - 1) / 2)]
+    : null;
 
   return {
     bands,
     trials,
+    horizon,
+    /* two different questions, deliberately kept apart: `successProb` is whether the
+       portfolio ever *reaches* the target, `survivalProb` is whether it then *lasts*.
+       Without a retirement in the horizon there's nothing to outlive, so survival is 1. */
     successProb: trials > 0 ? successes / trials : 0,
+    survivalProb: trials > 0 ? survivors / trials : 0,
+    retires,
+    retireWeek: retires ? retireWeek : null,
+    monthlySpend,
     medianSuccessWeek,
+    medianDepletionWeek,
   };
 }

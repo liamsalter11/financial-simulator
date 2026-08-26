@@ -124,4 +124,5 @@ export const seedSettings = () => ({
   withdrawalRate: 4, redirect: true, mcVolatility: 15, hypotheticals: true,
   inflation: 2.5, showNominal: false, payoffOrder: "avalanche", deferralLimit: 24500,
   filing: "single", stateRate: 0, taxDrag: 0.4, retireTaxRate: 15, birthYear: "",
+  mcRetireDate: "", mcEndAge: 95, mcYears: 30,
 });

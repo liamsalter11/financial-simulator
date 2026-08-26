@@ -197,8 +197,10 @@ test("the Monte Carlo panel renders, its volatility input works, persists, and i
   await page.waitForTimeout(300);
 
   assert.match(await page.locator(".ptitle", { hasText: "Monte Carlo" }).textContent(), /Monte Carlo/);
-  const chanceStat = page.locator(".stat", { hasText: "hit your FI number" }).locator(".v");
-  assert.match(await chanceStat.textContent(), /^\d+%$/, "the success-probability stat should render as a percentage");
+  /* The leading stat is survival once a retirement falls inside the horizon, and the older
+     "does it ever reach the target" question when one doesn't — either way a percentage. */
+  const chanceStat = page.locator(".panel", { hasText: "Monte Carlo" }).locator(".stat").first().locator(".v");
+  assert.match(await chanceStat.textContent(), /^\d+%$/, "the headline probability should render as a percentage");
 
   const volInput = page.locator(".panel", { hasText: "Monte Carlo" }).locator("input[type=number]").first();
   assert.equal(await volInput.inputValue(), "15", "volatility defaults to 15%");
@@ -498,6 +500,64 @@ test("guaranteed retirement income lowers the target and slopes it toward its st
   assert.notEqual(await fiDate(), before, "covering part of retirement spending should pull the date in");
   assert.equal(await page.locator(".stat").nth(1).locator(".v").textContent(), surplusBefore,
     "but income that starts decades out must not appear in this month's surplus");
+
+  assert.deepEqual(consoleErrors, []);
+  await page.close();
+});
+
+test("the projection runs in a Web Worker, and the page still works without one", async () => {
+  // The worker is what keeps typing responsive; the fallback is what keeps the page
+  // working where a worker can't start. Both must produce the same projection.
+  const { page, consoleErrors } = await newPage();
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+  await page.locator(".nwbig").waitFor();
+  assert.equal(page.workers().length, 1, "the projection should be off the main thread");
+  const withWorker = await page.locator(".stat").last().locator(".v").textContent();
+  assert.deepEqual(consoleErrors, []);
+  await page.close();
+
+  const plain = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const fallbackErrors = [];
+  plain.on("pageerror", (err) => fallbackErrors.push(err.message));
+  await plain.addInitScript(() => { delete window.Worker; });
+  await plain.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+  await plain.locator(".nwbig").waitFor();
+  assert.equal(plain.workers().length, 0, "this page has no worker to fall back from");
+  assert.equal(
+    await plain.locator(".stat").last().locator(".v").textContent(), withWorker,
+    "the fallback must compute the same projection, just on the main thread",
+  );
+  assert.deepEqual(fallbackErrors, [], "and it must not throw on the way");
+  await plain.close();
+});
+
+test("the Monte Carlo answers whether the money lasts, and reacts to the retirement date", async () => {
+  const { page, consoleErrors } = await newPage();
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+  await page.locator(".tabbtn", { hasText: "Invest" }).click();
+
+  const panel = page.locator(".panel", { hasText: "does the money last" });
+  const survival = () => panel.locator(".stat").first().locator(".v").textContent();
+  const pct = async () => Number((await survival()).replace("%", ""));
+
+  await panel.waitFor();
+  assert.match(await panel.locator(".stat").first().textContent(), /money lasts/);
+  const base = await pct();
+  assert.ok(base >= 0 && base <= 100);
+
+  // retiring years early, with the same plan, should be visibly harder to survive
+  await page.locator('input[aria-label="Retirement date"]').fill("2030-01-01");
+  await page.waitForTimeout(700);
+  assert.ok(await pct() < base, "retiring early should cut the odds the money lasts");
+
+  // and volatility alone should move it — that's the sequence-of-returns point
+  await page.locator('input[aria-label="Retirement date"]').fill("");
+  await page.locator('input[aria-label="Return volatility (annual)"]').fill("30");
+  await page.waitForTimeout(700);
+  const rough = await pct();
+  await page.locator('input[aria-label="Return volatility (annual)"]').fill("5");
+  await page.waitForTimeout(700);
+  assert.ok(await pct() > rough, "a calmer market should survive more often at the same average return");
 
   assert.deepEqual(consoleErrors, []);
   await page.close();
