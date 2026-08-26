@@ -1,6 +1,6 @@
 // Default/example data shown on first load, and normalization helpers that backfill
 // missing fields when loading older saved data or an imported JSON file.
-import { n0, uid, todayISO, nextFirstISO, isSav, isInvest } from "./format.js";
+import { n0, uid, todayISO, nextFirstISO, isSav, isInvest, isCategory, matchCategory } from "./format.js";
 import { perCheck, payrollOf } from "./payroll.js";
 import { minPaymentOf } from "./loan.js";
 
@@ -71,6 +71,16 @@ export const normIncome = (list, fbAcct, retAcct) => (list || []).map((x) => ({
     preTaxApplies: x.bonus.preTaxApplies !== false,
   } : null,
 }));
+/* `category` used to be whatever you typed, which meant nothing could be rolled up. It's a
+   fixed list now — but the text people typed was the row's *name*, not a category, so it
+   moves to `label` and the fixed category is matched from that same text: a "Rent" expense
+   becomes label "Rent" in Housing. Dropping it would leave two expenses in one category
+   indistinguishable in the list. */
+export const normExpenses = (list) => (list || []).map((x) => {
+  const label = String(x.label == null ? "" : x.label).trim() || String(x.category == null ? "" : x.category).trim() || "Expense";
+  return { ...x, label, category: isCategory(x.category) ? x.category : matchCategory(label) };
+});
+
 export const isCard = (x) => !!x && x.kind === "card";
 export function pickIds(accts, dbts, payoffOrder) {
   const chk = accts.find((a) => a.type === "checking") || accts[0] || {};
@@ -90,13 +100,13 @@ export const seedIncome = (id) => [{
   match: { rate: 100, limit: 3, toAcct: id.ret },
 }];
 export const seedExpenses = (id) => [
-  { id: uid(), category: "Rent", amount: 1500, date: nextFirstISO(), recur: "monthly", fromAcct: id.chk },
-  { id: uid(), category: "Groceries", amount: 110, date: todayISO(), recur: "weekly", fromAcct: id.chk },
-  { id: uid(), category: "Dining out", amount: 60, date: todayISO(), recur: "weekly", fromAcct: id.chk },
-  { id: uid(), category: "Utilities", amount: 140, date: nextFirstISO(), recur: "monthly", fromAcct: id.chk },
-  { id: uid(), category: "Phone + internet", amount: 90, date: nextFirstISO(), recur: "monthly", fromAcct: id.chk },
-  { id: uid(), category: "Car insurance", amount: 180, date: nextFirstISO(), recur: "quarterly", fromAcct: id.chk },
-  { id: uid(), category: "Everything else", amount: 300, date: nextFirstISO(), recur: "monthly", fromAcct: id.chk },
+  { id: uid(), label: "Rent", category: "housing", amount: 1500, date: nextFirstISO(), recur: "monthly", fromAcct: id.chk },
+  { id: uid(), label: "Groceries", category: "food", amount: 110, date: todayISO(), recur: "weekly", fromAcct: id.chk },
+  { id: uid(), label: "Dining out", category: "food", amount: 60, date: todayISO(), recur: "weekly", fromAcct: id.chk },
+  { id: uid(), label: "Utilities", category: "housing", amount: 140, date: nextFirstISO(), recur: "monthly", fromAcct: id.chk },
+  { id: uid(), label: "Phone + internet", category: "housing", amount: 90, date: nextFirstISO(), recur: "monthly", fromAcct: id.chk },
+  { id: uid(), label: "Car insurance", category: "insurance", amount: 180, date: nextFirstISO(), recur: "quarterly", fromAcct: id.chk },
+  { id: uid(), label: "Everything else", category: "other", amount: 300, date: nextFirstISO(), recur: "monthly", fromAcct: id.chk },
 ];
 export const seedTransfers = (id) => [{ id: uid(), name: "Auto-invest", amount: 800, date: nextFirstISO(), recur: "monthly", fromAcct: id.chk, toAcct: id.brk }];
 export const seedDebtPays = (id, dbts) => {

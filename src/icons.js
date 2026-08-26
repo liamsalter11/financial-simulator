@@ -122,6 +122,13 @@ export const X = p => React.createElement(IconBase, p, React.createElement("path
 }), React.createElement("path", {
   d: "m6 6 12 12"
 }));
+export const Link2 = p => React.createElement(IconBase, p, React.createElement("path", {
+  d: "M9 17H7A5 5 0 0 1 7 7h2"
+}), React.createElement("path", {
+  d: "M15 7h2a5 5 0 1 1 0 10h-2"
+}), React.createElement("path", {
+  d: "M8 12h8"
+}));
 export const ArrowRight = p => React.createElement(IconBase, p, React.createElement("path", {
   d: "M5 12h14"
 }), React.createElement("path", {

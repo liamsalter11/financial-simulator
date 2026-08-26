@@ -727,3 +727,105 @@ test("the app keeps a daily copy of the plan, and can restore it", async () => {
   assert.deepEqual(consoleErrors, []);
   await page.close();
 });
+
+test("a shared link offers its plan and never overwrites what's already saved", async () => {
+  const { page, consoleErrors } = await newPage();
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+  await page.locator(".nwbig").waitFor();
+
+  /* build a link from a plan that isn't the one this profile has */
+  const link = await page.evaluate(async (base) => {
+    const { encodePlan, shareUrl } = await import("./src/share.js");
+    const plan = {
+      accounts: [{ id: "shared", name: "Shared checking", type: "checking", balance: 777777, rate: 0 }],
+      debts: [], income: [], expenses: [], transfers: [], debtPayments: [], payments: [], settings: {},
+    };
+    return shareUrl(base, await encodePlan(plan));
+  }, `${baseUrl}/financial-simulator/`);
+
+  /* mark this profile's own data so we can tell whether it survived */
+  await page.locator(".tabbtn", { hasText: "Accounts" }).click();
+  await page.getByLabel("Balance").first().fill("4242");
+  await page.waitForTimeout(700);
+
+  await page.goto(link, { waitUntil: "networkidle" });
+  const offer = page.locator('[data-testid="share-offer"]');
+  await offer.waitFor();
+  assert.match(await offer.textContent(), /still here and untouched/);
+  assert.equal(await page.evaluate(() => window.location.hash), "", "the fragment is cleared once it's been read");
+
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("fin3:accounts") || "[]"));
+  assert.ok(!stored.some((a) => a.id === "shared"), "the link must not have written anything while it was only an offer");
+
+  await page.locator(".btn", { hasText: "Keep mine" }).click();
+  await page.locator(".tabbtn", { hasText: "Accounts" }).click();
+  assert.equal(await page.getByLabel("Balance").first().inputValue(), "4242", "declining leaves the visitor's own plan in place");
+
+  /* and accepting does load it, undoably */
+  await page.goto(link, { waitUntil: "networkidle" });
+  await page.locator(".btn", { hasText: "Load the shared plan" }).click();
+  await page.locator(".tabbtn", { hasText: "Accounts" }).click();
+  await page.waitForTimeout(500);
+  assert.equal(await page.getByLabel("Balance").first().inputValue(), "777777");
+  await page.locator(".tbtn", { hasText: "Undo" }).click();
+  await page.waitForTimeout(500);
+  assert.equal(await page.getByLabel("Balance").first().inputValue(), "4242", "loading a link is undoable");
+
+  assert.deepEqual(consoleErrors, []);
+  await page.close();
+});
+
+test("the bare URL still loads the saved plan, exactly as before", async () => {
+  const { page, consoleErrors } = await newPage();
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+  await page.locator(".tabbtn", { hasText: "Accounts" }).click();
+  await page.getByLabel("Balance").first().fill("31337");
+  await page.waitForTimeout(700);
+
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+  await page.locator(".tabbtn", { hasText: "Accounts" }).click();
+  assert.equal(await page.getByLabel("Balance").first().inputValue(), "31337");
+  assert.equal(await page.locator('[data-testid="share-offer"]').count(), 0, "no banner without a link");
+
+  assert.deepEqual(consoleErrors, []);
+  await page.close();
+});
+
+test("a CSV statement becomes a review table, and only ticked rows are created", async () => {
+  const { page, consoleErrors } = await newPage();
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+  await page.locator(".tabbtn", { hasText: "Cash flow" }).click();
+  const before = await page.getByLabel("Expense name").count();
+
+  const rows = ["Date,Description,Amount"];
+  for (let m = 1; m <= 5; m++) rows.push(`2026-0${m}-01,RENT PAYMENT LANDLORD LLC,-1500.00`);
+  let d = new Date("2026-01-06T00:00:00");
+  for (let i = 0; i < 12; i++) {
+    rows.push(`${d.toISOString().slice(0, 10)},SQ *BLUE BOTTLE COFFEE #${1000 + i} SEATTLE WA,-6.25`);
+    d = new Date(d.getTime() + 7 * 86400000);
+  }
+  rows.push("2026-02-14,DELTA AIR LINES 0067788221,-412.80");
+  rows.push("2026-01-20,PAYROLL DEPOSIT ACME CORP,3000.00");
+
+  await page.locator(".tbtn", { hasText: "Import from a statement" }).click();
+  await page.locator('[data-testid="csv-paste"]').fill(rows.join("\n"));
+  await page.waitForTimeout(400);
+
+  const labels = await page.locator(".csvrow .csvname").allTextContents();
+  assert.equal(labels.length, 3, "three merchants — the deposit isn't spending");
+  assert.ok(!labels.some((l) => /payroll/i.test(l)));
+  assert.equal(await page.locator(".csvrow.on").count(), 2, "the two recurring merchants are pre-ticked, the one-off isn't");
+  assert.equal(await page.getByLabel(/Frequency for Rent/).inputValue(), "monthly");
+  assert.equal(await page.getByLabel(/Frequency for Blue Bottle/).inputValue(), "weekly");
+  assert.equal(await page.getByLabel(/Category for Rent/).inputValue(), "housing");
+
+  await page.locator(".modal .btn-amber").click();
+  await page.waitForTimeout(600);
+  const after = await page.getByLabel("Expense name").count();
+  assert.equal(after, before + 2, "only the ticked rows became expenses");
+  const names = await page.getByLabel("Expense name").evaluateAll((els) => els.map((e) => e.value));
+  assert.ok(!names.some((n) => /delta/i.test(n)), "the one-off was left alone");
+
+  assert.deepEqual(consoleErrors, []);
+  await page.close();
+});

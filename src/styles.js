@@ -166,6 +166,18 @@ export const CSS = `
 .fin .notice{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:11.5px;color:var(--faint);margin-bottom:14px;background:var(--amber-soft);border:1px solid rgba(245,166,35,.22);border-radius:10px;padding:9px 12px;}
 .fin .notice button{margin-left:auto;background:none;border:none;color:var(--faint);cursor:pointer;font-size:15px;line-height:1;padding:2px 6px;}
 .fin .notice button:hover{color:var(--text);}
+.fin .notice.offer{background:rgba(56,189,208,.10);border-color:rgba(56,189,208,.28);color:var(--muted);flex-wrap:wrap;}
+.fin .notice.offer span{flex:1;min-width:200px;}
+.fin .notice.offer .btn{margin-left:0;padding:7px 12px;font-size:12px;}
+.fin .csvlist{display:flex;flex-direction:column;gap:6px;max-height:300px;overflow:auto;margin-top:10px;padding-right:2px;}
+.fin .csvrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 10px;opacity:.55;}
+.fin .csvrow.on{opacity:1;border-color:var(--line2);}
+.fin .csvrow .csvname{font-size:12.5px;font-weight:600;color:var(--text);max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.fin .csvrow select{max-width:132px;}
+.fin .csvrow .num-box{flex:none;}
+.fin .badge.lvl-high{color:var(--green);background:rgba(92,203,139,.13);border-color:rgba(92,203,139,.32);}
+.fin .badge.lvl-medium{color:var(--amber);background:var(--amber-soft);border-color:rgba(245,166,35,.3);}
+.fin .badge.lvl-low{color:var(--faint);background:rgba(126,148,171,.10);border-color:var(--line2);}
 .fin .modal{position:fixed;inset:0;background:rgba(6,10,16,.74);display:flex;align-items:center;justify-content:center;z-index:60;padding:18px;}
 .fin .modal-card{background:var(--panel);border:1px solid var(--line2);border-radius:16px;padding:20px;width:min(580px,94vw);max-height:88vh;overflow:auto;}
 .fin .modal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
