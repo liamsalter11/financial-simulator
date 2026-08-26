@@ -4,7 +4,7 @@ const {
   ResponsiveContainer, ReferenceLine,
 } = Recharts;
 import { Stat, NumField, Tip } from "../components.js";
-import { fmtMoney, fmtBig, fmtDate, n0, addDays } from "../format.js";
+import { fmtMoney, fmtBig, fmtDate, fmtDur, n0, addDays } from "../format.js";
 import { sampleRange } from "../useScope.js";
 
 const McTip = ({ active, payload, label, start }) => {
@@ -46,8 +46,8 @@ export function InvestTab({ D, chart, scInv, scMC, fireN, settings, setS, accoun
                         <XAxis {...axisProps(scInv)} />
                         <YAxis {...yProps} />
                         <Tooltip content={(p) => <Tip {...p} start={start} rows={[{ key: "value", name: "Value", color: "var(--green)" }, { key: "basis", name: "You put in", color: "var(--cyan)" }]} />} cursor={{ stroke: "var(--line2)" }} />
-                        {fireN > 0 && D.sim.fire != null && !D.showNom && <ReferenceLine y={fireN} stroke="var(--amber)" strokeDasharray="3 3" label={{ value: "FI " + fmtBig(fireN), position: "insideTopRight", fill: "var(--amber)", fontSize: 9.5, fontFamily: "var(--mono)" }} />}
-                        {fireN > 0 && D.showNom && <Line type="monotone" dataKey="fi" stroke="var(--amber)" strokeWidth={1.2} strokeDasharray="3 3" dot={false} isAnimationActive={false} />}
+                        {fireN > 0 && D.sim.fire != null && !D.fiSloped && <ReferenceLine y={fireN} stroke="var(--amber)" strokeDasharray="3 3" label={{ value: "FI " + fmtBig(fireN), position: "insideTopRight", fill: "var(--amber)", fontSize: 9.5, fontFamily: "var(--mono)" }} />}
+                        {fireN > 0 && D.fiSloped && <Line type="monotone" dataKey="fi" stroke="var(--amber)" strokeWidth={1.2} strokeDasharray="3 3" dot={false} isAnimationActive={false} />}
                         <Area type="monotone" dataKey="value" stroke="var(--green)" strokeWidth={2.6} fill="url(#ivFill)" dot={false} activeDot={{ r: 4, fill: "var(--green)", stroke: "none" }} isAnimationActive={false} />
                         <Line type="monotone" dataKey="basis" stroke="var(--cyan)" strokeWidth={1.6} strokeDasharray="5 4" dot={false} isAnimationActive={false} />
                       </ComposedChart>
@@ -73,8 +73,8 @@ export function InvestTab({ D, chart, scInv, scMC, fireN, settings, setS, accoun
                         <XAxis {...axisProps(scMC)} />
                         <YAxis {...yProps} />
                         <Tooltip content={(p) => <McTip {...p} start={start} />} cursor={{ stroke: "var(--line2)" }} />
-                        {fireN > 0 && !D.showNom && <ReferenceLine y={fireN} stroke="var(--amber)" strokeDasharray="3 3" label={{ value: "FI " + fmtBig(fireN), position: "insideTopRight", fill: "var(--amber)", fontSize: 9.5, fontFamily: "var(--mono)" }} />}
-                        {fireN > 0 && D.showNom && <Line type="monotone" dataKey="fi" stroke="var(--amber)" strokeWidth={1.2} strokeDasharray="3 3" dot={false} isAnimationActive={false} />}
+                        {fireN > 0 && !D.fiSloped && <ReferenceLine y={fireN} stroke="var(--amber)" strokeDasharray="3 3" label={{ value: "FI " + fmtBig(fireN), position: "insideTopRight", fill: "var(--amber)", fontSize: 9.5, fontFamily: "var(--mono)" }} />}
+                        {fireN > 0 && D.fiSloped && <Line type="monotone" dataKey="fi" stroke="var(--amber)" strokeWidth={1.2} strokeDasharray="3 3" dot={false} isAnimationActive={false} />}
                         <Area dataKey="p10" stackId="mc" stroke="none" fill="transparent" isAnimationActive={false} />
                         <Area dataKey="p10to25" stackId="mc" stroke="none" fill="rgba(92,203,139,0.10)" isAnimationActive={false} />
                         <Area dataKey="p25to75" stackId="mc" stroke="none" fill="rgba(92,203,139,0.22)" isAnimationActive={false} />
@@ -101,7 +101,24 @@ export function InvestTab({ D, chart, scInv, scMC, fireN, settings, setS, accoun
                   </div>
                   <div className="assume">Based on {fmtMoney(D.sim.annualExp / 12)}/mo of long-run living expenses — {fmtBig(D.sim.annualExp)} a year. Only expenses count here, not transfers or debt payments.
                     {D.sim.endingSoon.length > 0 && <> Excluded because they end before then: {D.sim.endingSoon.map((e) => e.category).join(", ")} — worth {fmtBig((D.sim.annualExpNow - D.sim.annualExp) * (100 / (n0(settings.withdrawalRate) || 4)))} off the target.</>}
+                    {D.sim.guaranteedAnnual > 0 && <> Your guaranteed retirement income covers {fmtBig(D.sim.guaranteedAnnual)} of that a year, leaving {fmtBig(D.sim.annualExpNet)} for the portfolio — which is why the target line slopes: until that income starts, the target also carries the capital to cover the gap yourself.</>}
                   </div>
+
+                  <div className="fields3" style={{ gridTemplateColumns: "1fr 1fr 1fr", marginTop: 14 }}>
+                    <NumField label="Tax drag on taxable investing" suffix="%/yr" value={settings.taxDrag} onChange={(v) => setS("taxDrag", n0(v))} />
+                    <NumField label="Tax rate on withdrawals" suffix="%" value={settings.retireTaxRate} onChange={(v) => setS("retireTaxRate", n0(v))} />
+                    <NumField label="Birth year (optional)" value={settings.birthYear} onChange={(v) => setS("birthYear", v)} />
+                  </div>
+                  <div className="caphint">
+                    The independence date is measured against what your balance sheet is worth <i>to spend</i>: a tax-deferred dollar is docked {n0(settings.retireTaxRate)}% because the withdrawal is taxed, and taxable investments lose {n0(settings.taxDrag)}%/yr of return to tax on distributions. Set each account's treatment on the Accounts tab. A birth year is only used to work out when retirement accounts open up — leave it blank and every account is treated as reachable.
+                  </div>
+                  {D.bridge && (
+                    <div className={"caphint" + (D.bridge.gap > 0 ? " warn-txt" : "")} style={{ marginTop: 8 }}>
+                      {D.bridge.gap > 0
+                        ? <>Bridge gap: independence lands about {fmtDur(Math.round(D.bridge.years * 12))} before your retirement accounts open at 59½. Living on {fmtBig(D.sim.annualExpNet)}/yr until then needs {fmtBig(D.bridge.need)} you can actually reach, and only {fmtBig(D.bridge.reachable)} of your money is reachable that early — <b>{fmtBig(D.bridge.gap)} short</b>. Taxable investing, a Roth contribution ladder or a later date all close it.</>
+                        : <>Bridge covered: independence lands about {fmtDur(Math.round(D.bridge.years * 12))} before 59½, and the {fmtBig(D.bridge.reachable)} outside your retirement accounts covers the {fmtBig(D.bridge.need)} of spending until they open.</>}
+                    </div>
+                  )}
                   <label className="switch">
                     <input type="checkbox" checked={!!settings.redirect} onChange={(e) => setS("redirect", e.target.checked)} />
                     <span className="swtrack"><span className="swknob" /></span>

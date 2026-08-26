@@ -414,3 +414,91 @@ test("pre-tax contributions report when they hit the annual limit", async () => 
   assert.deepEqual(consoleErrors, []);
   await page.close();
 });
+
+test("an income can derive its take-home from the tax brackets, and the choice persists", async () => {
+  const { page, consoleErrors } = await newPage();
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+  await page.locator(".tabbtn", { hasText: "Cash flow" }).click();
+
+  const amount = page.locator(".card-r1 input[aria-label='Amount']").first();
+  const mode = page.locator(".dist-row", { hasText: "Take-home is" }).first();
+  const typed = await amount.inputValue();
+
+  // in typed mode the app still shows what the brackets would say — the cheapest
+  // possible check on a hand-entered figure
+  assert.match(await page.locator(".caphint").filter({ hasText: "For comparison" }).first().textContent(), /per paycheck/);
+
+  await mode.locator("button", { hasText: "from brackets" }).click();
+  await page.waitForTimeout(400);
+  const derived = await amount.inputValue();
+  assert.notEqual(derived, typed, "the derived figure should replace the typed one");
+  assert.ok(await amount.getAttribute("readonly") !== null, "and it's no longer hand-editable");
+  assert.match(await page.locator(".caphint").filter({ hasText: "Brackets say" }).first().textContent(), /federal/);
+
+  await page.locator("input[aria-label='State tax rate']").fill("6");
+  await page.waitForTimeout(400);
+  assert.ok(Number(await amount.inputValue()) < Number(derived), "a state rate should cut take-home further");
+
+  await page.reload({ waitUntil: "networkidle" });
+  await page.locator(".tabbtn", { hasText: "Cash flow" }).click();
+  assert.equal(await mode.locator("button.on").textContent(), "from brackets", "the mode should persist");
+  assert.equal(await page.locator("input[aria-label='State tax rate']").inputValue(), "6");
+
+  assert.deepEqual(consoleErrors, []);
+  await page.close();
+});
+
+test("account tax treatment moves the independence date, and a birth year surfaces the bridge", async () => {
+  const { page, consoleErrors } = await newPage();
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+
+  const fiDate = () => page.locator(".stat").last().locator(".v").textContent();
+  await page.locator(".tabbtn", { hasText: "Accounts" }).click();
+  const treatment = page.locator("select[aria-label='Tax treatment']").last();
+  assert.equal(await treatment.inputValue(), "traditional", "a retirement account defaults to tax-deferred");
+
+  await page.locator(".tabbtn", { hasText: "Overview" }).click();
+  const asTraditional = await fiDate();
+  await page.locator(".tabbtn", { hasText: "Accounts" }).click();
+  await treatment.selectOption("roth");
+  await page.waitForTimeout(300);
+  await page.locator(".tabbtn", { hasText: "Overview" }).click();
+  await page.waitForTimeout(300);
+  assert.notEqual(await fiDate(), asTraditional, "untaxed withdrawals should bring independence forward");
+
+  await page.locator(".tabbtn", { hasText: "Invest" }).click();
+  const birthYear = page.locator("input[aria-label='Birth year (optional)']");
+  assert.equal(await page.locator(".caphint").filter({ hasText: "Bridge" }).count(), 0, "no birth year, no claim about age");
+  await birthYear.fill("1990");
+  await page.waitForTimeout(500);
+  assert.match(await page.locator(".caphint").filter({ hasText: "Bridge" }).first().textContent(), /59½/);
+
+  assert.deepEqual(consoleErrors, []);
+  await page.close();
+});
+
+test("guaranteed retirement income lowers the target and slopes it toward its start date", async () => {
+  const { page, consoleErrors } = await newPage();
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+
+  const fiDate = () => page.locator(".stat").last().locator(".v").textContent();
+  const before = await fiDate();
+  const surplusBefore = await page.locator(".stat").nth(1).locator(".v").textContent();
+
+  await page.locator(".tabbtn", { hasText: "Cash flow" }).click();
+  await page.locator(".btn", { hasText: "Social Security or a pension" }).click();
+  await page.waitForTimeout(300);
+  const card = page.locator(".panel", { hasText: "Income" }).locator(".card").last();
+  await card.locator("input[aria-label='Amount']").first().fill("2000");
+  await page.waitForTimeout(500);
+  assert.match(await page.locator(".caphint").filter({ hasText: "off the target" }).first().textContent(), /from its start date/);
+
+  await page.locator(".tabbtn", { hasText: "Overview" }).click();
+  await page.waitForTimeout(400);
+  assert.notEqual(await fiDate(), before, "covering part of retirement spending should pull the date in");
+  assert.equal(await page.locator(".stat").nth(1).locator(".v").textContent(), surplusBefore,
+    "but income that starts decades out must not appear in this month's surplus");
+
+  assert.deepEqual(consoleErrors, []);
+  await page.close();
+});

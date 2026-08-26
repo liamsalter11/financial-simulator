@@ -12,11 +12,11 @@ import {
   isInvest, isSav, isCash, BUCKET_COLOR, PAL, acctColor, debtColor, toReal, inflFactor,
 } from "./format.js";
 import { firesInWeek } from "./recurrence.js";
-import { payrollOf, bonusOf, effectiveTaxRate, hasPromotions, withoutPromotions } from "./payroll.js";
+import { payrollOf, bonusOf, effectiveTaxRate, hasPromotions, withoutPromotions, isDerived, takeHomeOf } from "./payroll.js";
 import { simulateWeekly, projectMinWeekly, WEEKS } from "./engine.js";
 import { runMonteCarlo } from "./montecarlo.js";
 import {
-  SEED_ACCOUNTS, SEED_DEBTS, normDebts, normIncome, isCard, pickIds,
+  SEED_ACCOUNTS, SEED_DEBTS, normDebts, normIncome, normAccounts, isCard, pickIds,
   seedIncome, seedExpenses, seedTransfers, seedDebtPays, seedSettings,
 } from "./seeds.js";
 import { store } from "./store.js";
@@ -73,7 +73,7 @@ export function FinancialSimulator() {
       const accts = a3 ? parse(a3, SEED_ACCOUNTS()) : (a2 ? parse(a2, SEED_ACCOUNTS()) : SEED_ACCOUNTS());
       const dbts = d3 ? parse(d3, SEED_DEBTS()) : (d2 ? parse(d2, SEED_DEBTS()) : SEED_DEBTS());
       const id = pickIds(accts, dbts);
-      setAccounts(accts); setDebts(normDebts(dbts));
+      setAccounts(normAccounts(accts)); setDebts(normDebts(dbts));
       const rawInc = i3 ? parse(i3, null) : (i2 ? parse(i2, null) : null);
       setIncome(rawInc ? normIncome(rawInc, id.chk, id.ret) : seedIncome(id));
       setExpenses(e3 ? parse(e3, seedExpenses(id)) : (e2 ? parse(e2, seedExpenses(id)) : seedExpenses(id)));
@@ -108,7 +108,7 @@ export function FinancialSimulator() {
   const hasPay = (id) => payments.some((p) => p.loanId === id);
   const upAcct = (id, k, v) => setAccounts((p) => p.map((a) => a.id === id ? { ...a, [k]: v } : a));
   const upAcctType = (id, t) => setAccounts((p) => p.map((a) => a.id === id ? { ...a, type: t, rate: (ACCT_TYPES.find((x) => x.v === t)?.rate ?? a.rate) } : a));
-  const addAcct = () => setAccounts((p) => [...p, { id: uid(), name: "New account", type: "checking", balance: 0, rate: 0 }]);
+  const addAcct = () => setAccounts((p) => [...p, { id: uid(), name: "New account", type: "checking", balance: 0, rate: 0, taxTreatment: "taxable" }]);
   const rmAcct = (id) => setAccounts((p) => p.filter((a) => a.id !== id));
   const upDebtField = (id, k, v) => setDebts((p) => p.map((l) => l.id === id ? { ...l, [k]: v } : l));
   const upDebtBal = (id, v) => setDebts((p) => p.map((l) => l.id === id ? { ...l, balance: v, originalBalance: hasPay(id) ? l.originalBalance : v } : l));
@@ -123,6 +123,19 @@ export function FinancialSimulator() {
   const upInc = (id, k, v) => setIncome((p) => p.map((x) => x.id === id ? { ...x, [k]: v } : x));
   const addInc = () => setIncome((p) => [...p, { id: uid(), name: "New income", amount: 0, gross: 0, grossMode: "year", date: todayISO(), recur: "monthly", raise: 0, weekdayAdj: true, dist: [{ acctId: (accounts[0] || {}).id }] }]);
   const rmInc = (id) => setIncome((p) => p.filter((x) => x.id !== id));
+  /* Social Security or a pension: ordinary income in the projection, but flagged so the
+     independence target knows part of the bill will be covered without a portfolio. It
+     starts at 67 when a birth year is on file, which is the full-benefit age for anyone
+     using this today; otherwise 20 years out, which is at least obviously a placeholder. */
+  const addGuaranteed = () => {
+    const by = n0(settings.birthYear);
+    const startDate = by > 0 ? isoDate(new Date(by + 67, 0, 1)) : isoDate(addMonths(new Date(), 240));
+    setIncome((p) => [...p, {
+      id: uid(), name: "Social Security", amount: 0, gross: 0, grossMode: "year", date: startDate,
+      recur: "monthly", raise: 0, weekdayAdj: false, guaranteed: true, taxMode: "typed",
+      dist: [{ acctId: pickIds(accounts, debts).chk }],
+    }]);
+  };
   const addSplit = (iid) => setIncome((p) => p.map((x) => x.id === iid ? { ...x, dist: [...(x.dist || []), { acctId: (accounts[0] || {}).id, mode: "pct", value: 10 }] } : x));
   const upSplit = (iid, idx, k, v) => setIncome((p) => p.map((x) => x.id === iid ? { ...x, dist: x.dist.map((s, i) => i === idx ? { ...s, [k]: v } : s) } : x));
   const rmSplit = (iid, idx) => setIncome((p) => p.map((x) => x.id === iid ? { ...x, dist: x.dist.filter((_, i) => i !== idx) } : x));
@@ -155,7 +168,7 @@ export function FinancialSimulator() {
   const resetAll = () => {
     if (!window.confirm("Reset everything back to the starting example?")) return;
     const accts = SEED_ACCOUNTS(), dbts = SEED_DEBTS(), id = pickIds(accts, dbts);
-    setAccounts(accts); setDebts(normDebts(dbts)); setIncome(seedIncome(id)); setExpenses(seedExpenses(id));
+    setAccounts(normAccounts(accts)); setDebts(normDebts(dbts)); setIncome(seedIncome(id)); setExpenses(seedExpenses(id));
     setTransfers(seedTransfers(id)); setDebtPayments(seedDebtPays(id, dbts)); setPayments([]); setSettings(seedSettings());
     setSeedNote(true); store.set("fin3:seedNote", "1");
   };
@@ -206,7 +219,7 @@ export function FinancialSimulator() {
     const accts = Array.isArray(data.accounts) ? data.accounts : accounts;
     const dbts = Array.isArray(data.debts) ? data.debts : debts;
     const id = pickIds(accts, dbts);
-    if (Array.isArray(data.accounts)) setAccounts(data.accounts);
+    if (Array.isArray(data.accounts)) setAccounts(normAccounts(data.accounts));
     if (Array.isArray(data.debts)) setDebts(normDebts(data.debts));
     if (Array.isArray(data.income)) setIncome(normIncome(data.income, id.chk, id.ret));
     if (Array.isArray(data.expenses)) setExpenses(data.expenses);
@@ -223,6 +236,15 @@ export function FinancialSimulator() {
   const D = useMemo(() => {
     if (!accounts) return null;
     const per = (list, key) => list.reduce((s, x) => s + n0(x[key || "amount"]) * OPY[x.recur] / 12, 0);
+    /* "this month" figures should only count income that has actually started: Social
+       Security thirty years out is real money, but it isn't part of today's surplus. */
+    const flowing = (x) => {
+      const d = parseDate(x.date);
+      if (!isNaN(d) && d > start) return false;
+      if (x.end) { const e = parseDate(x.end); if (!isNaN(e) && e < start) return false; }
+      return true;
+    };
+    const incomeNow = income.filter(flowing);
     const loans = debts.filter((x) => !isCard(x));
     const cards = debts.filter((x) => isCard(x));
     const totalAssets = accounts.reduce((s, a) => s + n0(a.balance), 0);
@@ -230,10 +252,10 @@ export function FinancialSimulator() {
     const totalLoans = loans.reduce((s, l) => s + n0(l.balance), 0);
     const netWorth = totalAssets - totalDebt;
     const mExp = per(expenses), mTr = per(transfers);
-    const mBonusNet = income.reduce((s, i) => { const b = bonusOf(i, 1); return s + (b ? b.net / 12 : 0); }, 0);
-    const mBonusPre = income.reduce((s, i) => { const b = bonusOf(i, 1); return s + (b ? (b.deferral + b.match) / 12 : 0); }, 0);
-    const mPreTax = income.reduce((s, i) => s + payrollOf(i).total * OPY[i.recur] / 12, 0) + mBonusPre;
-    const mInc = per(income) + mBonusNet;
+    const mBonusNet = incomeNow.reduce((s, i) => { const b = bonusOf(i, 1); return s + (b ? b.net / 12 : 0); }, 0);
+    const mBonusPre = incomeNow.reduce((s, i) => { const b = bonusOf(i, 1); return s + (b ? (b.deferral + b.match) / 12 : 0); }, 0);
+    const mPreTax = incomeNow.reduce((s, i) => s + payrollOf(i).total * OPY[i.recur] / 12, 0) + mBonusPre;
+    const mInc = incomeNow.reduce((s, i) => s + (isDerived(i) ? takeHomeOf(i, { filing: settings.filing, stateRate: settings.stateRate }) : n0(i.amount)) * OPY[i.recur] / 12, 0) + mBonusNet;
     /* a "pay in full" card payment has no fixed amount — use what actually gets charged to that card */
     const cardIds = new Set(cards.map((c) => c.id));
     const chargedTo = (cid) => expenses.filter((e) => e.fromAcct === cid).reduce((s, e) => s + n0(e.amount) * OPY[e.recur] / 12, 0);
@@ -348,9 +370,9 @@ export function FinancialSimulator() {
       const f = nomAt(s.w);
       const acct = {}; for (const k in s.acct) acct[k] = r2(s.acct[k] * f);
       const dbt = {}; for (const k in s.dbt) dbt[k] = r2(s.dbt[k] * f);
-      return { ...s, nw: r2(s.nw * f), debt: r2(s.debt * f), loanDebt: r2(s.loanDebt * f), invest: r2(s.invest * f), basis: r2(s.basis * f), acct, dbt, fi: r2(sim.fireNumber * f) };
+      return { ...s, nw: r2(s.nw * f), debt: r2(s.debt * f), loanDebt: r2(s.loanDebt * f), invest: r2(s.invest * f), basis: r2(s.basis * f), spendable: r2(s.spendable * f), reach: r2(s.reach * f), fi: r2(s.fi * f), acct, dbt };
     };
-    const viewSeries = showNom ? sim.series.map(scaleSnap) : sim.series.map((s) => ({ ...s, fi: sim.fireNumber }));
+    const viewSeries = showNom ? sim.series.map(scaleSnap) : sim.series;
 
     const cf = [];
     const cfMax = Math.min(sim.series.length - 1, 312);
@@ -387,7 +409,12 @@ export function FinancialSimulator() {
 
     const mcView = showNom ? { ...mc, bands: mc.bands.map((b) => { const f = nomAt(b.w); return { ...b, p10: b.p10 * f, p25: b.p25 * f, p50: b.p50 * f, p75: b.p75 * f, p90: b.p90 * f }; }) } : mc;
 
-    return { totalAssets, totalDebt, totalLoans, netWorth, loans, cards, mInc, mExp, mTr, mDp, mPreTax, mBonusNet, surplus, savingsRate, leftover, monthlyInterest, sim, simWith, simWithout, hasHypo, hypoOn, nwGapAt, minW, maxW, mc: mcView, mcReturn, interestSaved, wksSaved, acctColors, debtColors, names, cf, debtCurve, alloc, spend, bInv, negAcct, nextCardPay, loansNoPayment, chargedTo, worstMonthOut, avgSweep, capped, infl, showNom, nomAt, viewSeries, strategy, liquid, runway, deferralNotes };
+    /* the FI target stops being a single level once it moves: in future dollars it climbs
+       with everything else, and with guaranteed income ahead of you it falls toward the
+       date that income starts. Either way the charts draw a line rather than a level. */
+    const fiSloped = showNom || sim.guaranteedAnnual > 0;
+
+    return { totalAssets, totalDebt, totalLoans, netWorth, loans, cards, mInc, mExp, mTr, mDp, mPreTax, mBonusNet, surplus, savingsRate, leftover, monthlyInterest, sim, simWith, simWithout, hasHypo, hypoOn, nwGapAt, minW, maxW, mc: mcView, mcReturn, interestSaved, wksSaved, acctColors, debtColors, names, cf, debtCurve, alloc, spend, bInv, negAcct, nextCardPay, loansNoPayment, chargedTo, worstMonthOut, avgSweep, capped, infl, showNom, nomAt, viewSeries, strategy, liquid, runway, deferralNotes, fiSloped, bridge: sim.bridge };
   }, [accounts, debts, income, expenses, transfers, debtPayments, settings, start]);
 
   const maxW = D ? D.maxW : 520;
@@ -518,7 +545,7 @@ export function FinancialSimulator() {
           {tab === "cashflow" && (
             <CashFlowTab D={D} chart={chartProps} scCF={scCF} settings={settings} setS={setS}
               income={income} accounts={accounts} expenses={expenses} debts={debts} debtPayments={debtPayments} transfers={transfers}
-              upInc={upInc} rmInc={rmInc} addInc={addInc} addSplit={addSplit} upSplit={upSplit} rmSplit={rmSplit}
+              upInc={upInc} rmInc={rmInc} addInc={addInc} addGuaranteed={addGuaranteed} addSplit={addSplit} upSplit={upSplit} rmSplit={rmSplit}
               addPreTax={addPreTax} upPreTax={upPreTax} rmPreTax={rmPreTax}
               setMatch={setMatch} upMatch={upMatch} setBonus={setBonus} upBonus={upBonus}
               addChange={addChange} upChange={upChange} rmChange={rmChange}

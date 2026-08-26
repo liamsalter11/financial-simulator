@@ -7,13 +7,14 @@ const {
 import { Plus, Trash2, ArrowRight } from "../icons.js";
 import { Stat, NumField, Seg, EndDate, Tip } from "../components.js";
 import { fmtMoney, fmtDate, n0, num, OPY, parseDate, RECUR, recurLabel } from "../format.js";
-import { payrollOf, bonusOf, perCheck, effectiveTaxRate } from "../payroll.js";
+import { payrollOf, bonusOf, perCheck, effectiveTaxRate, isDerived, taxBreakdown } from "../payroll.js";
+import { FILING, TAX_YEAR } from "../tax.js";
 import { isCard } from "../seeds.js";
 import { sampleRange } from "../useScope.js";
 
 export function CashFlowTab({
   D, chart, scCF, settings, setS, income, accounts, expenses, debts, debtPayments, transfers,
-  upInc, rmInc, addInc, addSplit, upSplit, rmSplit, addPreTax, upPreTax, rmPreTax,
+  upInc, rmInc, addInc, addGuaranteed, addSplit, upSplit, rmSplit, addPreTax, upPreTax, rmPreTax,
   setMatch, upMatch, setBonus, upBonus, addChange, upChange, rmChange,
   upExp, rmExp, addExp, upDebtField, upDebtBal, rmDebt, addCardWithPayment,
   upDp, rmDp, addDp, upTr, rmTr, addTr,
@@ -85,7 +86,11 @@ export function CashFlowTab({
                 <div className="panel rise">
                   <div className="phead"><div className="ptitle">Income</div><div className="psub">dated · split across accounts</div></div>
                   {income.map((inc) => {
-                    const amt = n0(inc.amount); const dist = inc.dist || [];
+                    const taxOpts = { filing: settings.filing, stateRate: settings.stateRate };
+                    const derived = isDerived(inc);
+                    const brk = taxBreakdown(inc, taxOpts);
+                    const amt = derived ? (brk ? brk.netPerCheck : 0) : n0(inc.amount);
+                    const dist = inc.dist || [];
                     let used = 0;
                     for (let i = 1; i < dist.length; i++) { const sp = dist[i]; const want = sp.mode === "amt" ? n0(sp.value) : amt * num(sp.value) / 100; used += Math.min(want, Math.max(0, amt - used)); }
                     const rest = Math.max(0, amt - used);
@@ -93,7 +98,12 @@ export function CashFlowTab({
                       <div className="card" key={inc.id}>
                         <div className="card-r1">
                           <input className="rname" value={inc.name} onChange={(e) => upInc(inc.id, "name", e.target.value)} aria-label="Income name" />
-                          <div className="num-box sm"><span className="pfx">$</span><input className="num-input" type="number" inputMode="decimal" value={inc.amount} onChange={(e) => upInc(inc.id, "amount", e.target.value)} aria-label="Amount" style={{ color: "var(--green)" }} /></div>
+                          <div className="num-box sm" title={derived ? "Derived from your gross salary and the tax brackets" : ""}>
+                            <span className="pfx">$</span>
+                            <input className="num-input" type="number" inputMode="decimal"
+                              value={derived ? Math.round(amt) : inc.amount} readOnly={derived}
+                              onChange={(e) => upInc(inc.id, "amount", e.target.value)} aria-label="Amount" style={{ color: "var(--green)" }} />
+                          </div>
                           <button className="icon-btn" onClick={() => rmInc(inc.id)} aria-label="Remove"><Trash2 size={16} /></button>
                         </div>
                         <div className="card-r2">
@@ -106,6 +116,22 @@ export function CashFlowTab({
                           <input type="checkbox" checked={!!inc.weekdayAdj} onChange={(e) => upInc(inc.id, "weekdayAdj", e.target.checked)} />
                           If payday lands on a weekend, pay the weekday before
                         </label>
+                        <label className="chk" title="Social Security, a pension — income you'll have in retirement regardless of the portfolio">
+                          <input type="checkbox" checked={!!inc.guaranteed} onChange={(e) => upInc(inc.id, "guaranteed", e.target.checked)} />
+                          Guaranteed retirement income — lowers the independence target
+                        </label>
+                        {inc.guaranteed && (() => {
+                          /* the drop is capped by what you actually spend — income beyond your
+                             expenses can't reduce a target that's already at zero */
+                          const annual = n0(inc.amount) * (OPY[inc.recur] || 0);
+                          const covered = Math.min(annual, D.sim.annualExp);
+                          const mult = n0(settings.withdrawalRate) > 0 ? 100 / n0(settings.withdrawalRate) : 0;
+                          return <div className="caphint">
+                            {fmtMoney(annual)}/yr from {inc.date}. Spending it covers doesn't need a portfolio behind it, so it takes {fmtMoney(covered * mult)} off the target
+                            {annual > D.sim.annualExp ? ` — capped by your ${fmtMoney(D.sim.annualExp)}/yr of long-run spending, which this more than covers on its own` : ""}
+                            . That only applies from its start date, so until then the target also carries the capital to bridge the gap yourself.
+                          </div>;
+                        })()}
                         <div className="dist">
                           <div className="dist-lbl"><span>Distribute into</span><span>{dist.length > 1 ? fmtMoney(used) + " assigned" : "all of it"}</span></div>
                           {dist.map((sp, idx) => (
@@ -132,6 +158,28 @@ export function CashFlowTab({
                             const effRate = effectiveTaxRate(inc);
                             return (<>
                               <div className="dist-lbl"><span>Payroll deductions (not in take-home)</span><span>{fmtMoney(pay.total)} / paycheck</span></div>
+                              <div className="dist-row">
+                                <span className="cap" style={{ flex: 1, minWidth: 80 }}>Take-home is</span>
+                                <Seg value={derived ? "derived" : "typed"}
+                                  options={[{ v: "typed", label: "typed by me" }, { v: "derived", label: "from brackets" }]}
+                                  onChange={(v) => upInc(inc.id, "taxMode", v)} />
+                              </div>
+                              {derived && (
+                                <div className="dist-row">
+                                  <select value={settings.filing || "single"} onChange={(e) => setS("filing", e.target.value)} aria-label="Filing status" style={{ flex: 1, minWidth: 140 }}>
+                                    {FILING.map((f) => <option key={f.v} value={f.v}>{f.label}</option>)}
+                                  </select>
+                                  <span className="cap">state tax</span>
+                                  <div className="pctbox"><input type="number" inputMode="decimal" value={settings.stateRate} onChange={(e) => setS("stateRate", n0(e.target.value))} aria-label="State tax rate" /><span className="u">%</span></div>
+                                </div>
+                              )}
+                              {brk && (
+                                <div className={"caphint" + (derived ? "" : " ")}>
+                                  {derived
+                                    ? <>Brackets say {fmtMoney(brk.gross)}/yr gross − {fmtMoney(brk.federal)} federal − {fmtMoney(brk.fica)} FICA{brk.state > 0 ? ` − ${fmtMoney(brk.state)} state` : ""} − {fmtMoney(brk.preTax)} deductions = <b style={{ color: "var(--green)" }}>{fmtMoney(brk.netPerCheck)}</b> per paycheck. Effective {brk.effectiveRate.toFixed(1)}%, marginal {brk.marginalRate.toFixed(0)}% · {TAX_YEAR} tables.</>
+                                    : <>For comparison, {TAX_YEAR} brackets on this gross would give {fmtMoney(brk.netPerCheck)} per paycheck ({brk.effectiveRate.toFixed(1)}% effective) against the {fmtMoney(n0(inc.amount))} you've typed. Switch above to use the derived figure instead.</>}
+                                </div>
+                              )}
                               <div className="dist-row">
                                 <span className="cap" style={{ flex: 1, minWidth: 80 }}>Gross salary</span>
                                 <Seg value={inc.grossMode === "paycheck" ? "paycheck" : "year"} options={[{ v: "year", label: "per year" }, { v: "paycheck", label: "per check" }]} onChange={(v) => upInc(inc.id, "grossMode", v)} />
@@ -264,6 +312,7 @@ export function CashFlowTab({
                     );
                   })}
                   <button className="btn btn-add" onClick={addInc}><Plus size={15} />Add income source</button>
+                  <button className="btn btn-add" onClick={addGuaranteed}><Plus size={15} />Add Social Security or a pension</button>
                   <div className="assume">The top account is the remainder — it receives whatever the others don't take.</div>
                 </div>
 

@@ -84,6 +84,18 @@ export function AccountsTab({
       onChange: v => upAcct(a.id, "rate", v)
     }), React.createElement("div", {
       className: "field"
+    }, React.createElement("label", null, "Tax treatment"), React.createElement("select", {
+      value: a.taxTreatment || "taxable",
+      onChange: e => upAcct(a.id, "taxTreatment", e.target.value),
+      "aria-label": "Tax treatment"
+    }, React.createElement("option", {
+      value: "taxable"
+    }, "Taxable"), React.createElement("option", {
+      value: "traditional"
+    }, "Tax-deferred (traditional)"), React.createElement("option", {
+      value: "roth"
+    }, "Tax-free (Roth)"))), React.createElement("div", {
+      className: "field"
     }, React.createElement("label", null, "Balance as of"), React.createElement("input", {
       type: "date",
       value: a.asOf || "",
@@ -92,7 +104,9 @@ export function AccountsTab({
       title: "The date this balance was true. Leave blank for today."
     })), React.createElement("div", {
       className: "caphint"
-    }, "Leave blank if this is today's balance. A future date freezes the account until then; a past date catches it up to today using your normal income, expenses and payments.")), React.createElement("div", {
+    }, "Leave blank if this is today's balance. A future date freezes the account until then; a past date catches it up to today using your normal income, expenses and payments."), React.createElement("div", {
+      className: "caphint"
+    }, a.taxTreatment === "traditional" ? `Tax-deferred: a withdrawal is taxed, so ${fmtMoney(n0(a.balance))} here is worth about ${fmtMoney(n0(a.balance) * (1 - n0(settings.retireTaxRate) / 100))} to spend, and it's locked until 59½.` : a.taxTreatment === "roth" ? "Tax-free: growth and withdrawals are untaxed, but it's still locked until 59½ for the independence bridge." : `Taxable: reachable at any age, and its investment growth is docked ${n0(settings.taxDrag)}%/yr for tax on distributions.`, " ", "Defaulted from the account type \u2014 a \"Roth + 401k\" account holding both is worth splitting in two so each half is counted properly.")), React.createElement("div", {
       className: "capline"
     }, React.createElement(NumField, {
       cls: "ramt",
