@@ -1279,3 +1279,74 @@ test("a house counts toward net worth without pretending it's money", async () =
   assert.deepEqual(consoleErrors, []);
   await page.close();
 });
+
+test("the wizard is offered beside the example, and replaces it only when confirmed", async () => {
+  const { page, consoleErrors } = await newPage();
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+  await page.locator(".nwbig").waitFor();
+  await page.waitForTimeout(900);
+
+  /* the seed data still loads, so nothing about a first visit changes — the wizard is an
+     offer beside it, not a gate in front of it */
+  const seeded = (await page.locator(".nwbig").textContent()).trim();
+  const savedBefore = await page.evaluate(() => localStorage.getItem("fin3:accounts"));
+  assert.ok(savedBefore, "the example is on screen and saved, as it always was");
+
+  const walk = async () => {
+    await page.locator('[data-testid="wizard"]').waitFor();
+    await page.getByLabel("Salary / year").fill("110000");
+    await page.getByLabel("401k / paycheck").fill("6");
+    await page.locator('[data-testid="wizard-next"]').click();
+    await page.getByLabel("Checking").fill("6000");
+    await page.getByLabel("Brokerage").fill("40000");
+    await page.getByLabel("Home value").fill("480000");
+    await page.locator('[data-testid="wizard-next"]').click();
+    await page.getByLabel("Debt name").fill("Mortgage");
+    await page.getByLabel("Debt kind").selectOption("mortgage");
+    await page.getByLabel("Balance").fill("355000");
+    await page.getByLabel("Rate").fill("6.25");
+    await page.getByLabel("Min / mo").fill("2300");
+    await page.locator('[data-testid="wizard-next"]').click();
+    await page.getByLabel("Living costs / mo").fill("4200");
+    await page.getByLabel("Invested / mo").fill("800");
+    await page.locator('[data-testid="wizard-next"]').click();
+    await page.locator('[data-testid="wizard-summary"]').waitFor();
+    await page.waitForTimeout(700);
+  };
+
+  /* walked all the way to review and then cancelled: nothing is touched */
+  await page.getByRole("button", { name: "Set mine up instead" }).click();
+  await walk();
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await page.waitForTimeout(700);
+  assert.equal((await page.locator(".nwbig").textContent()).trim(), seeded, "cancelling changes nothing on screen");
+  assert.equal(await page.evaluate(() => localStorage.getItem("fin3:accounts")), savedBefore,
+    "and nothing in storage — a wizard you backed out of never happened");
+
+  /* and again, confirmed this time */
+  await page.getByRole("button", { name: "Set mine up instead" }).click();
+  await walk();
+  const promised = await page.locator('[data-testid="wizard-summary"]').textContent();
+  const reviewNw = (await page.locator('[data-testid="wizard"] .stat .v').first().textContent()).trim();
+  await page.locator('[data-testid="wizard-confirm"]').click();
+  await page.waitForTimeout(1600);
+
+  assert.equal(await page.locator('[data-testid="wizard"]').count(), 0, "it closes on confirm");
+  assert.equal(await page.locator(".tabbtn.active").textContent(), "Overview", "and lands on the Overview");
+  assert.equal(await page.locator(".notice.rise").count(), 0, "the example notice is gone with the example");
+  const built = (await page.locator(".nwbig").textContent()).trim();
+  assert.notEqual(built, seeded);
+  /* the review screen's figure is the projection, so it has to be the one that appears */
+  assert.equal(built.replace(/[$,]/g, ""), reviewNw.replace(/[$,]/g, ""),
+    `review promised ${reviewNw}, Overview shows ${built}`);
+  /* checking, brokerage and the home — nothing was created for what wasn't entered */
+  assert.match(promised, /^3 accounts · 1 debt · 1 expense · 1 transfer$/);
+
+  /* it's an ordinary edit, so undo puts the example back */
+  await page.getByRole("button", { name: "Undo" }).click();
+  await page.waitForTimeout(1400);
+  assert.equal((await page.locator(".nwbig").textContent()).trim(), seeded, "⌘Z restores what was replaced");
+
+  assert.deepEqual(consoleErrors, []);
+  await page.close();
+});
