@@ -74,11 +74,27 @@ export const CSS = `
 .fin .wrap{max-width:1060px;margin:0 auto;}
 .fin .mono{font-family:var(--mono);font-variant-numeric:tabular-nums;}
 .fin .eyebrow{font-family:var(--mono);text-transform:uppercase;letter-spacing:.16em;font-size:11px;color:var(--faint);}
-.fin .topbar{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:16px;}
-.fin .nwbig{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:clamp(34px,9vw,52px);line-height:.96;font-weight:600;letter-spacing:-0.03em;margin-top:5px;}
+/* Stacked on a phone, side by side from tablet up. As a row at every width the toolbar
+   competes with the headline for a ~390px line, and the figure gets squeezed until it wraps
+   — which it can only do in one place, after the minus sign, leaving a lone dash above the
+   number. WebKit takes that break opportunity and Blink doesn't, which is why it only shows
+   up on a phone. Stacking gives the figure the full width; nwbig then refuses to break at
+   all, so no browser can find somewhere else to try. */
+.fin .topbar{display:flex;flex-direction:column;align-items:stretch;gap:12px;margin-bottom:16px;}
+@media(min-width:680px){.fin .topbar{flex-direction:row;align-items:flex-start;justify-content:space-between;gap:16px;}}
+.fin .nwbig{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:clamp(34px,9vw,52px);line-height:.96;font-weight:600;letter-spacing:-0.03em;margin-top:5px;white-space:nowrap;}
 .fin .nwsub{font-family:var(--mono);font-size:12px;color:var(--faint);margin-top:8px;}
 .fin .nwsub b{color:var(--muted);font-weight:600;}
-.fin .toolbar{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end;}
+.fin .toolbar{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-start;}
+@media(min-width:680px){.fin .toolbar{justify-content:flex-end;}}
+/* Below the breakpoint the buttons are their icons alone. The label isn't removed — it's
+   visually hidden, so it still names the button for a screen reader, still answers a
+   getByRole locator, and still shows in the tooltip. Twelve labelled buttons take six rows
+   and most of a phone screen before any of your money is visible; twelve icons take two.
+   The checks badge keeps its count, which is the one number that has to stay readable. */
+.fin .tbtn .tl{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0;}
+.fin .tbtn{position:relative;}
+@media(min-width:680px){.fin .tbtn .tl{position:static;width:auto;height:auto;margin:0;overflow:visible;clip:auto;}}
 .fin .tbtn{display:inline-flex;align-items:center;gap:6px;font-family:var(--sans);font-size:12px;font-weight:600;color:var(--muted);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 11px;cursor:pointer;transition:color .15s,border-color .15s;}
 .fin .tbtn:hover{color:var(--text);border-color:var(--faint);}
 .fin .tbtn.icon-only{padding:8px 9px;}

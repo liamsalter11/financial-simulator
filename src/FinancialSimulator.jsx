@@ -860,18 +860,18 @@ export function FinancialSimulator() {
                 </button>
               )}
                             <button className={"tbtn" + (showHelp ? " on" : "")} onClick={() => setShowHelp((v) => !v)}
-                aria-expanded={showHelp} aria-controls="help-panel"><HelpCircle size={13} />Help</button>
-              <button className="tbtn" onClick={undo} disabled={!canUndo} title="Undo (⌘Z)" aria-label="Undo"><RotateCcw size={13} />Undo</button>
-              <button className="tbtn" onClick={redo} disabled={!canRedo} title="Redo (⌘⇧Z)" aria-label="Redo"><RotateCw size={13} />Redo</button>
+                aria-expanded={showHelp} aria-controls="help-panel"><HelpCircle size={13} /><span className="tl">Help</span></button>
+              <button className="tbtn" onClick={undo} disabled={!canUndo} title="Undo (⌘Z)" aria-label="Undo"><RotateCcw size={13} /><span className="tl">Undo</span></button>
+              <button className="tbtn" onClick={redo} disabled={!canRedo} title="Redo (⌘⇧Z)" aria-label="Redo"><RotateCw size={13} /><span className="tl">Redo</span></button>
               <button className={"tbtn" + (compareScenario ? " on" : "")} onClick={() => { setScenarioName(""); setModal("scenarios"); }}
-                title={compareScenario ? `Comparing against "${compareScenario.name}"` : "Save and compare plans"}><LayoutGrid size={13} />Scenarios{scenarios.length ? ` (${scenarios.length})` : ""}</button>
-              <button className="tbtn" onClick={() => { setImportText(""); setModal("import"); }}><Upload size={13} />Import</button>
-              <button className="tbtn" onClick={shareLink} title="Copy a link with this whole plan in it"><Link2 size={13} />Share</button>
-              <button className="tbtn" onClick={openExport}><Download size={13} />Export</button>
-              <button className="tbtn" onClick={() => setModal("data")} title="Read the figures behind every chart as a table"><TableIcon size={13} />Numbers</button>
-              <button className="tbtn" onClick={() => setModal("print")} title="A summary sheet you can print or save as PDF"><Printer size={13} />Print</button>
+                title={compareScenario ? `Comparing against "${compareScenario.name}"` : "Save and compare plans"}><LayoutGrid size={13} /><span className="tl">Scenarios{scenarios.length ? ` (${scenarios.length})` : ""}</span></button>
+              <button className="tbtn" onClick={() => { setImportText(""); setModal("import"); }}><Upload size={13} /><span className="tl">Import</span></button>
+              <button className="tbtn" onClick={shareLink} title="Copy a link with this whole plan in it"><Link2 size={13} /><span className="tl">Share</span></button>
+              <button className="tbtn" onClick={openExport}><Download size={13} /><span className="tl">Export</span></button>
+              <button className="tbtn" onClick={() => setModal("data")} title="Read the figures behind every chart as a table"><TableIcon size={13} /><span className="tl">Numbers</span></button>
+              <button className="tbtn" onClick={() => setModal("print")} title="A summary sheet you can print or save as PDF"><Printer size={13} /><span className="tl">Print</span></button>
               <button className="tbtn icon-only" onClick={cycleTheme} title={themeOpt.title} aria-label={`Theme: ${themeOpt.label}`}><themeOpt.Icon size={14} /></button>
-              <button className="tbtn" onClick={resetAll}><RotateCcw size={13} />Reset</button>
+              <button className="tbtn" onClick={resetAll}><RotateCcw size={13} /><span className="tl">Reset</span></button>
             </div>
           </div>
 

@@ -1143,3 +1143,59 @@ test("no chart series is distinguished by colour alone", async () => {
   assert.deepEqual(consoleErrors, []);
   await page.close();
 });
+
+test("the topbar survives a phone: the headline doesn't break and the toolbar doesn't eat the screen", async () => {
+  /* The toolbar grew from four buttons to twelve across these batches. As a flex row at
+     every width it squeezed the headline until it wrapped — and a money figure can only
+     wrap in one place, after the minus sign, which put a lone dash above the number on
+     iOS. (WebKit takes that break opportunity; Blink doesn't, so it can't be reproduced
+     here — the fix is to make the break impossible rather than to rely on either.) */
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const page = await ctx.newPage();
+  const consoleErrors = [];
+  page.on("pageerror", (e) => consoleErrors.push(e.message));
+  await page.goto(`${baseUrl}/financial-simulator/`, { waitUntil: "networkidle" });
+  await page.locator(".nwbig").waitFor();
+
+  /* a plan deep enough in the red that the headline carries a minus sign */
+  await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem("fin3:debts") || "[]");
+    d.push({ id: "mortgage", name: "Mortgage", kind: "loan", balance: 400000, originalBalance: 400000, apr: 6, minPayment: 2400, interestFrom: new Date().toISOString().slice(0, 10) });
+    localStorage.setItem("fin3:debts", JSON.stringify(d));
+  });
+  await page.reload({ waitUntil: "networkidle" });
+  await page.locator(".nwbig").waitFor();
+  await page.waitForTimeout(900);
+
+  const m = await page.evaluate(() => {
+    const nw = document.querySelector(".nwbig");
+    const cs = getComputedStyle(nw);
+    const lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.2;
+    return {
+      text: nw.textContent,
+      lines: Math.round(nw.getBoundingClientRect().height / lh),
+      whiteSpace: cs.whiteSpace,
+      stacked: getComputedStyle(document.querySelector(".topbar")).flexDirection,
+      topbarH: Math.round(document.querySelector(".topbar").getBoundingClientRect().height),
+      buttons: document.querySelectorAll(".toolbar .tbtn").length,
+      pageScrollsSideways: (window.scrollTo(500, 0), window.scrollX > 0),
+    };
+  });
+
+  assert.match(m.text, /^-\$/, "the fixture should put net worth in the red");
+  assert.equal(m.lines, 1, `the headline must stay on one line, got ${m.lines} for "${m.text}"`);
+  assert.equal(m.whiteSpace, "nowrap", "and must be unbreakable, so no browser can split the minus off");
+  assert.equal(m.stacked, "column", "the topbar stacks on a phone rather than competing for the line");
+  assert.ok(m.buttons >= 10, `expected the full toolbar, got ${m.buttons}`);
+  assert.ok(m.topbarH < 200, `${m.buttons} buttons should fit in a couple of rows, not ${m.topbarH}px of screen`);
+  assert.equal(m.pageScrollsSideways, false, "and nothing may push the page sideways");
+
+  /* icons only, but every button keeps the name it is found and announced by */
+  for (const name of ["Help", "Undo", "Export", "Numbers", "Print"]) {
+    assert.equal(await page.getByRole("button", { name, exact: false }).count(), 1,
+      `"${name}" must still be reachable by name with its label visually hidden`);
+  }
+
+  assert.deepEqual(consoleErrors, []);
+  await ctx.close();
+});

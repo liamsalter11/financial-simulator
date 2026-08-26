@@ -1533,7 +1533,9 @@ export function FinancialSimulator() {
     "aria-controls": "help-panel"
   }, React.createElement(HelpCircle, {
     size: 13
-  }), "Help"), React.createElement("button", {
+  }), React.createElement("span", {
+    className: "tl"
+  }, "Help")), React.createElement("button", {
     className: "tbtn",
     onClick: undo,
     disabled: !canUndo,
@@ -1541,7 +1543,9 @@ export function FinancialSimulator() {
     "aria-label": "Undo"
   }, React.createElement(RotateCcw, {
     size: 13
-  }), "Undo"), React.createElement("button", {
+  }), React.createElement("span", {
+    className: "tl"
+  }, "Undo")), React.createElement("button", {
     className: "tbtn",
     onClick: redo,
     disabled: !canRedo,
@@ -1549,7 +1553,9 @@ export function FinancialSimulator() {
     "aria-label": "Redo"
   }, React.createElement(RotateCw, {
     size: 13
-  }), "Redo"), React.createElement("button", {
+  }), React.createElement("span", {
+    className: "tl"
+  }, "Redo")), React.createElement("button", {
     className: "tbtn" + (compareScenario ? " on" : ""),
     onClick: () => {
       setScenarioName("");
@@ -1558,7 +1564,9 @@ export function FinancialSimulator() {
     title: compareScenario ? `Comparing against "${compareScenario.name}"` : "Save and compare plans"
   }, React.createElement(LayoutGrid, {
     size: 13
-  }), "Scenarios", scenarios.length ? ` (${scenarios.length})` : ""), React.createElement("button", {
+  }), React.createElement("span", {
+    className: "tl"
+  }, "Scenarios", scenarios.length ? ` (${scenarios.length})` : "")), React.createElement("button", {
     className: "tbtn",
     onClick: () => {
       setImportText("");
@@ -1566,30 +1574,40 @@ export function FinancialSimulator() {
     }
   }, React.createElement(Upload, {
     size: 13
-  }), "Import"), React.createElement("button", {
+  }), React.createElement("span", {
+    className: "tl"
+  }, "Import")), React.createElement("button", {
     className: "tbtn",
     onClick: shareLink,
     title: "Copy a link with this whole plan in it"
   }, React.createElement(Link2, {
     size: 13
-  }), "Share"), React.createElement("button", {
+  }), React.createElement("span", {
+    className: "tl"
+  }, "Share")), React.createElement("button", {
     className: "tbtn",
     onClick: openExport
   }, React.createElement(Download, {
     size: 13
-  }), "Export"), React.createElement("button", {
+  }), React.createElement("span", {
+    className: "tl"
+  }, "Export")), React.createElement("button", {
     className: "tbtn",
     onClick: () => setModal("data"),
     title: "Read the figures behind every chart as a table"
   }, React.createElement(TableIcon, {
     size: 13
-  }), "Numbers"), React.createElement("button", {
+  }), React.createElement("span", {
+    className: "tl"
+  }, "Numbers")), React.createElement("button", {
     className: "tbtn",
     onClick: () => setModal("print"),
     title: "A summary sheet you can print or save as PDF"
   }, React.createElement(Printer, {
     size: 13
-  }), "Print"), React.createElement("button", {
+  }), React.createElement("span", {
+    className: "tl"
+  }, "Print")), React.createElement("button", {
     className: "tbtn icon-only",
     onClick: cycleTheme,
     title: themeOpt.title,
@@ -1601,7 +1619,9 @@ export function FinancialSimulator() {
     onClick: resetAll
   }, React.createElement(RotateCcw, {
     size: 13
-  }), "Reset"))), React.createElement("div", {
+  }), React.createElement("span", {
+    className: "tl"
+  }, "Reset")))), React.createElement("div", {
     className: "tabs rise"
   }, TABS.map(({
     id,
