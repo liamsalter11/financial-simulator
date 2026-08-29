@@ -241,6 +241,18 @@ export const CSS = `
 .fin .notice.offer{background:var(--cyan-soft);border-color:var(--cyan-line);color:var(--muted);flex-wrap:wrap;}
 .fin .notice.offer span{flex:1;min-width:200px;}
 .fin .notice.offer .btn{margin-left:0;padding:7px 12px;font-size:12px;}
+/* the setup wizard: step chrome and the few rows that don't fit an existing shape */
+.fin .notice .notice-cta{margin-left:auto;flex:none;font-size:11px;padding:5px 10px;}
+.fin .notice .notice-cta + button{margin-left:0;}
+.fin .wiz{display:flex;flex-direction:column;gap:2px;}
+.fin .wizsteps{display:flex;flex-wrap:wrap;gap:6px;list-style:none;padding:0;margin:2px 0 8px;}
+.fin .wizsteps li{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10.5px;color:var(--faint);background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:4px 10px;}
+.fin .wizsteps li.on{color:var(--on-amber);background:var(--amber);border-color:var(--amber);}
+.fin .wizsteps li.done{color:var(--green);border-color:var(--line2);}
+.fin .wizsteps .wn{font-weight:700;}
+.fin .wizdebt{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px;}
+.fin .wizcats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:8px;}
+.fin .wizsum{font-family:var(--mono);font-size:13px;color:var(--amber);margin:8px 0 12px;}
 .fin .csvlist{display:flex;flex-direction:column;gap:6px;max-height:300px;overflow:auto;margin-top:10px;padding-right:2px;}
 .fin .csvrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 10px;opacity:.55;}
 .fin .csvrow.on{opacity:1;border-color:var(--line2);}

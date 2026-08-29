@@ -186,6 +186,23 @@ export const Link2 = p => React.createElement(IconBase, p, React.createElement("
 }), React.createElement("path", {
   d: "M8 12h8"
 }));
+export const Wand = p => React.createElement(IconBase, p, React.createElement("path", {
+  d: "M15 4V2"
+}), React.createElement("path", {
+  d: "M15 16v-2"
+}), React.createElement("path", {
+  d: "M8 9h2"
+}), React.createElement("path", {
+  d: "M20 9h2"
+}), React.createElement("path", {
+  d: "M17.8 11.8 19 13"
+}), React.createElement("path", {
+  d: "M17.8 6.2 19 5"
+}), React.createElement("path", {
+  d: "m3 21 9-9"
+}), React.createElement("path", {
+  d: "M12.2 6.2 11 5"
+}));
 export const ArrowRight = p => React.createElement(IconBase, p, React.createElement("path", {
   d: "M5 12h14"
 }), React.createElement("path", {

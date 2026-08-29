@@ -5,7 +5,7 @@ const {
   useRef,
   useDeferredValue
 } = React;
-import { HelpCircle, Upload, Download, RotateCcw, Zap, AlertTriangle, Check, X, LayoutGrid, Wallet, Receipt, TrendingDown, InvestIcon, Trash2, RotateCw, Link2, Sun, Moon, Contrast, Printer, TableIcon } from "./icons.js";
+import { HelpCircle, Upload, Download, RotateCcw, Zap, AlertTriangle, Check, X, LayoutGrid, Wallet, Receipt, TrendingDown, InvestIcon, Trash2, RotateCw, Link2, Sun, Moon, Contrast, Printer, TableIcon, Wand } from "./icons.js";
 import { Modal } from "./components.js";
 import { n0, num, uid, todayISO, nextFirstISO, firstOfYear, isoDate, addMonths, parseDate, addDays, fmtMoney, fmtBig, fmtC, weekTick, r2, parse, OPY, RECUR, ACCT_TYPES, isInvest, isSav, isCash, isIlliquid, BUCKET_COLOR, PAL, CATEGORIES, acctColor, debtColor, dashFor, inflFactor } from "./format.js";
 import { firesInWeek } from "./recurrence.js";
@@ -20,6 +20,7 @@ import { suggestExpenses, toExpense } from "./csv.js";
 import { PrintSheet } from "./print.js";
 import { runChecks, countByLevel } from "./checks.js";
 import { DataTable } from "./datatable.js";
+import { Wizard } from "./wizard-form.js";
 import { SEED_ACCOUNTS, SEED_DEBTS, normDebts, normIncome, normAccounts, normExpenses, isCard, pickIds, seedIncome, seedExpenses, seedTransfers, seedDebtPays, seedSettings } from "./seeds.js";
 import { store } from "./store.js";
 import { useScope } from "./useScope.js";
@@ -733,6 +734,31 @@ export function FinancialSimulator() {
     setModal(null);
     setSeedNote(false);
     store.set("fin3:seedNote", "0");
+  };
+  const applyWizard = plan => {
+    if (!plan) return;
+    applyPlan(plan);
+    setModal(null);
+    setTab("overview");
+    setSeedNote(false);
+    store.set("fin3:seedNote", "0");
+    showToast("Your plan is set up — ⌘Z puts the example back");
+  };
+  const previewPlan = plan => {
+    try {
+      return projectAll({
+        ...plan,
+        settings: {
+          ...seedSettings(),
+          ...plan.settings
+        },
+        start,
+        weeks: WEEKS,
+        compare: null
+      });
+    } catch {
+      return null;
+    }
   };
   const onJsonFile = e => {
     const f = e.target.files && e.target.files[0];
@@ -1583,6 +1609,14 @@ export function FinancialSimulator() {
     className: "tl"
   }, "Scenarios", scenarios.length ? ` (${scenarios.length})` : "")), React.createElement("button", {
     className: "tbtn",
+    onClick: () => setModal("wizard"),
+    title: "Answer a few questions and start from your own numbers"
+  }, React.createElement(Wand, {
+    size: 13
+  }), React.createElement("span", {
+    className: "tl"
+  }, "Set up")), React.createElement("button", {
+    className: "tbtn",
     onClick: () => {
       setImportText("");
       setModal("import");
@@ -1697,6 +1731,9 @@ export function FinancialSimulator() {
     size: 14,
     color: "var(--amber)"
   }), "Everything is an editable example \u2014 replace with your real numbers. It all saves automatically.", React.createElement("button", {
+    className: "btn btn-ghost notice-cta",
+    onClick: () => setModal("wizard")
+  }, "Set mine up instead"), React.createElement("button", {
     onClick: dismissNote,
     "aria-label": "Dismiss"
   }, "\xD7")), toast && React.createElement("div", {
@@ -1945,6 +1982,17 @@ export function FinancialSimulator() {
     settings: settings,
     start: start,
     fireN: fireN
+  })), modal === "wizard" && React.createElement(Modal, {
+    title: "Set up your plan",
+    onClose: () => setModal(null),
+    wide: true
+  }, React.createElement("div", {
+    className: "mnote"
+  }, "Four short steps, then a review. Nothing you have now is touched until you confirm on the last one \u2014 and even then it's a single undo away."), React.createElement(Wizard, {
+    onApply: applyWizard,
+    onCancel: () => setModal(null),
+    preview: previewPlan,
+    start: start
   })), modal === "csv" && React.createElement(Modal, {
     title: "Import spending from a statement",
     onClose: () => setModal(null)

@@ -4,7 +4,7 @@ const { useState, useEffect, useMemo, useRef, useDeferredValue } = React;
 import {
   HelpCircle, Upload, Download, RotateCcw, Zap, AlertTriangle, Check, X,
   LayoutGrid, Wallet, Receipt, TrendingDown, InvestIcon, Trash2, RotateCw, Link2,
-  Sun, Moon, Contrast, Printer, TableIcon,
+  Sun, Moon, Contrast, Printer, TableIcon, Wand,
 } from "./icons.js";
 import { Modal } from "./components.js";
 import {
@@ -24,6 +24,7 @@ import { suggestExpenses, toExpense } from "./csv.js";
 import { PrintSheet } from "./print.js";
 import { runChecks, countByLevel } from "./checks.js";
 import { DataTable } from "./datatable.js";
+import { Wizard } from "./wizard-form.js";
 import {
   SEED_ACCOUNTS, SEED_DEBTS, normDebts, normIncome, normAccounts, normExpenses, isCard, pickIds,
   seedIncome, seedExpenses, seedTransfers, seedDebtPays, seedSettings,
@@ -389,6 +390,32 @@ export function FinancialSimulator() {
     if (Array.isArray(data.scenarios)) setScenarios(data.scenarios);
     setModal(null); setSeedNote(false); store.set("fin3:seedNote", "0");
   };
+  /* ================================================================== */
+  /*  The setup wizard                                                   */
+  /* ================================================================== */
+  /* Offered, never forced: the seed data still loads and the first paint is unchanged, so
+     the page is never empty and nobody is made to answer questions to see anything. The
+     wizard builds a plan of its own and hands it here — deliberately through the same
+     applyPlan a share link and a scenario go through, and deliberately *not* marked as
+     "applying", so replacing the example lands on the undo stack like any other edit. */
+  const applyWizard = (plan) => {
+    if (!plan) return;
+    applyPlan(plan);
+    setModal(null); setTab("overview");
+    setSeedNote(false); store.set("fin3:seedNote", "0");
+    showToast("Your plan is set up — ⌘Z puts the example back");
+  };
+  /* the review step runs the real projection on the candidate plan. Always on this thread:
+     the worker is mid-conversation about the plan that's actually on screen, and its
+     request ids are not something a preview should be interfering with. */
+  const previewPlan = (plan) => {
+    try {
+      return projectAll({
+        ...plan, settings: { ...seedSettings(), ...plan.settings }, start, weeks: WEEKS, compare: null,
+      });
+    } catch { return null; }
+  };
+
   const onJsonFile = (e) => { const f = e.target.files && e.target.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => setImportText(String(rd.result || "")); rd.readAsText(f); e.target.value = ""; };
 
   /* ================================================================== */
@@ -875,6 +902,7 @@ export function FinancialSimulator() {
               <button className="tbtn" onClick={redo} disabled={!canRedo} title="Redo (⌘⇧Z)" aria-label="Redo"><RotateCw size={13} /><span className="tl">Redo</span></button>
               <button className={"tbtn" + (compareScenario ? " on" : "")} onClick={() => { setScenarioName(""); setModal("scenarios"); }}
                 title={compareScenario ? `Comparing against "${compareScenario.name}"` : "Save and compare plans"}><LayoutGrid size={13} /><span className="tl">Scenarios{scenarios.length ? ` (${scenarios.length})` : ""}</span></button>
+              <button className="tbtn" onClick={() => setModal("wizard")} title="Answer a few questions and start from your own numbers"><Wand size={13} /><span className="tl">Set up</span></button>
               <button className="tbtn" onClick={() => { setImportText(""); setModal("import"); }}><Upload size={13} /><span className="tl">Import</span></button>
               <button className="tbtn" onClick={shareLink} title="Copy a link with this whole plan in it"><Link2 size={13} /><span className="tl">Share</span></button>
               <button className="tbtn" onClick={openExport}><Download size={13} /><span className="tl">Export</span></button>
@@ -921,6 +949,7 @@ export function FinancialSimulator() {
           {seedNote && (
             <div className="notice rise"><Zap size={14} color="var(--amber)" />
               Everything is an editable example — replace with your real numbers. It all saves automatically.
+              <button className="btn btn-ghost notice-cta" onClick={() => setModal("wizard")}>Set mine up instead</button>
               <button onClick={dismissNote} aria-label="Dismiss">×</button></div>
           )}
 
@@ -1022,6 +1051,12 @@ export function FinancialSimulator() {
                 <button className="btn btn-ghost" onClick={() => setModal(null)}>Close</button>
               </div>
               <PrintSheet D={D} accounts={accounts} debts={debts} settings={settings} start={start} fireN={fireN} />
+            </Modal>
+          )}
+                    {modal === "wizard" && (
+            <Modal title="Set up your plan" onClose={() => setModal(null)} wide>
+              <div className="mnote">Four short steps, then a review. Nothing you have now is touched until you confirm on the last one — and even then it's a single undo away.</div>
+              <Wizard onApply={applyWizard} onCancel={() => setModal(null)} preview={previewPlan} start={start} />
             </Modal>
           )}
                     {modal === "csv" && (

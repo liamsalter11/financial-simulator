@@ -36,6 +36,8 @@ needed to read them) are both the source and the shipped file.
 | `src/recurrence.js` | Expands a recurring event into concrete dates and counts firings per week. |
 | `src/format.js` | Money/date formatting, recurrence labels, shared constants. |
 | `src/seeds.js` | Example data shown on first load, and normalization for older saved/imported data. |
+| `src/wizard.js` | `buildPlan(answers)` — a short answer sheet turned into a plan. Pure logic, no React. |
+| `src/wizard-form.jsx` | The stepped form over it. Its basename differs from `wizard.js` deliberately: a `.jsx` compiles over a hand-written `.js` of the same name. |
 | `src/store.js` | `localStorage` wrapper. |
 | `src/useScope.js` | The pinch-zoom/pan chart-windowing hook. Reads the global `React`, so it only loads in a browser; it re-exports `sampleRange` for the tabs' convenience. |
 | `src/sample.js` | `sampleRange`, the chart series downsampler — pure, and kept separate from `useScope.js` so it's importable in Node tests. |
@@ -268,6 +270,15 @@ so there is still no backend and nothing is uploaded anywhere. Opening someone's
 replaces what you have: the plan is decoded and *offered*, your own stays on screen and in
 `localStorage` until you choose it, and loading it is undoable like any other edit. The
 plain URL keeps behaving exactly as it always did.
+
+**There's a way in that isn't editing the example.** "Set up" asks four short questions —
+what you earn and how you're taxed, what you have, what you owe, what you spend — and builds
+a plan from the answers. It's offered, never forced: the example still loads on a first
+visit, so the page is never empty and nobody has to answer anything to see how the thing
+works. The last step is a review that lists what would be created and runs the *real*
+projection on it, so the dates you're shown before confirming are the dates you get after.
+Confirming goes through the same code path a share link does, which means it lands on the
+undo stack — one ⌘Z and the example is back.
 
 **Spending can come from a bank export.** Paste or pick a CSV of transactions and the app
 groups them by merchant and infers a frequency from the spacing of the dates — a rent charge
