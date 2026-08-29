@@ -39,8 +39,10 @@ export function Donut({ data, center, sub }) {
       <span className="vl">{fmtBig(d.value)}</span><span className="pc">{Math.round((d.value / total) * 100)}%</span></div>))}
     </div></div>);
 }
-export function LoanCard({ loan, rank, payoffMonth, start, hasPayments, onField, onBalance, onRemove }) {
+export function LoanCard({ loan, rank, payoffMonth, start, hasPayments, assets = [], checks = [], onField, onBalance, onRemove }) {
   const paid = n0(loan.balance) <= 0;
+  /* the asset this loan is a lien against, offered only when there's property to pick */
+  const securedTo = assets.find((a) => a.id === loan.securedBy);
   const iFrom = loan.interestFrom ? parseDate(loan.interestFrom) : null;
   const deferred = iFrom && !isNaN(iFrom) && iFrom > start;
   /* a loan can be described by what it costs a month or by how long it runs — the two are
@@ -48,8 +50,8 @@ export function LoanCard({ loan, rank, payoffMonth, start, hasPayments, onField,
   const termMode = loan.payMode === "term";
   const derived = minPaymentOf(loan);
   const implied = monthsToPayoff(loan.balance, loan.apr, derived);
-  return (<div className={"loan" + (paid ? " done" : "")}>
-    <div className="loan-top"><span className={"rank" + (paid ? " paid" : "")}>{paid ? "PAID" : "#" + (rank || "—")}</span>
+  return (<div className={"loan" + (paid ? " done" : "") + (securedTo ? " secured" : "")} data-row={loan.id}>
+    <div className="loan-top"><span className={"rank" + (paid ? " paid" : "")}>{paid ? "PAID" : securedTo ? "LIEN" : "#" + (rank || "—")}</span>
       <input className="rname" value={loan.name} onChange={(e) => onField(loan.id, "name", e.target.value)} aria-label="Loan name" />
       <button className="icon-btn" onClick={() => onRemove(loan.id)} aria-label="Remove"><Trash2 size={16} /></button></div>
     <div className="fields3">
@@ -76,7 +78,20 @@ export function LoanCard({ loan, rank, payoffMonth, start, hasPayments, onField,
           aria-label="Interest starts" title="Interest accrues from this date. Push it forward for a subsidised loan in deferment." />
         {deferred ? <span className="badge">no interest yet</span> : null}
       </span>
-      {hasPayments && <span>from ${Math.round(n0(loan.originalBalance)).toLocaleString()}</span>}</div></div>);
+      {hasPayments && <span>from ${Math.round(n0(loan.originalBalance)).toLocaleString()}</span>}</div>
+    {assets.length > 0 && (<div className="loan-foot">
+      <span className="endwrap">
+        <span className="cap">secured by</span>
+        <select value={loan.securedBy || ""} onChange={(e) => onField(loan.id, "securedBy", e.target.value)} aria-label="Secured by"
+          title="The asset this loan is a lien against — a mortgage on a home. A secured loan is left out of your debt-free date.">
+          <option value="">— nothing (consumer debt) —</option>
+          {assets.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+        </select>
+      </span>
+      {securedTo && <span className="payoff-badge">outside “debt-free”</span>}
+    </div>)}
+    <RowChecks checks={checks} />
+  </div>);
 }
 /* A chart's text alternative. The picture itself is unreadable to a screen reader and to
    anyone who can't tell two hues apart, so every chart carries one of these: a sentence

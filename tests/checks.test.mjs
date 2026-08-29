@@ -200,6 +200,56 @@ test("the deferral limit being switched off is only reported when something woul
 /* ------------------------------------------------------------------ */
 /*  Shape and ordering — what the UI relies on                         */
 /* ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ */
+/*  Property and the debt against it                                   */
+/* ------------------------------------------------------------------ */
+/* A plan with a house and a mortgage on it — the shape PR A exists to support, and so the
+   shape that must produce no findings at all when nothing is actually wrong. */
+const withHouse = () => {
+  const p = clean();
+  p.accounts.push({ id: "home", name: "House", type: "home", balance: 400000, rate: 3 });
+  p.debts.push({ id: "mtg", name: "Mortgage", kind: "loan", balance: 300000, apr: 6, minPayment: 2100, securedBy: "home" });
+  p.debtPayments.push({ id: "p2", name: "Mortgage payment", amount: 2100, recur: "monthly", fromAcct: "chk", toDebt: "mtg" });
+  return p;
+};
+
+test("a house with a mortgage against it is not, by itself, a problem", () => {
+  assert.deepEqual(runChecks(withHouse(), facts({ totalLoans: 318500, monthlyDebtPay: 2500 })), []);
+});
+
+test("a mortgage whose asset was deleted is an error, because it silently becomes ordinary debt", () => {
+  const p = withHouse();
+  p.accounts = p.accounts.filter((a) => a.id !== "home");
+  const r = runChecks(p, facts({ totalLoans: 318500, monthlyDebtPay: 2500 }));
+  assert.ok(has(r, "orphan:mtg:securedBy"), ids(r).join(","));
+  assert.equal(r.find((c) => c.id === "orphan:mtg:securedBy").level, "error");
+  assert.equal(r.find((c) => c.id === "orphan:mtg:securedBy").targetId, "mtg");
+});
+
+test("a secured debt bigger than the asset it's against is a warning", () => {
+  const p = withHouse();
+  p.accounts.find((a) => a.id === "home").balance = 250000;
+  const r = runChecks(p, facts({ totalLoans: 318500, monthlyDebtPay: 2500 }));
+  assert.ok(has(r, "underwater:mtg"), ids(r).join(","));
+  assert.equal(r.find((c) => c.id === "underwater:mtg").level, "warn");
+  /* and the healthy case says nothing */
+  assert.ok(!has(runChecks(withHouse(), facts({ totalLoans: 318500, monthlyDebtPay: 2500 })), "underwater:mtg"));
+});
+
+test("a vehicle set to appreciate is caught — it's a minus sign left off", () => {
+  const p = clean();
+  p.accounts.push({ id: "car", name: "Car", type: "vehicle", balance: 24000, rate: 12 });
+  const r = runChecks(p, facts());
+  assert.deepEqual(ids(r), ["appreciating:car"]);
+  assert.equal(r[0].level, "warn");
+  assert.equal(r[0].tab, "accounts");
+
+  /* the same car entered correctly, and a home that genuinely does appreciate, say nothing */
+  p.accounts.find((a) => a.id === "car").rate = -12;
+  p.accounts.push({ id: "home", name: "House", type: "home", balance: 400000, rate: 3 });
+  assert.deepEqual(runChecks(p, facts()), []);
+});
+
 test("errors sort ahead of warnings", () => {
   const p = clean();
   p.accounts[0].cap = 100;                       /* warn */
@@ -211,8 +261,9 @@ test("errors sort ahead of warnings", () => {
 });
 
 test("every finding carries a tab and a unique id, and any targetId it names exists", () => {
-  const p = clean();
+  const p = withHouse();
   p.accounts = p.accounts.filter((a) => a.id !== "chk");
+  p.accounts.push({ id: "car", name: "Car", type: "vehicle", balance: 24000, rate: 12 });
   p.debts.push({ id: "cc", name: "Card", kind: "card", balance: 900, apr: 22.99 });
   const r = runChecks(p, facts({ runway: 1, survivalProb: 0.5 }));
   assert.ok(r.length > 4);

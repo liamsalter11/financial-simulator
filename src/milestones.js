@@ -27,12 +27,18 @@ export function milestones(result, opts = {}) {
   };
 
   /* every loan clearing, named — the moment a payment frees up is worth seeing */
+  const secured = debts.filter((d) => d.kind !== "card" && d.securedBy && n0(d.balance) > 0);
   for (const d of debts) {
     if (d.kind === "card") continue;
     const w = sim.payoffWeek ? sim.payoffWeek[d.id] : null;
-    if (w != null && n0(d.balance) > 0) at(w, "debt", `${d.name} paid off`, "that payment is free from here");
+    if (w == null || n0(d.balance) <= 0) continue;
+    /* a mortgage clearing is deliberately its own kind: it's excluded from "debt-free", so
+       without an entry of its own the one date a homeowner most wants would be nowhere */
+    if (d.securedBy) at(w, "secured", `${d.name} paid off`, "the asset is yours outright");
+    else at(w, "debt", `${d.name} paid off`, "that payment is free from here");
   }
-  at(sim.debtFree, "debtFree", "Debt-free", "every loan cleared");
+  at(sim.debtFree, "debtFree", secured.length ? "Consumer debt-free" : "Debt-free",
+    secured.length ? "every loan but the secured one cleared" : "every loan cleared");
 
   /* net worth passing a round number */
   let from = 0;

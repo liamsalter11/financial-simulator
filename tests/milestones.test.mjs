@@ -125,3 +125,24 @@ test("an empty or missing projection returns an empty list rather than throwing"
   assert.deepEqual(milestones({ sim: { series: [] } }, { start: START }), []);
   assert.deepEqual(milestoneDiff([], []), []);
 });
+
+test("a mortgage gets its own entry, and the debt-free entry says what it now means", () => {
+  /* A secured debt is deliberately outside "debt-free". Without an entry of its own, the
+     one date a homeowner most wants to see would be nowhere on the list. */
+  const p = plan();
+  p.accounts.push({ id: "home", name: "House", type: "home", balance: 400000, rate: 3, taxTreatment: "taxable" });
+  p.debts.push({ id: "mtg", name: "Mortgage", kind: "loan", balance: 60000, apr: 5, minPayment: 900, interestFrom: "2020-01-01", securedBy: "home" });
+  p.debtPayments.push({ id: "p3", name: "mortgage payment", amount: 900, date: "2026-01-01", recur: "monthly", fromAcct: "chk", toDebt: "mtg" });
+
+  const list = run(p);
+  const mortgage = list.find((m) => m.label === "Mortgage paid off");
+  assert.ok(mortgage, `expected a mortgage entry: ${list.map((m) => m.label).join(" · ")}`);
+  assert.equal(mortgage.kind, "secured", "its own kind, so the timeline can tell them apart");
+
+  const free = list.find((m) => m.kind === "debtFree");
+  assert.equal(free.label, "Consumer debt-free");
+  assert.ok(free.week < mortgage.week, "and it lands before the mortgage clears, which is the point");
+
+  /* the same plan with nothing secured keeps the plain wording it always had */
+  assert.equal(run(plan()).find((m) => m.kind === "debtFree").label, "Debt-free");
+});

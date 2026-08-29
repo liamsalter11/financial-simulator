@@ -2,7 +2,7 @@
 import { Trash2, Plus } from "../icons.js";
 import { Stat, NumField, Seg, Donut, RowChecks } from "../components.js";
 import { checksFor } from "../checks.js";
-import { fmtMoney, fmtBig, n0, ACCT_TYPES } from "../format.js";
+import { fmtMoney, fmtBig, n0, num, ACCT_TYPES, isIlliquid } from "../format.js";
 
 export function AccountsTab({ D, accounts, settings, defaultOverflow, upAcct, upAcctType, addAcct, rmAcct, focusId }) {
   /* the cap warnings here used to be their own copy of the condition; they read D.checks now */
@@ -22,6 +22,11 @@ export function AccountsTab({ D, accounts, settings, defaultOverflow, upAcct, up
                   const need = D.worstMonthOut(a.id);
                   const tight = capOn && n0(a.cap) < need;
                   const dest = a.spillTo ? (D.names[a.spillTo] || "—") : null;
+                  /* a house has no tax treatment worth asking about and can't sweep anywhere;
+                     what it does have is a lien and a decision about whether you'd ever sell */
+                  const solid = isIlliquid(a.type);
+                  const lien = D.securedOn[a.id] || 0;
+                  const equity = Math.max(0, n0(a.balance) - lien);
                   return (
                     <div className={"row acct" + (focusId === a.id ? " flagged" : "")} data-row={a.id} key={a.id}>
                       <div className="acct-top">
@@ -32,29 +37,49 @@ export function AccountsTab({ D, accounts, settings, defaultOverflow, upAcct, up
                         <select value={a.type} onChange={(e) => upAcctType(a.id, e.target.value)} aria-label="Type">{ACCT_TYPES.map((t) => <option key={t.v} value={t.v}>{t.label}</option>)}</select>
                         <NumField cls="ramt" label="Balance" prefix="$" value={a.balance} onChange={(v) => upAcct(a.id, "balance", v)} />
                         <NumField cls="rrate" label="Return" suffix="%" value={a.rate} onChange={(v) => upAcct(a.id, "rate", v)} />
-                        <div className="field">
-                          <label>Tax treatment</label>
-                          <select value={a.taxTreatment || "taxable"} onChange={(e) => upAcct(a.id, "taxTreatment", e.target.value)} aria-label="Tax treatment">
-                            <option value="taxable">Taxable</option>
-                            <option value="traditional">Tax-deferred (traditional)</option>
-                            <option value="roth">Tax-free (Roth)</option>
-                          </select>
-                        </div>
+                        {!solid && (
+                          <div className="field">
+                            <label>Tax treatment</label>
+                            <select value={a.taxTreatment || "taxable"} onChange={(e) => upAcct(a.id, "taxTreatment", e.target.value)} aria-label="Tax treatment">
+                              <option value="taxable">Taxable</option>
+                              <option value="traditional">Tax-deferred (traditional)</option>
+                              <option value="roth">Tax-free (Roth)</option>
+                            </select>
+                          </div>
+                        )}
                         <div className="field">
                           <label>Balance as of</label>
                           <input type="date" value={a.asOf || ""} onChange={(e) => upAcct(a.id, "asOf", e.target.value)}
                             aria-label="Balance as of" title="The date this balance was true. Leave blank for today." />
                         </div>
                         <div className="caphint">Leave blank if this is today's balance. A future date freezes the account until then; a past date catches it up to today using your normal income, expenses and payments.</div>
-                        <div className="caphint">
+                        {!solid && <div className="caphint">
                           {a.taxTreatment === "traditional"
                             ? `Tax-deferred: a withdrawal is taxed, so ${fmtMoney(n0(a.balance))} here is worth about ${fmtMoney(n0(a.balance) * (1 - n0(settings.retireTaxRate) / 100))} to spend, and it's locked until 59½.`
                             : a.taxTreatment === "roth"
                               ? "Tax-free: growth and withdrawals are untaxed, but it's still locked until 59½ for the independence bridge."
                               : `Taxable: reachable at any age, and its investment growth is docked ${n0(settings.taxDrag)}%/yr for tax on distributions.`}
                           {" "}Defaulted from the account type — a "Roth + 401k" account holding both is worth splitting in two so each half is counted properly.
-                        </div>
+                        </div>}
                       </div>
+                      {solid ? (
+                        <div className="capline">
+                          <label className="chk">
+                            <input type="checkbox" checked={!!a.spendDown} onChange={(e) => upAcct(a.id, "spendDown", e.target.checked)} />
+                            count its equity toward independence
+                          </label>
+                          <div className="caphint">
+                            {lien > 0
+                              ? <>{fmtMoney(n0(a.balance))} against {fmtMoney(lien)} of debt secured on it — {fmtMoney(equity)} of equity today.</>
+                              : <>{fmtMoney(n0(a.balance))}, with nothing secured against it.</>}
+                            {" "}It counts toward net worth either way.
+                            {a.spendDown
+                              ? " Ticked, so the plan assumes you'd sell and live on the proceeds, and that equity is treated like any other money."
+                              : " Left unticked, that equity is kept out of the independence date and the cash runway — it's worth something, but it isn't money you can spend next month."}
+                            {a.type === "vehicle" && num(a.rate) >= 0 ? " A car's return should be negative: around -12%/yr is typical." : ""}
+                          </div>
+                        </div>
+                      ) : (
                       <div className="capline">
                         <NumField cls="ramt" label="Cap at" prefix="$" value={a.cap == null ? "" : a.cap} onChange={(v) => upAcct(a.id, "cap", v)} />
                         {capOn && (<>
@@ -64,7 +89,7 @@ export function AccountsTab({ D, accounts, settings, defaultOverflow, upAcct, up
                               <option value="">— nowhere (just piles up) —</option>
                               {D.loans.length > 0 && <optgroup label="Loans">{D.loans.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</optgroup>}
                               {D.cards.length > 0 && <optgroup label="Credit cards">{D.cards.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>}
-                              <optgroup label="Accounts">{accounts.filter((x) => x.id !== a.id).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</optgroup>
+                              <optgroup label="Accounts">{accounts.filter((x) => x.id !== a.id && !isIlliquid(x.type)).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</optgroup>
                             </select>
                           </div>
                           <Seg value={a.spillEvery === "weekly" ? "weekly" : "monthly"} options={[{ v: "monthly", label: "Monthly" }, { v: "weekly", label: "Weekly" }]} onChange={(v) => upAcct(a.id, "spillEvery", v)} />
@@ -78,6 +103,7 @@ export function AccountsTab({ D, accounts, settings, defaultOverflow, upAcct, up
                           : capOn ? null
                             : <div className="caphint">Leave blank for no cap. Set one to stop cash idling here — the excess gets swept somewhere it earns or saves you more.</div>}
                       </div>
+                      )}
                       <RowChecks checks={rowChecks(a.id)} />
                     </div>
                   );

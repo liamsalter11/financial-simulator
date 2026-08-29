@@ -43,10 +43,14 @@ export const RECUR = [
   { v: "quarterly", label: "Quarterly" }, { v: "yearly", label: "Yearly" },
 ];
 export const recurLabel = (v) => (RECUR.find((r) => r.v === v) || {}).label || v;
+/* Depreciation is just a negative rate — the growth line compounds whatever is here, so a
+   car falling 12%/yr needs no new machinery. What the two property types really add is a
+   *classification*: they're worth something and they are not money (see isIlliquid). */
 export const ACCT_TYPES = [
   { v: "checking", label: "Checking", rate: 0 }, { v: "savings", label: "Savings / HYSA", rate: 4 },
   { v: "brokerage", label: "Brokerage", rate: 7 }, { v: "retirement", label: "Retirement", rate: 7 },
   { v: "cash", label: "Cash", rate: 0 }, { v: "other", label: "Other asset", rate: 0 },
+  { v: "home", label: "Home / property", rate: 3 }, { v: "vehicle", label: "Vehicle", rate: -12 },
 ];
 /* Expense categories are a fixed list rather than free text, because free text can't be
    rolled up — two people writing "Groceries" and "groceries" are two categories, and one
@@ -90,13 +94,19 @@ export function matchCategory(text) {
 export const isInvest = (t) => t === "brokerage" || t === "retirement";
 export const isSav = (t) => t === "savings";
 export const isCash = (t) => t === "checking" || t === "cash" || t === "other";
+/* An asset that counts toward net worth but can't be spent: you can't eat a house, and
+   selling it is a life decision rather than a withdrawal. That distinction is what keeps a
+   home out of the cash runway and out of the independence test.
+   `other` is deliberately NOT here — it's ambiguous (someone's I-bonds live there), and
+   silently reclassifying it would move the runway figure under existing users. */
+export const isIlliquid = (t) => t === "home" || t === "vehicle";
 /* Every chart colour is a CSS variable rather than a hex, because these strings are handed
    straight to Recharts as `stroke`/`fill` and SVG resolves `var()` the same way CSS does.
    That's what lets a theme reach the charts at all: the light palette darkens every hue
    (the dark amber on white is a contrast failure), and no tab needs to know which theme is on.
    Both palettes live together in src/styles.js; tests/tokens.test.mjs asserts every name
    used here is defined in both. */
-export const BUCKET_COLOR = { Investments: "var(--green)", Savings: "var(--cyan)", Cash: "var(--amber)" };
+export const BUCKET_COLOR = { Investments: "var(--green)", Savings: "var(--cyan)", Cash: "var(--amber)", Property: "var(--clay)" };
 export const PAL = ["var(--amber)", "var(--cyan)", "var(--green)", "var(--violet)", "var(--gold)", "var(--blue)", "var(--teal)", "var(--pink)", "var(--slate)", "var(--clay)"];
 export const ACCT_PAL = ["var(--cyan)", "var(--green)", "var(--violet)", "var(--gold)", "var(--blue)", "var(--teal)", "var(--sky)", "var(--lilac)"];
 export const DEBT_PAL = ["var(--red)", "var(--red2)", "var(--red3)", "var(--red4)"];

@@ -1,7 +1,7 @@
 import { Trash2, Plus } from "../icons.js";
 import { Stat, NumField, Seg, Donut, RowChecks } from "../components.js";
 import { checksFor } from "../checks.js";
-import { fmtMoney, fmtBig, n0, ACCT_TYPES } from "../format.js";
+import { fmtMoney, fmtBig, n0, num, ACCT_TYPES, isIlliquid } from "../format.js";
 export function AccountsTab({
   D,
   accounts,
@@ -48,6 +48,9 @@ export function AccountsTab({
     const need = D.worstMonthOut(a.id);
     const tight = capOn && n0(a.cap) < need;
     const dest = a.spillTo ? D.names[a.spillTo] || "—" : null;
+    const solid = isIlliquid(a.type);
+    const lien = D.securedOn[a.id] || 0;
+    const equity = Math.max(0, n0(a.balance) - lien);
     return React.createElement("div", {
       className: "row acct" + (focusId === a.id ? " flagged" : ""),
       "data-row": a.id,
@@ -86,7 +89,7 @@ export function AccountsTab({
       suffix: "%",
       value: a.rate,
       onChange: v => upAcct(a.id, "rate", v)
-    }), React.createElement("div", {
+    }), !solid && React.createElement("div", {
       className: "field"
     }, React.createElement("label", null, "Tax treatment"), React.createElement("select", {
       value: a.taxTreatment || "taxable",
@@ -108,9 +111,19 @@ export function AccountsTab({
       title: "The date this balance was true. Leave blank for today."
     })), React.createElement("div", {
       className: "caphint"
-    }, "Leave blank if this is today's balance. A future date freezes the account until then; a past date catches it up to today using your normal income, expenses and payments."), React.createElement("div", {
+    }, "Leave blank if this is today's balance. A future date freezes the account until then; a past date catches it up to today using your normal income, expenses and payments."), !solid && React.createElement("div", {
       className: "caphint"
-    }, a.taxTreatment === "traditional" ? `Tax-deferred: a withdrawal is taxed, so ${fmtMoney(n0(a.balance))} here is worth about ${fmtMoney(n0(a.balance) * (1 - n0(settings.retireTaxRate) / 100))} to spend, and it's locked until 59½.` : a.taxTreatment === "roth" ? "Tax-free: growth and withdrawals are untaxed, but it's still locked until 59½ for the independence bridge." : `Taxable: reachable at any age, and its investment growth is docked ${n0(settings.taxDrag)}%/yr for tax on distributions.`, " ", "Defaulted from the account type \u2014 a \"Roth + 401k\" account holding both is worth splitting in two so each half is counted properly.")), React.createElement("div", {
+    }, a.taxTreatment === "traditional" ? `Tax-deferred: a withdrawal is taxed, so ${fmtMoney(n0(a.balance))} here is worth about ${fmtMoney(n0(a.balance) * (1 - n0(settings.retireTaxRate) / 100))} to spend, and it's locked until 59½.` : a.taxTreatment === "roth" ? "Tax-free: growth and withdrawals are untaxed, but it's still locked until 59½ for the independence bridge." : `Taxable: reachable at any age, and its investment growth is docked ${n0(settings.taxDrag)}%/yr for tax on distributions.`, " ", "Defaulted from the account type \u2014 a \"Roth + 401k\" account holding both is worth splitting in two so each half is counted properly.")), solid ? React.createElement("div", {
+      className: "capline"
+    }, React.createElement("label", {
+      className: "chk"
+    }, React.createElement("input", {
+      type: "checkbox",
+      checked: !!a.spendDown,
+      onChange: e => upAcct(a.id, "spendDown", e.target.checked)
+    }), "count its equity toward independence"), React.createElement("div", {
+      className: "caphint"
+    }, lien > 0 ? React.createElement(React.Fragment, null, fmtMoney(n0(a.balance)), " against ", fmtMoney(lien), " of debt secured on it \u2014 ", fmtMoney(equity), " of equity today.") : React.createElement(React.Fragment, null, fmtMoney(n0(a.balance)), ", with nothing secured against it."), " ", "It counts toward net worth either way.", a.spendDown ? " Ticked, so the plan assumes you'd sell and live on the proceeds, and that equity is treated like any other money." : " Left unticked, that equity is kept out of the independence date and the cash runway — it's worth something, but it isn't money you can spend next month.", a.type === "vehicle" && num(a.rate) >= 0 ? " A car's return should be negative: around -12%/yr is typical." : "")) : React.createElement("div", {
       className: "capline"
     }, React.createElement(NumField, {
       cls: "ramt",
@@ -142,7 +155,7 @@ export function AccountsTab({
       value: c.id
     }, c.name))), React.createElement("optgroup", {
       label: "Accounts"
-    }, accounts.filter(x => x.id !== a.id).map(x => React.createElement("option", {
+    }, accounts.filter(x => x.id !== a.id && !isIlliquid(x.type)).map(x => React.createElement("option", {
       key: x.id,
       value: x.id
     }, x.name))))), React.createElement(Seg, {

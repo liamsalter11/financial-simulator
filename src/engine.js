@@ -1,7 +1,7 @@
 // The simulation engine: projects account balances, debt payoff, and net worth forward
 // week by week. Pure JS, no React dependency — this is what tests/engine.test.mjs
 // imports directly.
-import { n0, num, r2, addDays, parseDate, DAY, isInvest, OPY, toReal, inflFactor, WPY } from "./format.js";
+import { n0, num, r2, addDays, parseDate, DAY, isInvest, isIlliquid, OPY, toReal, inflFactor, WPY } from "./format.js";
 import { firesInWeek } from "./recurrence.js";
 import { salaryAt, bonusOf, isDerived, takeHomeOf } from "./payroll.js";
 import { minPaymentOf } from "./loan.js";
@@ -72,6 +72,8 @@ export function simulateWeekly(cfg) {
     const dragged = treat === "taxable" && isInvest(a.type) ? drag : 0;
     return {
       id: a.id, type: a.type, treat, bal: n0(a.balance), wr: Math.pow(1 + (toReal(num(a.rate), infl) - dragged) / 100, 1 / WPY) - 1,
+      /* worth something, not spendable — unless the plan really is to sell it */
+      illiquid: isIlliquid(a.type) && !a.spendDown,
       cap: (a.cap === "" || a.cap == null) ? null : n0(a.cap),
       spillTo: a.spillTo || "", spillEvery: a.spillEvery === "weekly" ? "weekly" : "monthly",
       asOf,
@@ -82,9 +84,23 @@ export function simulateWeekly(cfg) {
   const investAcct = A.find((a) => isInvest(a.type)) || fallback;
   /* where money lands once there's no debt left to throw it at — explicit, not list order */
   const overflowAcct = byId[settings.overflowTo] || investAcct;
-  const d = debts.map((x) => ({ id: x.id, apr: toReal(n0(x.apr), infl), bal: n0(x.balance), kind: x.kind === "card" ? "card" : "loan", carried: n0(x.balance), interestFrom: x.interestFrom || "" }));
+  /* A lien only counts as one if the asset it names is still here — a `securedBy` left
+     pointing at a deleted account is a plain loan again, which is the conservative reading
+     (it goes back to counting against "debt-free" rather than quietly vanishing from it).
+     checks.js raises that dangling reference separately. */
+  const d = debts.map((x) => ({ id: x.id, apr: toReal(n0(x.apr), infl), bal: n0(x.balance), kind: x.kind === "card" ? "card" : "loan", carried: n0(x.balance), interestFrom: x.interestFrom || "", securedBy: (x.securedBy && byId[x.securedBy]) ? x.securedBy : "" }));
   const dById = Object.fromEntries(d.map((x) => [x.id, x]));
-  const hasLoans = d.some((x) => x.kind !== "card" && x.bal > 0);
+  /* "Debt-free" has always meant consumer debt — cards are already excluded from it, and a
+     mortgage belongs on the same side of that line: nobody calls a homeowner indebted for
+     thirty years, and letting one push the headline date out by decades makes it useless. */
+  const hasLoans = d.some((x) => x.kind !== "card" && !x.securedBy && x.bal > 0);
+  /* Where a spare dollar goes once its own target is clear. Secured debt is outside this
+     race for the same reason it's outside "debt-free": if a mortgage could absorb the
+     rollover it would delay every consumer loan behind it, and adding one would push the
+     debt-free date out after all — which is the exact outcome excluding it was meant to
+     prevent. A payment aimed *at* the mortgage still pays it; only the spillover is fenced
+     off, and past the last consumer loan it goes to `overflowTo` as it always did. */
+  const rollover = () => d.filter((x) => x.kind !== "card" && !x.securedBy && x.bal > 0.005).sort(nextLoan)[0];
   /* FI target is built from long-run spending: anything with an end date inside the
      horizon (tuition, a car loan) isn't a forever cost, so it shouldn't inflate the target. */
   const longRunAt = new Date(start.getTime() + 10 * 365.25 * DAY);
@@ -133,7 +149,7 @@ export function simulateWeekly(cfg) {
     if (ci.year === year) ci.lostMatch += Math.max(0, lostMatch);
   };
   let debtFree = null, fire = null, interest = 0, cardInterest = 0;
-  if (!A.length) return { series: [{ w: 0, nw: 0, debt: 0, loanDebt: 0, invest: 0, basis: 0, spendable: 0, reach: 0, fi: r2(fireNumber), acct: {}, dbt: {}, inflow: 0, outflow: 0, charged: 0, pretax: 0 }], debtFree: null, fire: null, fireNumber, annualExp, annualExpNow, annualExpNet, guaranteedAnnual, guaranteedStartWeek, endingSoon, payoffWeek, interest: 0, cardInterest: 0, capInfo, bridge: null };
+  if (!A.length) return { series: [{ w: 0, nw: 0, debt: 0, loanDebt: 0, unsecuredDebt: 0, securedDebt: 0, invest: 0, basis: 0, illiquid: 0, locked: 0, spendable: 0, reach: 0, fi: r2(fireNumber), acct: {}, dbt: {}, inflow: 0, outflow: 0, charged: 0, pretax: 0 }], debtFree: null, fire: null, fireNumber, annualExp, annualExpNow, annualExpNet, guaranteedAnnual, guaranteedStartWeek, endingSoon, payoffWeek, interest: 0, cardInterest: 0, capInfo, bridge: null };
 
   /* an account balance dated in the past gets caught up to today first: this pre-roll
      re-runs ordinary cash flow from the earliest as-of date up to today, but only for
@@ -164,6 +180,8 @@ export function simulateWeekly(cfg) {
     if (!isPreRoll) {
       const debtTotal = d.reduce((s, x) => s + Math.max(0, x.bal), 0);
       const loanTotal = d.reduce((s, x) => s + (x.kind === "card" ? 0 : Math.max(0, x.bal)), 0);
+      const securedTotal = d.reduce((s, x) => s + (x.securedBy ? Math.max(0, x.bal) : 0), 0);
+      const unsecuredTotal = loanTotal - d.reduce((s, x) => s + (x.kind !== "card" && x.securedBy ? Math.max(0, x.bal) : 0), 0);
       const acct = {}; for (const a of A) acct[a.id] = r2(a.bal);
       const dbt = {}; for (const x of d) dbt[x.id] = r2(Math.max(0, x.bal));
       for (const x of d) if (x.kind !== "card" && x.bal <= 0.005 && payoffWeek[x.id] == null) payoffWeek[x.id] = w - preWeeks;
@@ -172,13 +190,24 @@ export function simulateWeekly(cfg) {
       /* what the balance sheet is actually worth to spend: a traditional dollar is taxed on
          the way out, so it doesn't buy a dollar of retirement */
       const traditional = A.reduce((s, a) => s + (a.treat === "traditional" ? Math.max(0, a.bal) : 0), 0);
-      const spendable = nw - traditional * retireTax;
-      /* and what could be reached today without an early-withdrawal penalty */
-      const reach = A.reduce((s, a) => s + (a.treat === "taxable" || retireeAt(ws) ? Math.max(0, a.bal) : 0), 0);
+      /* An illiquid asset is already in `nw` — it is genuinely part of what you're worth —
+         but it can't fund a retirement, so its *equity* comes back out of what's spendable.
+         Per asset, and netted against its own lien: `nw` has already subtracted the
+         mortgage, so excluding the gross house value would take the debt out twice. Netting
+         one asset's equity against another's is wrong too — a paid-off house and an
+         underwater car don't cancel — hence the per-account loop rather than two totals. */
+      const securedOn = {};
+      for (const x of d) if (x.securedBy) securedOn[x.securedBy] = (securedOn[x.securedBy] || 0) + Math.max(0, x.bal);
+      const illiquidVal = A.reduce((s, a) => s + (a.illiquid ? Math.max(0, a.bal) : 0), 0);
+      const locked = A.reduce((s, a) => (a.illiquid ? s + Math.max(0, Math.max(0, a.bal) - (securedOn[a.id] || 0)) : s), 0);
+      const spendable = nw - traditional * retireTax - locked;
+      /* and what could be reached today without an early-withdrawal penalty — which a house
+         isn't, whatever its tax treatment says */
+      const reach = A.reduce((s, a) => s + (!a.illiquid && (a.treat === "taxable" || retireeAt(ws)) ? Math.max(0, a.bal) : 0), 0);
       const target = targetAt(w - preWeeks);
-      snap = { w: w - preWeeks, nw: r2(nw), debt: r2(debtTotal), loanDebt: r2(loanTotal), invest: r2(invest), basis: r2(basis), spendable: r2(spendable), reach: r2(reach), fi: r2(target), acct, dbt, inflow: 0, outflow: 0, charged: 0, swept: 0, pretax: 0 };
+      snap = { w: w - preWeeks, nw: r2(nw), debt: r2(debtTotal), loanDebt: r2(loanTotal), unsecuredDebt: r2(unsecuredTotal), securedDebt: r2(securedTotal), invest: r2(invest), basis: r2(basis), illiquid: r2(illiquidVal), locked: r2(locked), spendable: r2(spendable), reach: r2(reach), fi: r2(target), acct, dbt, inflow: 0, outflow: 0, charged: 0, swept: 0, pretax: 0 };
       series.push(snap);
-      if (debtFree === null && hasLoans && loanTotal <= 0.5) debtFree = w - preWeeks;
+      if (debtFree === null && hasLoans && unsecuredTotal <= 0.5) debtFree = w - preWeeks;
       if (fire === null && target > 0 && spendable >= target) fire = w - preWeeks;
     }
     if (w === preWeeks + weeks) break;
@@ -340,7 +369,7 @@ export function simulateWeekly(cfg) {
       if (target && target.bal > 0.005) { const p = Math.min(target.bal, rem); target.bal -= p; rem -= p; }
       if (!cardTarget) {
         while (rem > 0.005) {
-          const nx = d.filter((x) => x.kind !== "card" && x.bal > 0.005).sort(nextLoan)[0];
+          const nx = rollover();
           if (!nx) break; const p = Math.min(nx.bal, rem); nx.bal -= p; rem -= p;
         }
       }
@@ -369,7 +398,7 @@ export function simulateWeekly(cfg) {
           if (tDebt.bal > 0.005) { const p = Math.min(tDebt.bal, rem); tDebt.bal -= p; rem -= p; if (tDebt.kind === "card") tDebt.carried = Math.max(0, tDebt.bal); }
           if (tDebt.kind !== "card") {
             while (rem > 0.005) {
-              const nx = d.filter((x) => x.kind !== "card" && x.bal > 0.005).sort(nextLoan)[0];
+              const nx = rollover();
               if (!nx) break; const p = Math.min(nx.bal, rem); nx.bal -= p; rem -= p;
             }
           }

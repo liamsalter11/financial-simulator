@@ -7,7 +7,7 @@ const {
 } = React;
 import { HelpCircle, Upload, Download, RotateCcw, Zap, AlertTriangle, Check, X, LayoutGrid, Wallet, Receipt, TrendingDown, InvestIcon, Trash2, RotateCw, Link2, Sun, Moon, Contrast, Printer, TableIcon } from "./icons.js";
 import { Modal } from "./components.js";
-import { n0, num, uid, todayISO, nextFirstISO, firstOfYear, isoDate, addMonths, parseDate, addDays, fmtMoney, fmtBig, fmtC, weekTick, r2, parse, OPY, RECUR, ACCT_TYPES, isInvest, isSav, isCash, BUCKET_COLOR, PAL, CATEGORIES, acctColor, debtColor, dashFor, inflFactor } from "./format.js";
+import { n0, num, uid, todayISO, nextFirstISO, firstOfYear, isoDate, addMonths, parseDate, addDays, fmtMoney, fmtBig, fmtC, weekTick, r2, parse, OPY, RECUR, ACCT_TYPES, isInvest, isSav, isCash, isIlliquid, BUCKET_COLOR, PAL, CATEGORIES, acctColor, debtColor, dashFor, inflFactor } from "./format.js";
 import { firesInWeek } from "./recurrence.js";
 import { payrollOf, bonusOf, effectiveTaxRate, isDerived, takeHomeOf } from "./payroll.js";
 import { WEEKS } from "./engine.js";
@@ -1148,8 +1148,12 @@ export function FinancialSimulator() {
         nw: r2(s.nw * f),
         debt: r2(s.debt * f),
         loanDebt: r2(s.loanDebt * f),
+        unsecuredDebt: r2(s.unsecuredDebt * f),
+        securedDebt: r2(s.securedDebt * f),
         invest: r2(s.invest * f),
         basis: r2(s.basis * f),
+        illiquid: r2(s.illiquid * f),
+        locked: r2(s.locked * f),
         spendable: r2(s.spendable * f),
         reach: r2(s.reach * f),
         fi: r2(s.fi * f),
@@ -1200,6 +1204,10 @@ export function FinancialSimulator() {
     const bInv = accounts.filter(a => isInvest(a.type)).reduce((s, a) => s + n0(a.balance), 0);
     const bSav = accounts.filter(a => isSav(a.type)).reduce((s, a) => s + n0(a.balance), 0);
     const bCash = accounts.filter(a => isCash(a.type)).reduce((s, a) => s + n0(a.balance), 0);
+    const assets = accounts.filter(a => isIlliquid(a.type));
+    const bProp = assets.reduce((s, a) => s + n0(a.balance), 0);
+    const securedOn = {};
+    for (const x of debts) if (x.securedBy) securedOn[x.securedBy] = (securedOn[x.securedBy] || 0) + Math.max(0, n0(x.balance));
     const alloc = [{
       name: "Investments",
       value: bInv,
@@ -1212,6 +1220,10 @@ export function FinancialSimulator() {
       name: "Cash",
       value: bCash,
       color: BUCKET_COLOR.Cash
+    }, {
+      name: "Property",
+      value: bProp,
+      color: BUCKET_COLOR.Property
     }].filter(x => x.value > 0);
     const spend = expenses.map(e => ({
       ...e,
@@ -1374,6 +1386,9 @@ export function FinancialSimulator() {
       strategy,
       liquid,
       runway,
+      assets,
+      securedOn,
+      bProp,
       deferralNotes,
       fiSloped,
       bridge: sim.bridge,
